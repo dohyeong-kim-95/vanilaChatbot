@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path
 
 IMAGE = os.environ.get("SANDBOX_IMAGE", "python:3.12-slim")
+CA = os.environ.get("EGRESS_CA")  # CA bundle to trust inside the sandbox, if TLS is re-terminated upstream
 MAX_OUT = 10_000  # chars; head+tail kept beyond this (mini-swe-agent style)
 
 
@@ -16,13 +17,22 @@ def truncate(s, limit=MAX_OUT):
 
 
 class Sandbox:
-    def __init__(self, workspace, network="none"):
+    def __init__(self, workspace, network="none", egress=None):
+        """egress: an EgressProxy -> internal network whose only way out is that proxy's allowlist."""
         self.workspace = Path(workspace).resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
         os.chown(self.workspace, 1000, 1000)  # sandbox runs as uid 1000
         self.name = "sbx-" + uuid.uuid4().hex[:10]
+        extra = []
+        if egress:
+            from .egress import NETWORK
+            network = NETWORK
+            extra = [a for k in ("HTTPS_PROXY", "https_proxy") for a in ("-e", f"{k}={egress.url}")]
+            if CA:  # only needed when an upstream proxy re-terminates TLS (as in this test env)
+                extra += ["-v", f"{CA}:/etc/egress-ca.pem:ro"] + [
+                    a for k in ("SSL_CERT_FILE", "PIP_CERT", "REQUESTS_CA_BUNDLE") for a in ("-e", f"{k}=/etc/egress-ca.pem")]
         subprocess.run([
-            "docker", "run", "-d", "--rm", "--name", self.name,
+            "docker", "run", "-d", "--rm", "--name", self.name, *extra,
             "--network", network, "--read-only", "--tmpfs", "/tmp:size=256m",
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--pids-limit", "256", "--memory", "1g", "--cpus", "1",

@@ -1,17 +1,13 @@
-"""Loop 3: compaction, prompt-injection containment, chat server SSE + approval flow.
-Needs gateway on :8100. The server test starts its own server on :8200."""
-import json
-import subprocess
+"""Loop 3: compaction, prompt-injection containment. Needs gateway on :8100.
+(The chat-server flow test moved to test_l4_durable.py.)"""
 import sys
 import tempfile
 import time
 from pathlib import Path
 
-import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from agent import github  # noqa: E402
 from agent.loop import Context, run  # noqa: E402
 from agent.rag import DocStore  # noqa: E402
 from agent.sandbox import Sandbox  # noqa: E402
@@ -61,40 +57,7 @@ def t_injection_contained():
         sb.close()
 
 
-def t_server_flow():
-    srv = subprocess.Popen([sys.executable, "-m", "uvicorn", "server.app:app", "--port", "8200"], cwd=ROOT,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    try:
-        time.sleep(3)
-        c = httpx.Client(base_url="http://127.0.0.1:8200", timeout=None)
-        sid = c.post("/sessions").json()["session_id"]
-        ws = Path("/tmp/agent-sessions") / sid
-        origin = TMP / "srv-origin.git"
-        subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
-        for a in (["init", "-q", "-b", "main"], ["remote", "add", "origin", str(origin)],
-                  ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"]):
-            github.git(ws, *a)
-        subprocess.run(["chown", "-R", "1000:1000", str(ws)], check=True)
-
-        types = []
-        task = ("Create hello.py that prints 'hi', run it to check, commit it on branch feat/hello, "
-                "then open a pull request.")
-        with c.stream("POST", f"/sessions/{sid}/messages", json={"content": task}) as r:
-            for line in r.iter_lines():
-                if not line.startswith("data: "):
-                    continue
-                ev = json.loads(line[6:])
-                types.append(ev["type"])
-                if ev["type"] == "approval_request":
-                    assert ev["tool"] == "open_pull_request"
-                    c.post(f"/sessions/{sid}/approvals/{ev['request_id']}", json={"approved": True})
-        print("    events:", " ".join(types))
-        assert {"tool_call", "tool_result", "approval_request", "final"} <= set(types), types
-        rc, out = github.git(origin, "show", "feat/hello:hello.py")
-        assert rc == 0 and "hi" in out, out
-    finally:
-        srv.terminate()
-        subprocess.run("docker ps -q --filter name=sbx- | xargs -r docker rm -f", shell=True, capture_output=True)
+# t_server_flow (Loop 3) was superseded by tests/test_l4_durable.py when the server API became durable runs.
 
 
 if __name__ == "__main__":

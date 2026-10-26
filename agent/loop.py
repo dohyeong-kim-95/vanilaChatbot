@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import threading
 from dataclasses import dataclass, field
 
 from openai import OpenAI
@@ -21,11 +22,14 @@ SYSTEM = """You are an agent that solves the user's task by using tools, not by 
 class Context:
     sandbox: object = None
     docs: object = None
+    egress: object = None        # EgressProxy (allowlist) when the sandbox has network
     github_token: str = None
     github_repo: str = None      # "owner/repo"
     remote_url: str = None
     base_branch: str = "main"
-    approve: callable = lambda name, args: False   # human-in-the-loop hook; default deny
+    approve: callable = lambda name, args: False   # human-in-the-loop hook; default deny; None = pause the run
+    decisions: dict = field(default_factory=dict)  # tool_call_id -> bool, decided after an Interrupt
+    cancel: threading.Event = field(default_factory=threading.Event)
     read_files: set = field(default_factory=set)
     notes: list = field(default_factory=list)  # save_note; survives clearing (lives in tool_call args)
     spotlight: bool = False  # wrap tool output in <untrusted_tool_output> tags (see Loop 5)
@@ -34,6 +38,14 @@ class Context:
 # Common credential shapes. Redact before anything reaches the LLM (provider logs, chat UI).
 SECRET_RE = re.compile(r"(sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}"
                        r"|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)")
+
+
+class Interrupt(BaseException):
+    """Pause the run (approval needed). History stays valid; resume by calling run(None, ...) with
+    ctx.decisions[call_id] set. BaseException so tool error handling does not swallow it."""
+    def __init__(self, call_id, name, args):
+        super().__init__(name)
+        self.call_id, self.name, self.arguments = call_id, name, args  # not .args: BaseException coerces it to a tuple
 
 
 def redact(out):
@@ -51,22 +63,26 @@ def check_args(name, raw):
     if not isinstance(args, dict):
         raise ValueError("arguments must be a JSON object")
     spec = REGISTRY[name]["schema"]["function"]["parameters"]
-    missing = [k for k in spec["required"] if k not in args]
+    missing = [k for k in spec.get("required", []) if k not in args]
     if missing:
         raise ValueError(f"missing required arguments: {missing}")
-    unknown = [k for k in args if k not in spec["properties"]]
+    unknown = [k for k in args if k not in spec.get("properties", {})]
     if unknown:
         raise ValueError(f"unknown arguments: {unknown}")
     return args
 
 
-def run_tool(ctx, name, raw):
+def run_tool(ctx, name, raw, call_id=None):
     if name not in REGISTRY:
         return f"ERROR: unknown tool {name!r}. Available: {list(REGISTRY)}"
     try:
         args = check_args(name, raw)
-        if REGISTRY[name]["approval"] and not ctx.approve(name, args):
-            return "ERROR: the user denied this action. Do not retry it; report back instead."
+        if REGISTRY[name]["approval"]:
+            ok = ctx.decisions.pop(call_id) if call_id in ctx.decisions else ctx.approve(name, args)
+            if ok is None:
+                raise Interrupt(call_id, name, args)
+            if not ok:
+                return "ERROR: the user denied this action. Do not retry it; report back instead."
         return truncate(str(REGISTRY[name]["fn"](ctx, **args)))  # cap every tool, not only bash
     except Exception as e:  # errors go back to the model so it can self-correct
         return f"ERROR: {type(e).__name__}: {e}"
@@ -105,31 +121,59 @@ def compact(msgs, client, model, budget, keep_tools=2, notes=()):
     return head + [summary, {"role": "assistant", "content": "Understood, continuing."}] + tail
 
 
+def pending_calls(msgs):
+    """Tool calls of the last assistant turn that have no result yet (state lives in history alone)."""
+    i = max((i for i, m in enumerate(msgs) if m["role"] == "assistant"), default=None)
+    if i is None:
+        return []
+    done = {m.get("tool_call_id") for m in msgs[i + 1:] if m["role"] == "tool"}
+    return [tc for tc in msgs[i].get("tool_calls") or [] if tc["id"] not in done]
+
+
+def do_calls(ctx, msgs, step, emit, log, checkpoint):
+    for tc in pending_calls(msgs):
+        name, raw = tc["function"]["name"], tc["function"]["arguments"]
+        if ctx.cancel.is_set():
+            out = "ERROR: cancelled by the user before this ran."
+        else:
+            if tc["id"] not in ctx.decisions:  # resumed approvals were already announced
+                emit({"type": "tool_call", "id": tc["id"], "name": name, "arguments": raw})
+            checkpoint(msgs, tc["id"])  # in-flight marker: a crash from here on = outcome unknown
+            out = redact(run_tool(ctx, name, raw, tc["id"]))
+            emit({"type": "tool_result", "id": tc["id"], "content": out[:2000]})
+            log(f"[{step}] {name}({raw[:120]}) -> {out[:200]!r}")
+        if ctx.spotlight:
+            out = spotlight(name, out)
+        msgs.append({"role": "tool", "tool_call_id": tc["id"], "content": out})
+        checkpoint(msgs, None)
+
+
 def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, history=None, log=print,
-        emit=lambda ev: None, budget=60_000):
+        emit=lambda ev: None, budget=60_000, checkpoint=lambda msgs, inflight: None):
+    """task=None resumes `history` (after an Interrupt or a restart): pending tool calls run first."""
     client = client or OpenAI(base_url=os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8100/v1"),
                               api_key=os.environ.get("LLM_API_KEY", "dummy"))
     model = model or os.environ.get("LLM_MODEL") or client.models.list().data[0].id
-    msgs = history or [{"role": "system", "content": SYSTEM}]
-    msgs.append({"role": "user", "content": task})
+    msgs = history if history is not None else [{"role": "system", "content": SYSTEM}]
+    if task is not None:
+        msgs.append({"role": "user", "content": task})
+        checkpoint(msgs, None)
     tools = schemas(tool_names)
     for step in range(max_steps):
+        do_calls(ctx, msgs, step, emit, log, checkpoint)
+        if ctx.cancel.is_set():
+            emit({"type": "final", "content": "[cancelled]"})
+            return "[cancelled]", msgs
         msgs[:] = compact(msgs, client, model, budget, notes=ctx.notes)
         r = client.chat.completions.create(model=model, messages=msgs, tools=tools)
         m = r.choices[0].message
         msgs.append(m.model_dump(exclude_none=True))
+        checkpoint(msgs, None)
         if not m.tool_calls:  # decide on presence of tool_calls, not finish_reason
             emit({"type": "final", "content": m.content})
             return m.content, msgs
         if m.content:
             emit({"type": "text", "content": m.content})
-        for tc in m.tool_calls:
-            emit({"type": "tool_call", "id": tc.id, "name": tc.function.name, "arguments": tc.function.arguments})
-            out = redact(run_tool(ctx, tc.function.name, tc.function.arguments))
-            emit({"type": "tool_result", "id": tc.id, "content": out[:2000]})
-            log(f"[{step}] {tc.function.name}({tc.function.arguments[:120]}) -> {out[:200]!r}")
-            if ctx.spotlight:
-                out = spotlight(tc.function.name, out)
-            msgs.append({"role": "tool", "tool_call_id": tc.id, "content": out})
+    do_calls(ctx, msgs, max_steps, emit, log, checkpoint)  # keep history valid (every call answered)
     emit({"type": "final", "content": "[stopped: max_steps reached]"})
     return "[stopped: max_steps reached]", msgs

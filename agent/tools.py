@@ -24,10 +24,26 @@ def tool(description, params, required=None, approval=False):
 S = {"type": "string"}
 
 
-@tool("Run a bash command in the isolated sandbox (cwd=/workspace, no network). Returns exit code + output.",
-      {"command": S, "timeout": {"type": "integer"}}, required=["command"])
+@tool("Run a bash command in the isolated sandbox (cwd=/workspace; network only to allowlisted HTTPS domains, "
+      "if any). Returns exit code + output.", {"command": S, "timeout": {"type": "integer"}}, required=["command"])
 def bash(ctx, command, timeout=60):
-    return ctx.sandbox.exec(command, min(int(timeout), 300))
+    seen = len(ctx.egress.log) if ctx.egress else 0
+    out = ctx.sandbox.exec(command, min(int(timeout), 300))
+    blocked = {h: why for h, why in (ctx.egress.log[seen:] if ctx.egress else []) if why != "allow"}
+    for h, why in blocked.items():  # tools only see "403"; tell the model why and what it can do
+        out += f"\n[egress] blocked {h}: {why}. If the task needs it, call request_network_access."
+    return out
+
+
+@tool("Ask the user to allow HTTPS access to one more domain from the sandbox. Requires human approval.",
+      {"domain": S, "reason": S}, approval=True)
+def request_network_access(ctx, domain, reason):
+    from .egress import HOST_RE
+    domain = domain.lower().strip()
+    if not HOST_RE.match(domain.removeprefix("*.")):
+        raise ValueError(f"not a valid domain: {domain!r}")
+    ctx.egress.allow.add(domain)
+    return f"{domain} is now allowed"
 
 
 @tool("Read a UTF-8 text file in the workspace, with line numbers.",
