@@ -69,6 +69,13 @@ def search_documents(ctx, query, k=4):
     return json.dumps(ctx.docs.search(query, k), ensure_ascii=False)
 
 
+@tool("Save a key fact you found (values, decisions, file paths). Notes survive context clearing; "
+      "old tool outputs and your private reasoning may not.", {"note": S})
+def save_note(ctx, note):
+    ctx.notes.append(note)
+    return f"saved note #{len(ctx.notes)}"
+
+
 @tool("Get the current UTC date/time.", {}, required=[])
 def current_time(ctx):
     return datetime.datetime.now(datetime.timezone.utc).isoformat()

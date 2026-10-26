@@ -78,8 +78,16 @@
 - 스트리밍: backend가 비스트리밍이면 최종 결과를 OpenAI chunk 형태로 쪼개서 전송(pseudo-stream). 운영에선 진짜 토큰 스트리밍 backend 사용.
 - 운영 시 추가: API key 인증, rate limit, `usage` 정규화(`cached_input_tokens` 포함), 요청/응답 로깅(PII 마스킹), sticky routing(`prompt_cache_key`/세션 해시).
 
+### 2.3.1 Native tool use backend (Anthropic Messages) [검증: Loop 6]
+- `GATEWAY_BACKEND=anthropic`: OpenAI ↔ Messages 변환. 연속된 `role:tool` 메시지는 **하나의 user 메시지 안의 `tool_result` 블록들**로 합쳐야 병렬 호출이 유지됨.
+- **reasoning/thinking 블록 보존**: OpenAI 포맷에는 들어갈 자리가 없어서 클라이언트가 버린다. gateway가 tool_call id 기준으로 assistant 원본 content를 보관했다가 복원한다. 복원 안 하면 같은 턴 출력 토큰 164 vs 19(복원 시).
+- **history는 append-only가 원칙**: thinking 블록에는 서명이 있어서, 앞부분 history가 바뀌면 그 뒤 블록이 무효가 된다(신규 계정은 400). agent가 history를 고친다면(clearing/요약) `prefix_mismatch_behavior: "drop_block"`을 쓰고 `input_transformations`를 로깅한다.
+- 같은 원리로 history 수정은 **prompt cache도 깬다**(측정: 수정 직후 cache read가 시스템 프롬프트 602 토큰만 남음). → 2.4·3.4의 compaction은 "드물게, 몰아서".
+- backend가 server-side context editing/compaction을 지원하면 그쪽이 우선(history를 일관되게 유지해 줌) [리서치].
+
 ### 2.4 지연·비용
-- [검증] 지연은 추론 effort가 지배: Haiku effort=max 6–9s/step, low ≈3s/step. 프롬프트 2k→25k 토큰은 영향 미미.
+- [검증] 지연은 추론 effort가 지배: Haiku effort=max 6–9s/step, low ≈3s/step(CLI). 프롬프트 2k→25k 토큰은 영향 미미.
+- [검증] backend 차이: 같은 L2 스위트가 CLI 에뮬레이션 9분 33초 → 네이티브 API 104초. 운영은 네이티브 tool calling + streaming backend가 전제.
 - 작업 1건(버그 수정+커밋+PR)이 6–10 step → effort=max면 수 분. → **단계별 effort 정책**: 계획/검증은 높게, 단순 tool 반복은 낮게(모델 설정으로 노출).
 - [리서치] agent의 입력:출력 토큰 비 ≈100:1 → **prompt caching이 비용의 핵심**. 규칙: system prompt에 시각/랜덤값 금지, tool 정의 순서·내용 고정(모드별 제한은 정책 계층에서 거부), history append-only, JSON key 정렬, 세션 sticky routing.
 
@@ -120,13 +128,16 @@ for step in range(max_steps):          # 기본 20, 초과 시 중단 이벤트
 - 토큰 수: 직전 응답 `usage.prompt_tokens` + 이후 추가분 추정 (모르는 tokenizer), vLLM은 `/tokenize`
 - 압축 임계값·보존 범위는 토큰 기준 — 메시지 개수 기준이면 큰 tool 출력이 tail에 남아 **매 step 요약이 반복**된다 [검증: Loop 3 실패 원인]
 - truncation은 bash만이 아니라 **모든 tool 출력**에 공통 적용 [검증]
-- clearing은 모델이 아직 추출하지 않은 정보를 지운다 → placeholder에 "다시 실행하라" 안내, 모델이 핵심 사실을 메시지 본문에 메모하도록 지시 [검증: 재테스트 PASS, 모델이 offset으로 재조회]
+- clearing은 모델이 아직 추출하지 않은 정보를 지운다. thinking 모델은 메모를 **보이지 않는 thinking에** 남기므로 "본문에 메모하라" 지시로는 부족했다 [검증: Loop 6, 20단계 thrashing].
+  → **`save_note` tool**: 메모가 tool_call 인자에 남아 clearing과 thinking drop 양쪽에서 살아남는다. 요약 시 `[Saved notes]`로 다시 넣는다 [검증: 3/3 PASS].
+- clearing은 **한 번에 budget/2까지 몰아서**(hysteresis): history를 고칠 때마다 캐시와 thinking이 손실되므로 수정 횟수를 최소화 [검증]
+- 비용 지표: 한 번 고칠 때마다 thinking drop 수와 cache read 감소를 로깅해 compaction 정책을 튜닝
 
 ---
 
 ## 4. Tool 명세
 
-### 4.1 기본 tool 세트 (작게 유지) [검증]
+### 4.1 기본 tool 세트 (작게 유지, 8개) [검증]
 | tool | 실행 위치 | 승인 | 비고 |
 |---|---|---|---|
 | `bash(command, timeout)` | sandbox | – | timeout 상한 300s, 출력 truncation |
@@ -134,6 +145,7 @@ for step in range(max_steps):          # 기본 20, 초과 시 중단 이벤트
 | `write_file(path, content)` | 호스트 | – | 소유자 uid 1000 |
 | `edit_file(path, old, new)` | 호스트 | – | `old`가 정확히 1회 일치해야 함, read-before-edit 강제 |
 | `search_documents(query, k)` | 서버 | – | RAG |
+| `save_note(note)` | 서버 | – | 핵심 사실 메모. clearing/thinking drop 후에도 남음 |
 | `git_commit(branch, message)` | 호스트 git (hooks 비활성) | – | |
 | `open_pull_request(branch, title, body)` | 서버 | **필수** | 토큰은 서버만 보유 |
 | 도메인 tool (예: `current_time`, 사내 API) | 서버 | 선택 | registry 데코레이터로 추가 |
@@ -253,7 +265,7 @@ POST /sessions/{id}/approvals/{req_id} {approved}
 ## 11. 로드맵
 | 단계 | 내용 |
 |---|---|
-| MVP (이 레포) | gateway, agent loop, 7개 tool, Docker sandbox, FTS RAG, 로컬 git 흐름, SSE 서버 |
+| MVP (이 레포) | gateway(CLI·API backend), agent loop, 8개 tool, Docker sandbox, FTS RAG, 로컬 git 흐름, SSE 서버 |
 | v1 | Postgres(events, runs, 문서+pgvector), run/HTTP 분리 + interrupt 재개, GitHub App, egress proxy, 모델 설정 파일, 프론트엔드 |
 | v2 | gVisor/microVM, MCP adapter, 웹 브라우징 tool, Harbor 평가 CI, 멀티모델 라우팅 |
 
@@ -262,6 +274,7 @@ POST /sessions/{id}/approvals/{req_id} {approved}
 ## 부록 A. 레포 구성
 ```
 gateway/app.py          OpenAI 호환 gateway (claude -p backend, tool call 에뮬레이션)
+gateway/anthropic_backend.py  Anthropic Messages backend (네이티브 tool use, thinking 보존)
 agent/loop.py           agent loop, 인자 검증, compaction, 이벤트 emit
 agent/tools.py          tool registry + 기본 tool
 agent/sandbox.py        하드닝 Docker sandbox
@@ -280,7 +293,8 @@ docs/LOOP_LOG.md        루프별 실험 기록
 pip install fastapi uvicorn openai httpx
 dockerd &                                  # 필요 시
 docker pull python:3.12-slim
-uvicorn gateway.app:app --port 8100 &      # GATEWAY_EFFORT=low 로 빠르게
+uvicorn gateway.app:app --port 8100 &      # CLI backend. GATEWAY_EFFORT=low 로 빠르게
+# 또는 API backend: ANTHROPIC_API_KEY=... GATEWAY_BACKEND=anthropic uvicorn gateway.app:app --port 8100 &
 python tests/test_l1_gateway.py
 python tests/test_l2_agent.py
 python tests/test_l3_runtime.py

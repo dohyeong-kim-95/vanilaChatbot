@@ -29,7 +29,7 @@ def t_compaction():
     try:
         ans, msgs = run("Read log0.txt, log1.txt, log2.txt, log3.txt one at a time with read_file (one call per "
                         "turn), then tell me the deploy code.", Context(sandbox=sb),
-                        tool_names=["read_file"], budget=8000, log=print)
+                        tool_names=["read_file", "save_note"], budget=8000, max_steps=40, log=print)
         compacted = any("cleared" in str(m.get("content")) or "Summary of earlier" in str(m.get("content"))
                         for m in msgs)
         assert compacted and "ORCHID-7741" in ans, (compacted, ans)

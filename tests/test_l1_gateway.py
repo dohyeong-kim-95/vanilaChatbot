@@ -1,9 +1,10 @@
 """Loop 1: gateway compatibility, using the official openai SDK as the client."""
 import json
+import os
 
 from openai import OpenAI
 
-c = OpenAI(base_url="http://127.0.0.1:8100/v1", api_key="dummy")
+c = OpenAI(base_url=os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8100/v1"), api_key="dummy")
 M = c.models.list().data[0].id
 WEATHER = [{"type": "function", "function": {
     "name": "get_weather", "description": "Current weather for a city",

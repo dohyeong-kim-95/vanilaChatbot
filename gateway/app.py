@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 MODEL = os.environ.get("GATEWAY_MODEL", "claude-haiku-5-5")
 EFFORT = os.environ.get("GATEWAY_EFFORT", "max")
 API_KEY = os.environ.get("GATEWAY_API_KEY")  # optional bearer check
+BACKEND = os.environ.get("GATEWAY_BACKEND", "cli")  # "cli" (claude -p, emulated tools) | "anthropic" (API key)
 
 TOOL_PROTOCOL = """You are a text-completion backend behind an OpenAI-compatible API.
 You CANNOT execute anything yourself and you have no built-in tools.
@@ -117,12 +118,16 @@ async def chat(req: Request):
     tools = body.get("tools") or []
     if body.get("tool_choice") == "none":
         tools = []
-    system, prompt = render_prompt(body["messages"])
     try:
-        so, usage = await call_backend(system, prompt, tools)
+        if BACKEND == "anthropic":
+            from . import anthropic_backend
+            msg, finish, usage = await anthropic_backend.complete(body["messages"], tools)
+        else:
+            system, prompt = render_prompt(body["messages"])
+            so, usage = await call_backend(system, prompt, tools)
+            msg, finish = to_message(so)
     except Exception as e:
         return JSONResponse({"error": {"message": str(e), "type": "backend_error"}}, status_code=502)
-    msg, finish = to_message(so)
     cid, created = "chatcmpl-" + uuid.uuid4().hex, int(time.time())
 
     if not body.get("stream"):
@@ -137,6 +142,9 @@ async def chat(req: Request):
 
     def events():
         yield chunk({"role": "assistant", "content": ""})
+        text = msg.get("content") or ""
+        for j in range(0, len(text), 20):
+            yield chunk({"content": text[j:j + 20]})
         if msg.get("tool_calls"):
             for i, tc in enumerate(msg["tool_calls"]):
                 a = tc["function"]["arguments"]
@@ -144,10 +152,6 @@ async def chat(req: Request):
                                              "function": {"name": tc["function"]["name"], "arguments": ""}}]})
                 for j in range(0, len(a), 16):
                     yield chunk({"tool_calls": [{"index": i, "function": {"arguments": a[j:j + 16]}}]})
-        else:
-            text = msg["content"]
-            for j in range(0, len(text), 20):
-                yield chunk({"content": text[j:j + 20]})
         yield chunk({}, finish)
         if (body.get("stream_options") or {}).get("include_usage"):
             yield {"id": cid, "object": "chat.completion.chunk", "created": created, "model": MODEL,

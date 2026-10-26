@@ -93,3 +93,27 @@
 남은 관찰
 - server flow가 tool call 11회로 길어짐(검증을 반복). effort=max에서 1작업 수 분 → 단계별 effort 정책·최대 step 예산을 모델 설정으로 노출 필요(SPEC §2.4).
 - 실제 GitHub REST로 PR 생성(`create_pr`)은 토큰이 없어 미검증. 로컬 bare repo로 push/승인 흐름만 검증.
+
+## Loop 6 — 실제 Anthropic API backend (사용자가 제공한 1일 키)
+
+- 구현: `gateway/anthropic_backend.py` (`GATEWAY_BACKEND=anthropic`). OpenAI ↔ Messages 변환을 직접 함: tool 스키마 → `input_schema`, `tool_calls` → `tool_use`, **연속된 `role:tool` 여러 개 → user 메시지 하나에 `tool_result` 블록들로**(병렬 호출 유지), `effort=max`, streaming + `get_final_message`, 자동 prompt caching. agent 코드는 바꾸지 않았고 `LLM_BASE_URL`만 바꿈.
+- 1차 결과 (CLI backend 대비)
+
+  | 항목 | CLI(에뮬레이션) | API(네이티브 tool use) |
+  |---|---|---|
+  | L1 gateway | 28.7s | **8.6s** (최종 5s) |
+  | L2 agent 전체 | 9분 33초 | **104–107s** |
+  | L3 server flow | 313s | **25–27s** |
+  | 프롬프트 캐시 | — | 입력 토큰의 대부분이 cache read (L2+L3 한 번: in 110 / cache_read 156k / cache_write 48k) |
+
+- 발견 1 — **thinking 블록 재전송**: OpenAI 포맷 클라이언트는 assistant의 thinking 블록을 버린다. gateway가 tool_call id 기준으로 assistant 원본 content를 캐시해 복원하도록 구현.
+  같은 턴을 복원 없이 보내면 출력 토큰 **164 vs 19**(복원 시) → 모델이 다시 생각함. 복원하면 토큰이 절약되고 추론도 이어진다.
+- 발견 2 — **preserved thinking 검사 (400)**: compaction 테스트에서 `Invalid signature in thinking block … bound to a different conversation` 400 발생. 이 계정은 신규 계정 기준으로 검사가 강제됨. 원인: agent의 clearing이 **과거 history를 수정**했는데, gateway가 그 뒤의 thinking 블록을 복원함.
+  → `thinking.block_binding.prefix_mismatch_behavior: "drop_block"`(beta `thinking-binding-controls-2026-08-01`)로 400 대신 무효 블록을 버리고 `input_transformations`로 보고받게 함.
+- 발견 3 — **clearing의 실제 비용** (로그로 확인): history를 고칠 때마다 ① 그 뒤 thinking 블록이 최대 12개까지 버려지고 ② prompt cache가 시스템 프롬프트 부분(602 토큰)만 남고 깨져 cache_write가 급증.
+  이때 모델은 2단계에서 이미 답을 찾았는데 **그 메모가 visible text가 아니라 thinking에 있었음** → clearing+drop으로 둘 다 사라지자 같은 파일을 20단계 동안 반복해서 읽음(thrashing). Loop 3에서 넣은 "메시지 본문에 메모하라" 지시는 thinking 모델에는 효과가 없었다.
+- 수정
+  1. `save_note(note)` tool 추가: 메모가 **tool_call 인자**에 남으므로 clearing(tool 출력만 지움)과 thinking drop 양쪽에서 살아남는다. 요약 시 `[Saved notes]`로 다시 넣음.
+  2. clearing을 **한 번에 budget/2까지 몰아서** 수행(hysteresis) → history 수정 횟수를 줄여 캐시·thinking 손실을 줄임.
+  3. 결과: 3회 모두 ORCHID-7741을 메모하고 3/3 PASS. 단 꼼꼼하게 읽느라(파일당 ~5단계) 20단계 한도는 부족해 테스트 `max_steps`를 40으로 올림. 요청 수 14–22.
+- 최종 API 회귀: L1 4/4, L2 7/7, L3 injection·server PASS, compaction 3/3 PASS (위 수정 후). gateway 502 0건.
