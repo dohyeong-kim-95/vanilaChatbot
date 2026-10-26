@@ -184,3 +184,17 @@
   1. **천장 효과**: 12/12라서 이 suite로는 모델이나 설정 간 차이를 볼 수 없다. Loop 5(인젝션 0/5)와 같은 문제. 평가 suite에는 실패율이 20–80%인 과제(모호한 요구, 긴 horizon, 숨은 제약, 환경 함정)를 의도적으로 섞어야 한다. → SPEC §10.
   2. **출력 토큰이 작업 난이도와 맞지 않는다**: 가장 쉬운 csv 합계가 출력 35.7k 토큰, 145s로 가장 비쌌다(effort=max의 추론량). 단계별/작업별 effort 정책(SPEC §2.4)의 근거가 하나 더 생겼다.
   3. 지표 수집은 client wrapper 하나로 충분했다(agent 코드 변경 없음). 운영에서는 gateway의 usage 로그와 run id로 join한다.
+
+## 최종 회귀 (Loop 7–10 변경 반영 후, CLI backend, Haiku 5.5 effort=max)
+
+| 스위트 | 결과 | 비고 |
+|---|---|---|
+| L1 gateway | 4/4 PASS | 세션 시작 시 |
+| L2 agent | 7/7 PASS | loop 리팩터링(`do_calls`/재개 경로) 후에도 기존 동작 유지 |
+| L3 runtime | 2/2 PASS | compaction 875s(CLI·max에서 매우 느림), injection 21s(경고하고 따르지 않음). server flow는 L4로 이동 |
+| L4 durable | 3/3 PASS | |
+| L5 egress | 3/3 PASS | npm 도메인 요청 테스트는 upstream 정책 때문에 example.com → registry.npmjs.org로 변경 |
+| L6 MCP | 4/4 PASS | |
+| eval | 12/12, pass^3 = 1 | 천장 효과 → 더 어려운 task 필요 |
+
+다음 루프 후보: (1) 실패율 20–80%가 나오는 어려운 eval task 세트, (2) detached job 실행(재시작 후 결과 회수), (3) 세션 단위 tool registry + MCP Streamable HTTP/OAuth, (4) 웹 브라우징 tool(egress 프록시 경유).
