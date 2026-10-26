@@ -1,0 +1,2623 @@
+[
+ {
+  "strategy": "all",
+  "query": "Open a bug in Jira project PAY: 'Refund webhook times out'.",
+  "gold": "jira__create_issue",
+  "steps": 1,
+  "prompt": 76953,
+  "cached": 76949,
+  "out": 225,
+  "n_tools_first": 154,
+  "picked": "jira__create_issue",
+  "args": {
+   "project_key": "PAY",
+   "summary": "Refund webhook times out",
+   "issue_type": "Bug"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 3.5
+ },
+ {
+  "strategy": "all",
+  "query": "Linear의 Platform 팀에 '로그인 페이지 다크모드 깨짐' 이슈 만들어줘.",
+  "gold": "linear__create_issue",
+  "steps": 1,
+  "prompt": 76970,
+  "cached": 76966,
+  "out": 203,
+  "n_tools_first": 154,
+  "picked": "linear__create_issue",
+  "args": {
+   "team": "Platform",
+   "title": "로그인 페이지 다크모드 깨짐"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 4.8
+ },
+ {
+  "strategy": "all",
+  "query": "acme/web 레포에 '빌드 캐시 안 됨' 이슈 하나 올려줘.",
+  "gold": "github__create_issue",
+  "steps": 1,
+  "prompt": 76963,
+  "cached": 76959,
+  "out": 181,
+  "n_tools_first": 154,
+  "picked": "github__create_issue",
+  "args": {
+   "repo": "acme/web",
+   "title": "빌드 캐시 안 됨",
+   "body": "빌드 캐시가 정상적으로 적용되지 않는 것으로 보입니다. 재현 단계, 발생 시점, CI 로그 등 추가 정보는 확인 후 보완 예정입니다."
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.9
+ },
+ {
+  "strategy": "all",
+  "query": "In the GitLab project infra/terraform, file an issue titled 'Upgrade provider to v6'.",
+  "gold": "gitlab__create_issue",
+  "steps": 1,
+  "prompt": 76961,
+  "cached": 76957,
+  "out": 88,
+  "n_tools_first": 154,
+  "picked": "gitlab__create_issue",
+  "args": {
+   "project": "infra/terraform",
+   "title": "Upgrade provider to v6"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.6
+ },
+ {
+  "strategy": "all",
+  "query": "Post 'deploy finished ✅' in the #eng-releases Slack channel.",
+  "gold": "slack__send_message",
+  "steps": 1,
+  "prompt": 76954,
+  "cached": 76950,
+  "out": 143,
+  "n_tools_first": 154,
+  "picked": "slack__send_message",
+  "args": {
+   "channel": "#eng-releases",
+   "text": "deploy finished ✅"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.7
+ },
+ {
+  "strategy": "all",
+  "query": "Teams의 Sales 팀 general 채널에 '이번 주 리포트 올렸습니다' 라고 남겨줘.",
+  "gold": "teams__send_channel_message",
+  "steps": 1,
+  "prompt": 76972,
+  "cached": 76968,
+  "out": 112,
+  "n_tools_first": 154,
+  "picked": "teams__send_channel_message",
+  "args": {
+   "team": "Sales",
+   "channel": "general",
+   "text": "이번 주 리포트 올렸습니다"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.3
+ },
+ {
+  "strategy": "all",
+  "query": "슬랙으로 minji에게 '회의록 확인 부탁해요' DM 보내줘.",
+  "gold": "slack__send_dm",
+  "steps": 1,
+  "prompt": 76961,
+  "cached": 76957,
+  "out": 159,
+  "n_tools_first": 154,
+  "picked": "slack__send_dm",
+  "args": {
+   "user": "minji",
+   "text": "회의록 확인 부탁해요"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.3
+ },
+ {
+  "strategy": "all",
+  "query": "Email jane@acme.com from my Gmail: subject 'Contract', body 'Signed copy attached'.",
+  "gold": "gmail__send_email",
+  "steps": 1,
+  "prompt": 76963,
+  "cached": 76959,
+  "out": 108,
+  "n_tools_first": 154,
+  "picked": "gmail__send_email",
+  "args": {
+   "to": "jane@acme.com",
+   "subject": "Contract",
+   "body": "Signed copy attached"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.9
+ },
+ {
+  "strategy": "all",
+  "query": "회사 Outlook 메일로 cfo@acme.com 에게 '3분기 예산안' 제목으로 메일 보내줘. 본문은 '검토 부탁드립니다'.",
+  "gold": "outlook__send_mail",
+  "steps": 1,
+  "prompt": 76992,
+  "cached": 76988,
+  "out": 117,
+  "n_tools_first": 154,
+  "picked": "outlook__send_mail",
+  "args": {
+   "to": "cfo@acme.com",
+   "subject": "3분기 예산안",
+   "body": "검토 부탁드립니다"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.2
+ },
+ {
+  "strategy": "all",
+  "query": "Draft (don't send) a Gmail reply to bob@x.com saying I'll be late.",
+  "gold": "gmail__create_draft",
+  "steps": 1,
+  "prompt": 76957,
+  "cached": 76953,
+  "out": 149,
+  "n_tools_first": 154,
+  "picked": "gmail__create_draft",
+  "args": {
+   "to": "bob@x.com",
+   "subject": "Running late",
+   "body": "Hi Bob,\n\nI'm going to be running late. I'm sorry for the delay and will get there as soon as I can.\n\nThanks for your patience."
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.3
+ },
+ {
+  "strategy": "all",
+  "query": "Put a 'Design review' event on my Google Calendar tomorrow 3-4pm.",
+  "gold": "gcal__create_event",
+  "steps": 1,
+  "prompt": 76957,
+  "cached": 76953,
+  "out": 213,
+  "n_tools_first": 154,
+  "picked": "gcal__create_event",
+  "args": {
+   "title": "Design review",
+   "start": "2026-10-27T15:00:00",
+   "end": "2026-10-27T16:00:00"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.6
+ },
+ {
+  "strategy": "all",
+  "query": "Outlook 캘린더에 금요일 10시~11시 '1:1 with Kim' 일정 추가해줘.",
+  "gold": "outlook__create_event",
+  "steps": 1,
+  "prompt": 76968,
+  "cached": 76964,
+  "out": 443,
+  "n_tools_first": 154,
+  "picked": "outlook__create_event",
+  "args": {
+   "title": "1:1 with Kim",
+   "start": "2026-10-30T10:00:00",
+   "end": "2026-10-30T11:00:00"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.3
+ },
+ {
+  "strategy": "all",
+  "query": "민지, 철수, 영희 셋이 다음 주에 30분 같이 비는 시간 찾아줘 (구글 캘린더 기준).",
+  "gold": "gcal__find_free_time",
+  "steps": 1,
+  "prompt": 76978,
+  "cached": 76974,
+  "out": 280,
+  "n_tools_first": 154,
+  "picked": "gcal__find_free_time",
+  "args": {
+   "attendees": "민지, 철수, 영희",
+   "duration_min": 30,
+   "within_days": 14
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.8
+ },
+ {
+  "strategy": "all",
+  "query": "Schedule a Teams meeting 'Vendor sync' with ops@acme.com on 2026-11-03 14:00.",
+  "gold": "teams__schedule_meeting",
+  "steps": 1,
+  "prompt": 76968,
+  "cached": 76964,
+  "out": 120,
+  "n_tools_first": 154,
+  "picked": "teams__schedule_meeting",
+  "args": {
+   "title": "Vendor sync",
+   "attendees": "ops@acme.com",
+   "start": "2026-11-03T14:00:00"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.4
+ },
+ {
+  "strategy": "all",
+  "query": "구글 드라이브에서 '온보딩 체크리스트' 문서 찾아줘.",
+  "gold": "gdrive__search_files",
+  "steps": 1,
+  "prompt": 76959,
+  "cached": 76955,
+  "out": 61,
+  "n_tools_first": 154,
+  "picked": "gdrive__search_files",
+  "args": {
+   "query": "온보딩 체크리스트"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.3
+ },
+ {
+  "strategy": "all",
+  "query": "Search our Notion for the 'incident postmortem template'.",
+  "gold": "notion__search",
+  "steps": 1,
+  "prompt": 76946,
+  "cached": 76942,
+  "out": 54,
+  "n_tools_first": 154,
+  "picked": "notion__search",
+  "args": {
+   "query": "incident postmortem template"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.9
+ },
+ {
+  "strategy": "all",
+  "query": "Confluence에서 'VPN 설정 가이드' 페이지 검색해줘.",
+  "gold": "confluence__search",
+  "steps": 1,
+  "prompt": 76957,
+  "cached": 76953,
+  "out": 58,
+  "n_tools_first": 154,
+  "picked": "confluence__search",
+  "args": {
+   "query": "VPN 설정 가이드"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.0
+ },
+ {
+  "strategy": "all",
+  "query": "How many orders were placed yesterday? Check the production Postgres orders table.",
+  "gold": "postgres__run_query",
+  "steps": 1,
+  "prompt": 76951,
+  "cached": 76947,
+  "out": 229,
+  "n_tools_first": 154,
+  "picked": "postgres__run_query",
+  "args": {
+   "sql": "SELECT COUNT(*) AS orders_placed_yesterday FROM orders WHERE created_at >= '2026-10-25 00:00:00' AND created_at < '2026-10-26 00:00:00';"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.1
+ },
+ {
+  "strategy": "all",
+  "query": "BigQuery의 analytics.events 테이블에서 지난주 DAU 쿼리 돌려줘.",
+  "gold": "bigquery__run_query",
+  "steps": 2,
+  "prompt": 154171,
+  "cached": 153922,
+  "out": 412,
+  "n_tools_first": 154,
+  "picked": "bigquery__run_query",
+  "args": {
+   "sql": "SELECT DATE(event_timestamp) AS event_date, COUNT(DISTINCT user_id) AS dau FROM `analytics.events` WHERE DATE(event_timestamp) BETWEEN '2026-10-19' AND '2026-10-25' GROUP BY event_date ORDER BY event_date"
+  },
+  "ok": true,
+  "why": "",
+  "lookups": [
+   "bigquery__get_table_schema"
+  ],
+  "sec": 6.3
+ },
+ {
+  "strategy": "all",
+  "query": "Before running it, estimate how much this BigQuery query would cost: SELECT * FROM logs.raw",
+  "gold": "bigquery__estimate_cost",
+  "steps": 1,
+  "prompt": 76961,
+  "cached": 76957,
+  "out": 68,
+  "n_tools_first": 154,
+  "picked": "bigquery__estimate_cost",
+  "args": {
+   "sql": "SELECT * FROM logs.raw"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.2
+ },
+ {
+  "strategy": "all",
+  "query": "Postgres users 테이블 컬럼 구조 보여줘.",
+  "gold": "postgres__describe_table",
+  "steps": 1,
+  "prompt": 76950,
+  "cached": 76946,
+  "out": 52,
+  "n_tools_first": 154,
+  "picked": "postgres__describe_table",
+  "args": {
+   "table": "users"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.2
+ },
+ {
+  "strategy": "all",
+  "query": "Move Salesforce opportunity 006XYZ to 'Closed Won'.",
+  "gold": "salesforce__update_opportunity_stage",
+  "steps": 1,
+  "prompt": 76954,
+  "cached": 76950,
+  "out": 93,
+  "n_tools_first": 154,
+  "picked": "salesforce__update_opportunity_stage",
+  "args": {
+   "opportunity_id": "006XYZ",
+   "stage": "Closed Won"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.3
+ },
+ {
+  "strategy": "all",
+  "query": "HubSpot 딜 8812를 'contract sent' 단계로 옮겨줘.",
+  "gold": "hubspot__update_deal_stage",
+  "steps": 1,
+  "prompt": 76958,
+  "cached": 76954,
+  "out": 85,
+  "n_tools_first": 154,
+  "picked": "hubspot__update_deal_stage",
+  "args": {
+   "deal_id": "8812",
+   "stage": "contract sent"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.7
+ },
+ {
+  "strategy": "all",
+  "query": "Add a HubSpot contact for lee@startup.io named Lee.",
+  "gold": "hubspot__create_contact",
+  "steps": 1,
+  "prompt": 76950,
+  "cached": 76946,
+  "out": 82,
+  "n_tools_first": 154,
+  "picked": "hubspot__create_contact",
+  "args": {
+   "email": "lee@startup.io",
+   "name": "Lee"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.9
+ },
+ {
+  "strategy": "all",
+  "query": "Stripe 결제 ch_3Abc 전액 환불해줘.",
+  "gold": "stripe__refund_charge",
+  "steps": 1,
+  "prompt": 76952,
+  "cached": 76948,
+  "out": 160,
+  "n_tools_first": 154,
+  "picked": "stripe__refund_charge",
+  "args": {
+   "charge_id": "ch_3Abc"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.4
+ },
+ {
+  "strategy": "all",
+  "query": "Cancel Stripe subscription sub_778 at the end of the billing period.",
+  "gold": "stripe__cancel_subscription",
+  "steps": 1,
+  "prompt": 76952,
+  "cached": 76948,
+  "out": 87,
+  "n_tools_first": 154,
+  "picked": "stripe__cancel_subscription",
+  "args": {
+   "subscription_id": "sub_778",
+   "at_period_end": true
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.9
+ },
+ {
+  "strategy": "all",
+  "query": "젠데스크 티켓 4521에 '고객에게 환불 안내함' 내부 메모 남겨줘 (고객은 못 보게).",
+  "gold": "zendesk__add_internal_note",
+  "steps": 1,
+  "prompt": 76977,
+  "cached": 76973,
+  "out": 91,
+  "n_tools_first": 154,
+  "picked": "zendesk__add_internal_note",
+  "args": {
+   "ticket_id": 4521,
+   "note": "고객에게 환불 안내함"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.9
+ },
+ {
+  "strategy": "all",
+  "query": "Who is on call right now for the payments PagerDuty schedule?",
+  "gold": "pagerduty__get_oncall",
+  "steps": 1,
+  "prompt": 76948,
+  "cached": 76944,
+  "out": 58,
+  "n_tools_first": 154,
+  "picked": "pagerduty__get_oncall",
+  "args": {
+   "schedule": "payments"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.3
+ },
+ {
+  "strategy": "all",
+  "query": "Datadog에서 최근 1시간 checkout 서비스 에러 로그 찾아줘.",
+  "gold": "datadog__search_logs",
+  "steps": 1,
+  "prompt": 76961,
+  "cached": 76957,
+  "out": 176,
+  "n_tools_first": 154,
+  "picked": "datadog__search_logs",
+  "args": {
+   "query": "service:checkout status:error",
+   "from": "now-1h"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.4
+ },
+ {
+  "strategy": "all",
+  "query": "Mute Datadog monitor 99123 for 60 minutes.",
+  "gold": "datadog__mute_monitor",
+  "steps": 1,
+  "prompt": 76949,
+  "cached": 76945,
+  "out": 82,
+  "n_tools_first": 154,
+  "picked": "datadog__mute_monitor",
+  "args": {
+   "monitor_id": 99123,
+   "minutes": 60
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.1
+ },
+ {
+  "strategy": "all",
+  "query": "Acknowledge PagerDuty incident PXK12.",
+  "gold": "pagerduty__acknowledge_incident",
+  "steps": 1,
+  "prompt": 76946,
+  "cached": 76942,
+  "out": 64,
+  "n_tools_first": 154,
+  "picked": "pagerduty__acknowledge_incident",
+  "args": {
+   "incident_id": "PXK12"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.9
+ },
+ {
+  "strategy": "all",
+  "query": "지난달 AWS 비용 서비스별로 알려줘.",
+  "gold": "aws__get_cost_and_usage",
+  "steps": 1,
+  "prompt": 76949,
+  "cached": 76945,
+  "out": 153,
+  "n_tools_first": 154,
+  "picked": "aws__get_cost_and_usage",
+  "args": {
+   "start": "2026-09-01",
+   "end": "2026-10-01"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.0
+ },
+ {
+  "strategy": "all",
+  "query": "CloudFront 배포 E2ABC의 /static/* 캐시 무효화해줘.",
+  "gold": "aws__invalidate_cloudfront",
+  "steps": 1,
+  "prompt": 76959,
+  "cached": 76955,
+  "out": 90,
+  "n_tools_first": 154,
+  "picked": "aws__invalidate_cloudfront",
+  "args": {
+   "distribution_id": "E2ABC",
+   "paths": "/static/*"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.9
+ },
+ {
+  "strategy": "all",
+  "query": "Retry the failed GitLab pipeline 5531 in infra/terraform.",
+  "gold": "gitlab__retry_pipeline",
+  "steps": 1,
+  "prompt": 76953,
+  "cached": 76949,
+  "out": 88,
+  "n_tools_first": 154,
+  "picked": "gitlab__retry_pipeline",
+  "args": {
+   "project": "infra/terraform",
+   "pipeline_id": 5531
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.9
+ },
+ {
+  "strategy": "all",
+  "query": "Merge PR #42 in acme/api with squash.",
+  "gold": "github__merge_pull_request",
+  "steps": 1,
+  "prompt": 76944,
+  "cached": 76940,
+  "out": 100,
+  "n_tools_first": 154,
+  "picked": "github__merge_pull_request",
+  "args": {
+   "repo": "acme/api",
+   "number": 42,
+   "method": "squash"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.0
+ },
+ {
+  "strategy": "all",
+  "query": "GitLab group/app 에 feature/login → main 머지 리퀘스트 열어줘.",
+  "gold": "gitlab__create_merge_request",
+  "steps": 1,
+  "prompt": 76959,
+  "cached": 76955,
+  "out": 137,
+  "n_tools_first": 154,
+  "picked": "gitlab__create_merge_request",
+  "args": {
+   "project": "group/app",
+   "source_branch": "feature/login",
+   "target_branch": "main",
+   "title": "Merge feature/login into main"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.4
+ },
+ {
+  "strategy": "all",
+  "query": "Jira PAY-311 을 Done 으로 넘겨줘.",
+  "gold": "jira__transition_issue",
+  "steps": 1,
+  "prompt": 76951,
+  "cached": 76947,
+  "out": 200,
+  "n_tools_first": 154,
+  "picked": "jira__transition_issue",
+  "args": {
+   "issue_key": "PAY-311",
+   "status": "Done"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.0
+ },
+ {
+  "strategy": "all",
+  "query": "Leave a comment on Figma file k3yF: 'Button contrast too low'.",
+  "gold": "figma__post_comment",
+  "steps": 1,
+  "prompt": 76954,
+  "cached": 76950,
+  "out": 83,
+  "n_tools_first": 154,
+  "picked": "figma__post_comment",
+  "args": {
+   "file_key": "k3yF",
+   "message": "Button contrast too low"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.2
+ },
+ {
+  "strategy": "all",
+  "query": "100달러가 원화로 얼마야?",
+  "gold": "util__currency_convert",
+  "steps": 1,
+  "prompt": 76941,
+  "cached": 76937,
+  "out": 97,
+  "n_tools_first": 154,
+  "picked": "util__currency_convert",
+  "args": {
+   "amount": 100,
+   "from": "USD",
+   "to": "KRW"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.3
+ },
+ {
+  "strategy": "all",
+  "query": "Share the Google Doc 1AbC with intern@acme.com as a viewer.",
+  "gold": "gdrive__share_file",
+  "steps": 1,
+  "prompt": 76954,
+  "cached": 76950,
+  "out": 106,
+  "n_tools_first": 154,
+  "picked": "gdrive__share_file",
+  "args": {
+   "file_id": "1AbC",
+   "email": "intern@acme.com",
+   "role": "reader"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.3
+ },
+ {
+  "strategy": "all",
+  "query": "커뮤니티 슬랙 #announcements 채널에 'v2.0 released' 공지 올려줘.",
+  "gold": "slack_community__send_message",
+  "steps": 1,
+  "prompt": 76965,
+  "cached": 76961,
+  "out": 184,
+  "n_tools_first": 154,
+  "picked": "slack_community__send_message",
+  "args": {
+   "channel": "#announcements",
+   "text": "v2.0 released"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.5
+ },
+ {
+  "strategy": "all",
+  "query": "Post 'standup in 5' to #team-core in our internal Slack.",
+  "gold": "slack__send_message",
+  "steps": 1,
+  "prompt": 76950,
+  "cached": 76946,
+  "out": 79,
+  "n_tools_first": 154,
+  "picked": "slack__send_message",
+  "args": {
+   "channel": "#team-core",
+   "text": "standup in 5"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.1
+ },
+ {
+  "strategy": "all",
+  "query": "Open an issue in acme-oss/sdk (our public OSS repo): 'Typo in README'.",
+  "gold": "github_oss__create_issue",
+  "steps": 1,
+  "prompt": 76960,
+  "cached": 76956,
+  "out": 87,
+  "n_tools_first": 154,
+  "picked": "github_oss__create_issue",
+  "args": {
+   "repo": "acme-oss/sdk",
+   "title": "Typo in README"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.1
+ },
+ {
+  "strategy": "all",
+  "query": "acme/billing (사내 private 레포)의 열린 PR 목록 보여줘.",
+  "gold": "github__list_pull_requests",
+  "steps": 1,
+  "prompt": 76957,
+  "cached": 76953,
+  "out": 79,
+  "n_tools_first": 154,
+  "picked": "github__list_pull_requests",
+  "args": {
+   "repo": "acme/billing",
+   "state": "open"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.0
+ },
+ {
+  "strategy": "all",
+  "query": "레거시 Jira 서버에 있는 OLD-77 이슈 내용 보여줘 (2022년 프로젝트).",
+  "gold": "jira_legacy__get_issue",
+  "steps": 1,
+  "prompt": 76971,
+  "cached": 76967,
+  "out": 62,
+  "n_tools_first": 154,
+  "picked": "jira_legacy__get_issue",
+  "args": {
+   "issue_key": "OLD-77"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.9
+ },
+ {
+  "strategy": "all",
+  "query": "Comment 'fixed in 3.2' on Jira Cloud issue PAY-12.",
+  "gold": "jira__add_comment",
+  "steps": 1,
+  "prompt": 76957,
+  "cached": 76953,
+  "out": 86,
+  "n_tools_first": 154,
+  "picked": "jira__add_comment",
+  "args": {
+   "issue_key": "PAY-12",
+   "body": "fixed in 3.2"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.0
+ },
+ {
+  "strategy": "all",
+  "query": "Search the community Slack for messages about 'rate limit'.",
+  "gold": "slack_community__search_messages",
+  "steps": 1,
+  "prompt": 76946,
+  "cached": 76942,
+  "out": 56,
+  "n_tools_first": 154,
+  "picked": "slack_community__search_messages",
+  "args": {
+   "query": "rate limit"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.7
+ },
+ {
+  "strategy": "all",
+  "query": "공개 OSS 레포 acme-oss/cli 에 v1.4.0 릴리스 만들어줘.",
+  "gold": "github_oss__create_release",
+  "steps": 1,
+  "prompt": 76966,
+  "cached": 76962,
+  "out": 165,
+  "n_tools_first": 154,
+  "picked": "github_oss__create_release",
+  "args": {
+   "repo": "acme-oss/cli",
+   "tag": "v1.4.0"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.3
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Open a bug in Jira project PAY: 'Refund webhook times out'.",
+  "gold": "jira__create_issue",
+  "steps": 1,
+  "prompt": 5099,
+  "cached": 5095,
+  "out": 197,
+  "n_tools_first": 9,
+  "picked": "jira__create_issue",
+  "args": {
+   "project_key": "PAY",
+   "summary": "Refund webhook times out",
+   "issue_type": "Bug"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.2
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Linear의 Platform 팀에 '로그인 페이지 다크모드 깨짐' 이슈 만들어줘.",
+  "gold": "linear__create_issue",
+  "steps": 2,
+  "prompt": 6951,
+  "cached": 6830,
+  "out": 224,
+  "n_tools_first": 7,
+  "picked": "linear__create_issue",
+  "args": {
+   "team": "Platform",
+   "title": "로그인 페이지 다크모드 깨짐"
+  },
+  "ok": true,
+  "why": "",
+  "lookups": [
+   "linear__list_teams"
+  ],
+  "sec": 1.9
+ },
+ {
+  "strategy": "hybrid",
+  "query": "acme/web 레포에 '빌드 캐시 안 됨' 이슈 하나 올려줘.",
+  "gold": "github__create_issue",
+  "steps": 1,
+  "prompt": 4418,
+  "cached": 4414,
+  "out": 86,
+  "n_tools_first": 9,
+  "picked": "github__create_issue",
+  "args": {
+   "repo": "acme/web",
+   "title": "빌드 캐시 안 됨"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.7
+ },
+ {
+  "strategy": "hybrid",
+  "query": "In the GitLab project infra/terraform, file an issue titled 'Upgrade provider to v6'.",
+  "gold": "gitlab__create_issue",
+  "steps": 1,
+  "prompt": 5327,
+  "cached": 5323,
+  "out": 88,
+  "n_tools_first": 9,
+  "picked": "gitlab__create_issue",
+  "args": {
+   "project": "infra/terraform",
+   "title": "Upgrade provider to v6"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.8
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Post 'deploy finished ✅' in the #eng-releases Slack channel.",
+  "gold": "slack__send_message",
+  "steps": 1,
+  "prompt": 4474,
+  "cached": 4470,
+  "out": 124,
+  "n_tools_first": 9,
+  "picked": "slack__send_message",
+  "args": {
+   "channel": "#eng-releases",
+   "text": "deploy finished ✅"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.1
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Teams의 Sales 팀 general 채널에 '이번 주 리포트 올렸습니다' 라고 남겨줘.",
+  "gold": "teams__send_channel_message",
+  "steps": 1,
+  "prompt": 4854,
+  "cached": 4850,
+  "out": 112,
+  "n_tools_first": 9,
+  "picked": "teams__send_channel_message",
+  "args": {
+   "team": "Sales",
+   "channel": "general",
+   "text": "이번 주 리포트 올렸습니다"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.8
+ },
+ {
+  "strategy": "hybrid",
+  "query": "슬랙으로 minji에게 '회의록 확인 부탁해요' DM 보내줘.",
+  "gold": "slack__send_dm",
+  "steps": 1,
+  "prompt": 1468,
+  "cached": 1464,
+  "out": 161,
+  "n_tools_first": 3,
+  "picked": "slack__send_dm",
+  "args": {
+   "user": "minji",
+   "text": "회의록 확인 부탁해요"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.3
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Email jane@acme.com from my Gmail: subject 'Contract', body 'Signed copy attached'.",
+  "gold": "gmail__send_email",
+  "steps": 1,
+  "prompt": 4576,
+  "cached": 4572,
+  "out": 108,
+  "n_tools_first": 9,
+  "picked": "gmail__send_email",
+  "args": {
+   "to": "jane@acme.com",
+   "subject": "Contract",
+   "body": "Signed copy attached"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.0
+ },
+ {
+  "strategy": "hybrid",
+  "query": "회사 Outlook 메일로 cfo@acme.com 에게 '3분기 예산안' 제목으로 메일 보내줘. 본문은 '검토 부탁드립니다'.",
+  "gold": "outlook__send_mail",
+  "steps": 1,
+  "prompt": 4733,
+  "cached": 4729,
+  "out": 117,
+  "n_tools_first": 9,
+  "picked": "outlook__send_mail",
+  "args": {
+   "to": "cfo@acme.com",
+   "subject": "3분기 예산안",
+   "body": "검토 부탁드립니다"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.9
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Draft (don't send) a Gmail reply to bob@x.com saying I'll be late.",
+  "gold": "gmail__create_draft",
+  "steps": 1,
+  "prompt": 4476,
+  "cached": 4472,
+  "out": 151,
+  "n_tools_first": 9,
+  "picked": "gmail__create_draft",
+  "args": {
+   "to": "bob@x.com",
+   "subject": "Running late",
+   "body": "Hi Bob,\n\nJust letting you know I'll be running late. Thanks for your patience, and I'll see you as soon as I can get there.\n\nBest regards"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.6
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Put a 'Design review' event on my Google Calendar tomorrow 3-4pm.",
+  "gold": "gcal__create_event",
+  "steps": 1,
+  "prompt": 4647,
+  "cached": 4643,
+  "out": 197,
+  "n_tools_first": 9,
+  "picked": "gcal__create_event",
+  "args": {
+   "title": "Design review",
+   "start": "2026-10-27T15:00:00",
+   "end": "2026-10-27T16:00:00"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.2
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Outlook 캘린더에 금요일 10시~11시 '1:1 with Kim' 일정 추가해줘.",
+  "gold": "outlook__create_event",
+  "steps": 1,
+  "prompt": 4409,
+  "cached": 4405,
+  "out": 345,
+  "n_tools_first": 9,
+  "picked": "outlook__create_event",
+  "args": {
+   "title": "1:1 with Kim",
+   "start": "2026-10-30T10:00:00+09:00",
+   "end": "2026-10-30T11:00:00+09:00"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.7
+ },
+ {
+  "strategy": "hybrid",
+  "query": "민지, 철수, 영희 셋이 다음 주에 30분 같이 비는 시간 찾아줘 (구글 캘린더 기준).",
+  "gold": "gcal__find_free_time",
+  "steps": 2,
+  "prompt": 3912,
+  "cached": 541,
+  "out": 347,
+  "n_tools_first": 1,
+  "picked": "gcal__find_free_time",
+  "args": {
+   "attendees": "민지, 철수, 영희",
+   "duration_min": 30,
+   "within_days": 14
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.9
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Schedule a Teams meeting 'Vendor sync' with ops@acme.com on 2026-11-03 14:00.",
+  "gold": "teams__schedule_meeting",
+  "steps": 1,
+  "prompt": 4467,
+  "cached": 4463,
+  "out": 122,
+  "n_tools_first": 9,
+  "picked": "teams__schedule_meeting",
+  "args": {
+   "title": "Vendor sync",
+   "attendees": "ops@acme.com",
+   "start": "2026-11-03T14:00:00Z"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.0
+ },
+ {
+  "strategy": "hybrid",
+  "query": "구글 드라이브에서 '온보딩 체크리스트' 문서 찾아줘.",
+  "gold": "gdrive__search_files",
+  "steps": 2,
+  "prompt": 3770,
+  "cached": 522,
+  "out": 117,
+  "n_tools_first": 1,
+  "picked": "gdrive__search_files",
+  "args": {
+   "query": "온보딩 체크리스트"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.8
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Search our Notion for the 'incident postmortem template'.",
+  "gold": "notion__search",
+  "steps": 1,
+  "prompt": 4239,
+  "cached": 4235,
+  "out": 54,
+  "n_tools_first": 9,
+  "picked": "notion__search",
+  "args": {
+   "query": "incident postmortem template"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.8
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Confluence에서 'VPN 설정 가이드' 페이지 검색해줘.",
+  "gold": "confluence__search",
+  "steps": 1,
+  "prompt": 2350,
+  "cached": 2346,
+  "out": 58,
+  "n_tools_first": 5,
+  "picked": "confluence__search",
+  "args": {
+   "query": "VPN 설정 가이드"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.6
+ },
+ {
+  "strategy": "hybrid",
+  "query": "How many orders were placed yesterday? Check the production Postgres orders table.",
+  "gold": "postgres__run_query",
+  "steps": 2,
+  "prompt": 8400,
+  "cached": 8208,
+  "out": 272,
+  "n_tools_first": 9,
+  "picked": "postgres__run_query",
+  "args": {
+   "sql": "SELECT COUNT(*) AS orders_yesterday FROM orders WHERE created_at >= CURRENT_DATE - INTERVAL '1 day' AND created_at < CURRENT_DATE"
+  },
+  "ok": true,
+  "why": "",
+  "lookups": [
+   "postgres__describe_table"
+  ],
+  "sec": 2.8
+ },
+ {
+  "strategy": "hybrid",
+  "query": "BigQuery의 analytics.events 테이블에서 지난주 DAU 쿼리 돌려줘.",
+  "gold": "bigquery__run_query",
+  "steps": 2,
+  "prompt": 6662,
+  "cached": 6452,
+  "out": 292,
+  "n_tools_first": 7,
+  "picked": "bigquery__run_query",
+  "args": {
+   "sql": "SELECT * FROM analytics.events LIMIT 5"
+  },
+  "ok": true,
+  "why": "",
+  "lookups": [
+   "bigquery__get_table_schema"
+  ],
+  "sec": 2.6
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Before running it, estimate how much this BigQuery query would cost: SELECT * FROM logs.raw",
+  "gold": "bigquery__estimate_cost",
+  "steps": 1,
+  "prompt": 4280,
+  "cached": 4276,
+  "out": 68,
+  "n_tools_first": 9,
+  "picked": "bigquery__estimate_cost",
+  "args": {
+   "sql": "SELECT * FROM logs.raw"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.8
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Postgres users 테이블 컬럼 구조 보여줘.",
+  "gold": "postgres__describe_table",
+  "steps": 1,
+  "prompt": 4032,
+  "cached": 4028,
+  "out": 52,
+  "n_tools_first": 9,
+  "picked": "postgres__describe_table",
+  "args": {
+   "table": "users"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.9
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Move Salesforce opportunity 006XYZ to 'Closed Won'.",
+  "gold": "salesforce__update_opportunity_stage",
+  "steps": 1,
+  "prompt": 4484,
+  "cached": 4480,
+  "out": 93,
+  "n_tools_first": 9,
+  "picked": "salesforce__update_opportunity_stage",
+  "args": {
+   "opportunity_id": "006XYZ",
+   "stage": "Closed Won"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.8
+ },
+ {
+  "strategy": "hybrid",
+  "query": "HubSpot 딜 8812를 'contract sent' 단계로 옮겨줘.",
+  "gold": "hubspot__update_deal_stage",
+  "steps": 1,
+  "prompt": 3231,
+  "cached": 3227,
+  "out": 85,
+  "n_tools_first": 6,
+  "picked": "hubspot__update_deal_stage",
+  "args": {
+   "deal_id": "8812",
+   "stage": "contract sent"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.8
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Add a HubSpot contact for lee@startup.io named Lee.",
+  "gold": "hubspot__create_contact",
+  "steps": 1,
+  "prompt": 4733,
+  "cached": 4729,
+  "out": 82,
+  "n_tools_first": 9,
+  "picked": "hubspot__create_contact",
+  "args": {
+   "email": "lee@startup.io",
+   "name": "Lee"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.9
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Stripe 결제 ch_3Abc 전액 환불해줘.",
+  "gold": "stripe__refund_charge",
+  "steps": 1,
+  "prompt": 2936,
+  "cached": 2932,
+  "out": 126,
+  "n_tools_first": 6,
+  "picked": "stripe__refund_charge",
+  "args": {
+   "charge_id": "ch_3Abc"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.1
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Cancel Stripe subscription sub_778 at the end of the billing period.",
+  "gold": "stripe__cancel_subscription",
+  "steps": 1,
+  "prompt": 4397,
+  "cached": 4393,
+  "out": 87,
+  "n_tools_first": 9,
+  "picked": "stripe__cancel_subscription",
+  "args": {
+   "subscription_id": "sub_778",
+   "at_period_end": true
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.8
+ },
+ {
+  "strategy": "hybrid",
+  "query": "젠데스크 티켓 4521에 '고객에게 환불 안내함' 내부 메모 남겨줘 (고객은 못 보게).",
+  "gold": "zendesk__add_internal_note",
+  "steps": 2,
+  "prompt": 3977,
+  "cached": 3571,
+  "out": 151,
+  "n_tools_first": 1,
+  "picked": "zendesk__add_internal_note",
+  "args": {
+   "ticket_id": 4521,
+   "note": "고객에게 환불 안내함"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.4
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Who is on call right now for the payments PagerDuty schedule?",
+  "gold": "pagerduty__get_oncall",
+  "steps": 1,
+  "prompt": 4428,
+  "cached": 4424,
+  "out": 58,
+  "n_tools_first": 9,
+  "picked": "pagerduty__get_oncall",
+  "args": {
+   "schedule": "payments"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.9
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Datadog에서 최근 1시간 checkout 서비스 에러 로그 찾아줘.",
+  "gold": "datadog__search_logs",
+  "steps": 1,
+  "prompt": 3662,
+  "cached": 3658,
+  "out": 83,
+  "n_tools_first": 7,
+  "picked": "datadog__search_logs",
+  "args": {
+   "query": "service:checkout status:error",
+   "from": "now-1h"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.5
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Mute Datadog monitor 99123 for 60 minutes.",
+  "gold": "datadog__mute_monitor",
+  "steps": 1,
+  "prompt": 4386,
+  "cached": 4382,
+  "out": 82,
+  "n_tools_first": 9,
+  "picked": "datadog__mute_monitor",
+  "args": {
+   "monitor_id": 99123,
+   "minutes": 60
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.2
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Acknowledge PagerDuty incident PXK12.",
+  "gold": "pagerduty__acknowledge_incident",
+  "steps": 1,
+  "prompt": 2830,
+  "cached": 2826,
+  "out": 64,
+  "n_tools_first": 6,
+  "picked": "pagerduty__acknowledge_incident",
+  "args": {
+   "incident_id": "PXK12"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.7
+ },
+ {
+  "strategy": "hybrid",
+  "query": "지난달 AWS 비용 서비스별로 알려줘.",
+  "gold": "aws__get_cost_and_usage",
+  "steps": 1,
+  "prompt": 2402,
+  "cached": 2398,
+  "out": 135,
+  "n_tools_first": 5,
+  "picked": "aws__get_cost_and_usage",
+  "args": {
+   "start": "2026-09-01",
+   "end": "2026-10-01"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.2
+ },
+ {
+  "strategy": "hybrid",
+  "query": "CloudFront 배포 E2ABC의 /static/* 캐시 무효화해줘.",
+  "gold": "aws__invalidate_cloudfront",
+  "steps": 1,
+  "prompt": 1028,
+  "cached": 1024,
+  "out": 90,
+  "n_tools_first": 2,
+  "picked": "aws__invalidate_cloudfront",
+  "args": {
+   "distribution_id": "E2ABC",
+   "paths": "/static/*"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.1
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Retry the failed GitLab pipeline 5531 in infra/terraform.",
+  "gold": "gitlab__retry_pipeline",
+  "steps": 1,
+  "prompt": 5066,
+  "cached": 5062,
+  "out": 88,
+  "n_tools_first": 9,
+  "picked": "gitlab__retry_pipeline",
+  "args": {
+   "project": "infra/terraform",
+   "pipeline_id": 5531
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.8
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Merge PR #42 in acme/api with squash.",
+  "gold": "github__merge_pull_request",
+  "steps": 1,
+  "prompt": 5006,
+  "cached": 5002,
+  "out": 140,
+  "n_tools_first": 9,
+  "picked": "github__merge_pull_request",
+  "args": {
+   "repo": "acme/api",
+   "number": 42,
+   "method": "squash"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.1
+ },
+ {
+  "strategy": "hybrid",
+  "query": "GitLab group/app 에 feature/login → main 머지 리퀘스트 열어줘.",
+  "gold": "gitlab__create_merge_request",
+  "steps": 1,
+  "prompt": 5072,
+  "cached": 5068,
+  "out": 137,
+  "n_tools_first": 9,
+  "picked": "gitlab__create_merge_request",
+  "args": {
+   "project": "group/app",
+   "source_branch": "feature/login",
+   "target_branch": "main",
+   "title": "Merge feature/login into main"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.8
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Jira PAY-311 을 Done 으로 넘겨줘.",
+  "gold": "jira__transition_issue",
+  "steps": 1,
+  "prompt": 4325,
+  "cached": 4321,
+  "out": 156,
+  "n_tools_first": 9,
+  "picked": "jira__transition_issue",
+  "args": {
+   "issue_key": "PAY-311",
+   "status": "Done"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.1
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Leave a comment on Figma file k3yF: 'Button contrast too low'.",
+  "gold": "figma__post_comment",
+  "steps": 1,
+  "prompt": 4498,
+  "cached": 4494,
+  "out": 83,
+  "n_tools_first": 9,
+  "picked": "figma__post_comment",
+  "args": {
+   "file_key": "k3yF",
+   "message": "Button contrast too low"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.3
+ },
+ {
+  "strategy": "hybrid",
+  "query": "100달러가 원화로 얼마야?",
+  "gold": "util__currency_convert",
+  "steps": 2,
+  "prompt": 3625,
+  "cached": 0,
+  "out": 198,
+  "n_tools_first": 1,
+  "picked": "util__currency_convert",
+  "args": {
+   "amount": 100,
+   "from": "USD",
+   "to": "KRW"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.1
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Share the Google Doc 1AbC with intern@acme.com as a viewer.",
+  "gold": "gdrive__share_file",
+  "steps": 1,
+  "prompt": 4346,
+  "cached": 4342,
+  "out": 106,
+  "n_tools_first": 9,
+  "picked": "gdrive__share_file",
+  "args": {
+   "file_id": "1AbC",
+   "email": "intern@acme.com",
+   "role": "reader"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.9
+ },
+ {
+  "strategy": "hybrid",
+  "query": "커뮤니티 슬랙 #announcements 채널에 'v2.0 released' 공지 올려줘.",
+  "gold": "slack_community__send_message",
+  "steps": 2,
+  "prompt": 3941,
+  "cached": 3561,
+  "out": 163,
+  "n_tools_first": 1,
+  "picked": "slack_community__send_message",
+  "args": {
+   "channel": "#announcements",
+   "text": "v2.0 released"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.6
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Post 'standup in 5' to #team-core in our internal Slack.",
+  "gold": "slack__send_message",
+  "steps": 1,
+  "prompt": 4164,
+  "cached": 4160,
+  "out": 79,
+  "n_tools_first": 9,
+  "picked": "slack__send_message",
+  "args": {
+   "channel": "#team-core",
+   "text": "standup in 5"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.9
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Open an issue in acme-oss/sdk (our public OSS repo): 'Typo in README'.",
+  "gold": "github_oss__create_issue",
+  "steps": 1,
+  "prompt": 5055,
+  "cached": 5051,
+  "out": 87,
+  "n_tools_first": 9,
+  "picked": "github_oss__create_issue",
+  "args": {
+   "repo": "acme-oss/sdk",
+   "title": "Typo in README"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.8
+ },
+ {
+  "strategy": "hybrid",
+  "query": "acme/billing (사내 private 레포)의 열린 PR 목록 보여줘.",
+  "gold": "github__list_pull_requests",
+  "steps": 1,
+  "prompt": 4672,
+  "cached": 4668,
+  "out": 79,
+  "n_tools_first": 9,
+  "picked": "github__list_pull_requests",
+  "args": {
+   "repo": "acme/billing",
+   "state": "open"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.2
+ },
+ {
+  "strategy": "hybrid",
+  "query": "레거시 Jira 서버에 있는 OLD-77 이슈 내용 보여줘 (2022년 프로젝트).",
+  "gold": "jira_legacy__get_issue",
+  "steps": 2,
+  "prompt": 11952,
+  "cached": 11449,
+  "out": 194,
+  "n_tools_first": 9,
+  "picked": "jira_legacy__get_issue",
+  "args": {
+   "issue_key": "OLD-77"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.2
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Comment 'fixed in 3.2' on Jira Cloud issue PAY-12.",
+  "gold": "jira__add_comment",
+  "steps": 1,
+  "prompt": 4791,
+  "cached": 4787,
+  "out": 86,
+  "n_tools_first": 9,
+  "picked": "jira__add_comment",
+  "args": {
+   "issue_key": "PAY-12",
+   "body": "fixed in 3.2"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.7
+ },
+ {
+  "strategy": "hybrid",
+  "query": "Search the community Slack for messages about 'rate limit'.",
+  "gold": "slack_community__search_messages",
+  "steps": 1,
+  "prompt": 4072,
+  "cached": 4068,
+  "out": 56,
+  "n_tools_first": 9,
+  "picked": "slack_community__search_messages",
+  "args": {
+   "query": "rate limit"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.7
+ },
+ {
+  "strategy": "hybrid",
+  "query": "공개 OSS 레포 acme-oss/cli 에 v1.4.0 릴리스 만들어줘.",
+  "gold": "github_oss__create_release",
+  "steps": 1,
+  "prompt": 4825,
+  "cached": 4821,
+  "out": 87,
+  "n_tools_first": 9,
+  "picked": "github_oss__create_release",
+  "args": {
+   "repo": "acme-oss/cli",
+   "tag": "v1.4.0"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 0.8
+ },
+ {
+  "strategy": "search_call",
+  "query": "Open a bug in Jira project PAY: 'Refund webhook times out'.",
+  "gold": "jira__create_issue",
+  "steps": 2,
+  "prompt": 3985,
+  "cached": 1240,
+  "out": 223,
+  "n_tools_first": 2,
+  "picked": "jira__create_issue",
+  "args": {
+   "project_key": "PAY",
+   "summary": "Refund webhook times out",
+   "issue_type": "Bug"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.1
+ },
+ {
+  "strategy": "search_call",
+  "query": "Linear의 Platform 팀에 '로그인 페이지 다크모드 깨짐' 이슈 만들어줘.",
+  "gold": "linear__create_issue",
+  "steps": 3,
+  "prompt": 11793,
+  "cached": 6778,
+  "out": 415,
+  "n_tools_first": 2,
+  "picked": "linear__create_issue",
+  "args": {
+   "team": "Platform",
+   "title": "로그인 페이지 다크모드 깨짐"
+  },
+  "ok": true,
+  "why": "",
+  "lookups": [
+   "linear__list_teams"
+  ],
+  "sec": 3.1
+ },
+ {
+  "strategy": "search_call",
+  "query": "acme/web 레포에 '빌드 캐시 안 됨' 이슈 하나 올려줘.",
+  "gold": "github__create_issue",
+  "steps": 2,
+  "prompt": 4151,
+  "cached": 1260,
+  "out": 293,
+  "n_tools_first": 2,
+  "picked": "github__create_issue",
+  "args": {
+   "repo": "acme/web",
+   "title": "빌드 캐시 안 됨"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.6
+ },
+ {
+  "strategy": "search_call",
+  "query": "In the GitLab project infra/terraform, file an issue titled 'Upgrade provider to v6'.",
+  "gold": "gitlab__create_issue",
+  "steps": 2,
+  "prompt": 4295,
+  "cached": 1256,
+  "out": 162,
+  "n_tools_first": 2,
+  "picked": "gitlab__create_issue",
+  "args": {
+   "project": "infra/terraform",
+   "title": "Upgrade provider to v6"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.4
+ },
+ {
+  "strategy": "search_call",
+  "query": "Post 'deploy finished ✅' in the #eng-releases Slack channel.",
+  "gold": "slack__send_message",
+  "steps": 2,
+  "prompt": 3896,
+  "cached": 1242,
+  "out": 191,
+  "n_tools_first": 2,
+  "picked": "slack__send_message",
+  "args": {
+   "channel": "#eng-releases",
+   "text": "deploy finished ✅"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.1
+ },
+ {
+  "strategy": "search_call",
+  "query": "Teams의 Sales 팀 general 채널에 '이번 주 리포트 올렸습니다' 라고 남겨줘.",
+  "gold": "teams__send_channel_message",
+  "steps": 3,
+  "prompt": 7487,
+  "cached": 4579,
+  "out": 351,
+  "n_tools_first": 2,
+  "picked": "teams__send_channel_message",
+  "args": {
+   "team": "Sales",
+   "channel": "general",
+   "text": "이번 주 리포트 올렸습니다"
+  },
+  "ok": true,
+  "why": "",
+  "lookups": [
+   "teams__list_teams"
+  ],
+  "sec": 3.2
+ },
+ {
+  "strategy": "search_call",
+  "query": "슬랙으로 minji에게 '회의록 확인 부탁해요' DM 보내줘.",
+  "gold": "slack__send_dm",
+  "steps": 2,
+  "prompt": 3588,
+  "cached": 1256,
+  "out": 190,
+  "n_tools_first": 2,
+  "picked": "slack__send_dm",
+  "args": {
+   "user": "minji",
+   "text": "회의록 확인 부탁해요"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.8
+ },
+ {
+  "strategy": "search_call",
+  "query": "Email jane@acme.com from my Gmail: subject 'Contract', body 'Signed copy attached'.",
+  "gold": "gmail__send_email",
+  "steps": 2,
+  "prompt": 3723,
+  "cached": 1260,
+  "out": 165,
+  "n_tools_first": 2,
+  "picked": "gmail__send_email",
+  "args": {
+   "to": "jane@acme.com",
+   "subject": "Contract",
+   "body": "Signed copy attached"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.6
+ },
+ {
+  "strategy": "search_call",
+  "query": "회사 Outlook 메일로 cfo@acme.com 에게 '3분기 예산안' 제목으로 메일 보내줘. 본문은 '검토 부탁드립니다'.",
+  "gold": "outlook__send_mail",
+  "steps": 2,
+  "prompt": 4072,
+  "cached": 1318,
+  "out": 173,
+  "n_tools_first": 2,
+  "picked": "outlook__send_mail",
+  "args": {
+   "to": "cfo@acme.com",
+   "subject": "3분기 예산안",
+   "body": "검토 부탁드립니다"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.8
+ },
+ {
+  "strategy": "search_call",
+  "query": "Draft (don't send) a Gmail reply to bob@x.com saying I'll be late.",
+  "gold": "gmail__create_draft",
+  "steps": 2,
+  "prompt": 3643,
+  "cached": 1248,
+  "out": 318,
+  "n_tools_first": 2,
+  "picked": "gmail__create_draft",
+  "args": {
+   "to": "bob@x.com",
+   "subject": "Running late",
+   "body": "Hi Bob,\n\nI'm going to be running late. I'll let you know as soon as I have a better estimate of when I'll arrive.\n\nThanks for your patience.\n\nBest"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.4
+ },
+ {
+  "strategy": "search_call",
+  "query": "Put a 'Design review' event on my Google Calendar tomorrow 3-4pm.",
+  "gold": "gcal__create_event",
+  "steps": 2,
+  "prompt": 3977,
+  "cached": 1248,
+  "out": 328,
+  "n_tools_first": 2,
+  "picked": "gcal__create_event",
+  "args": {
+   "title": "Design review",
+   "start": "2026-10-27T15:00:00Z",
+   "end": "2026-10-27T16:00:00Z"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.2
+ },
+ {
+  "strategy": "search_call",
+  "query": "Outlook 캘린더에 금요일 10시~11시 '1:1 with Kim' 일정 추가해줘.",
+  "gold": "outlook__create_event",
+  "steps": 2,
+  "prompt": 4194,
+  "cached": 1270,
+  "out": 644,
+  "n_tools_first": 2,
+  "picked": "outlook__create_event",
+  "args": {
+   "title": "1:1 with Kim",
+   "start": "2026-10-30T01:00:00Z",
+   "end": "2026-10-30T02:00:00Z"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 3.5
+ },
+ {
+  "strategy": "search_call",
+  "query": "민지, 철수, 영희 셋이 다음 주에 30분 같이 비는 시간 찾아줘 (구글 캘린더 기준).",
+  "gold": "gcal__find_free_time",
+  "steps": 2,
+  "prompt": 4165,
+  "cached": 1290,
+  "out": 416,
+  "n_tools_first": 2,
+  "picked": "gcal__find_free_time",
+  "args": {
+   "attendees": "민지, 철수, 영희",
+   "duration_min": 30,
+   "within_days": 14
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.8
+ },
+ {
+  "strategy": "search_call",
+  "query": "Schedule a Teams meeting 'Vendor sync' with ops@acme.com on 2026-11-03 14:00.",
+  "gold": "teams__schedule_meeting",
+  "steps": 2,
+  "prompt": 3920,
+  "cached": 1270,
+  "out": 192,
+  "n_tools_first": 2,
+  "picked": "teams__schedule_meeting",
+  "args": {
+   "title": "Vendor sync",
+   "attendees": "ops@acme.com",
+   "start": "2026-11-03T14:00:00",
+   "duration_min": 30
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.6
+ },
+ {
+  "strategy": "search_call",
+  "query": "구글 드라이브에서 '온보딩 체크리스트' 문서 찾아줘.",
+  "gold": "gdrive__search_files",
+  "steps": 2,
+  "prompt": 3747,
+  "cached": 1252,
+  "out": 150,
+  "n_tools_first": 2,
+  "picked": "gdrive__search_files",
+  "args": {
+   "query": "온보딩 체크리스트"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.5
+ },
+ {
+  "strategy": "search_call",
+  "query": "Search our Notion for the 'incident postmortem template'.",
+  "gold": "notion__search",
+  "steps": 2,
+  "prompt": 3537,
+  "cached": 1226,
+  "out": 140,
+  "n_tools_first": 2,
+  "picked": "notion__search",
+  "args": {
+   "query": "incident postmortem template"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.8
+ },
+ {
+  "strategy": "search_call",
+  "query": "Confluence에서 'VPN 설정 가이드' 페이지 검색해줘.",
+  "gold": "confluence__search",
+  "steps": 2,
+  "prompt": 3520,
+  "cached": 1248,
+  "out": 145,
+  "n_tools_first": 2,
+  "picked": "confluence__search",
+  "args": {
+   "query": "VPN 설정 가이드"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.3
+ },
+ {
+  "strategy": "search_call",
+  "query": "How many orders were placed yesterday? Check the production Postgres orders table.",
+  "gold": "postgres__run_query",
+  "steps": 2,
+  "prompt": 5831,
+  "cached": 1236,
+  "out": 346,
+  "n_tools_first": 2,
+  "picked": "postgres__run_query",
+  "args": {
+   "sql": "SELECT COUNT(*) AS orders_yesterday FROM orders WHERE created_at >= '2026-10-25T00:00:00Z' AND created_at < '2026-10-26T00:00:00Z'"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.2
+ },
+ {
+  "strategy": "search_call",
+  "query": "BigQuery의 analytics.events 테이블에서 지난주 DAU 쿼리 돌려줘.",
+  "gold": "bigquery__run_query",
+  "steps": 3,
+  "prompt": 11052,
+  "cached": 6369,
+  "out": 552,
+  "n_tools_first": 2,
+  "picked": "bigquery__run_query",
+  "args": {
+   "sql": "SELECT * FROM analytics.events LIMIT 5"
+  },
+  "ok": true,
+  "why": "",
+  "lookups": [
+   "bigquery__get_table_schema"
+  ],
+  "sec": 4.7
+ },
+ {
+  "strategy": "search_call",
+  "query": "Before running it, estimate how much this BigQuery query would cost: SELECT * FROM logs.raw",
+  "gold": "bigquery__estimate_cost",
+  "steps": 2,
+  "prompt": 3467,
+  "cached": 1256,
+  "out": 162,
+  "n_tools_first": 2,
+  "picked": "bigquery__estimate_cost",
+  "args": {
+   "sql": "SELECT * FROM logs.raw"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.1
+ },
+ {
+  "strategy": "search_call",
+  "query": "Postgres users 테이블 컬럼 구조 보여줘.",
+  "gold": "postgres__describe_table",
+  "steps": 2,
+  "prompt": 3488,
+  "cached": 1234,
+  "out": 142,
+  "n_tools_first": 2,
+  "picked": "postgres__describe_table",
+  "args": {
+   "table": "users"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.6
+ },
+ {
+  "strategy": "search_call",
+  "query": "Move Salesforce opportunity 006XYZ to 'Closed Won'.",
+  "gold": "salesforce__update_opportunity_stage",
+  "steps": 2,
+  "prompt": 3742,
+  "cached": 1242,
+  "out": 170,
+  "n_tools_first": 2,
+  "picked": "salesforce__update_opportunity_stage",
+  "args": {
+   "opportunity_id": "006XYZ",
+   "stage": "Closed Won"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.7
+ },
+ {
+  "strategy": "search_call",
+  "query": "HubSpot 딜 8812를 'contract sent' 단계로 옮겨줘.",
+  "gold": "hubspot__update_deal_stage",
+  "steps": 2,
+  "prompt": 3908,
+  "cached": 1250,
+  "out": 160,
+  "n_tools_first": 2,
+  "picked": "hubspot__update_deal_stage",
+  "args": {
+   "deal_id": "8812",
+   "stage": "contract sent"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.7
+ },
+ {
+  "strategy": "search_call",
+  "query": "Add a HubSpot contact for lee@startup.io named Lee.",
+  "gold": "hubspot__create_contact",
+  "steps": 2,
+  "prompt": 3979,
+  "cached": 1234,
+  "out": 155,
+  "n_tools_first": 2,
+  "picked": "hubspot__create_contact",
+  "args": {
+   "email": "lee@startup.io",
+   "name": "Lee"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.6
+ },
+ {
+  "strategy": "search_call",
+  "query": "Stripe 결제 ch_3Abc 전액 환불해줘.",
+  "gold": "stripe__refund_charge",
+  "steps": 2,
+  "prompt": 3722,
+  "cached": 1238,
+  "out": 206,
+  "n_tools_first": 2,
+  "picked": "stripe__refund_charge",
+  "args": {
+   "charge_id": "ch_3Abc"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.3
+ },
+ {
+  "strategy": "search_call",
+  "query": "Cancel Stripe subscription sub_778 at the end of the billing period.",
+  "gold": "stripe__cancel_subscription",
+  "steps": 2,
+  "prompt": 3642,
+  "cached": 1238,
+  "out": 163,
+  "n_tools_first": 2,
+  "picked": "stripe__cancel_subscription",
+  "args": {
+   "subscription_id": "sub_778",
+   "at_period_end": true
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.3
+ },
+ {
+  "strategy": "search_call",
+  "query": "젠데스크 티켓 4521에 '고객에게 환불 안내함' 내부 메모 남겨줘 (고객은 못 보게).",
+  "gold": "zendesk__add_internal_note",
+  "steps": 2,
+  "prompt": 3945,
+  "cached": 1288,
+  "out": 169,
+  "n_tools_first": 2,
+  "picked": "zendesk__add_internal_note",
+  "args": {
+   "ticket_id": 4521,
+   "note": "고객에게 환불 안내함"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.6
+ },
+ {
+  "strategy": "search_call",
+  "query": "Who is on call right now for the payments PagerDuty schedule?",
+  "gold": "pagerduty__get_oncall",
+  "steps": 2,
+  "prompt": 3563,
+  "cached": 1230,
+  "out": 154,
+  "n_tools_first": 2,
+  "picked": "pagerduty__get_oncall",
+  "args": {
+   "schedule": "payments"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.7
+ },
+ {
+  "strategy": "search_call",
+  "query": "Datadog에서 최근 1시간 checkout 서비스 에러 로그 찾아줘.",
+  "gold": "datadog__search_logs",
+  "steps": 2,
+  "prompt": 3914,
+  "cached": 1256,
+  "out": 161,
+  "n_tools_first": 2,
+  "picked": "datadog__search_logs",
+  "args": {
+   "query": "service:checkout status:error",
+   "from": "now-1h"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.4
+ },
+ {
+  "strategy": "search_call",
+  "query": "Mute Datadog monitor 99123 for 60 minutes.",
+  "gold": "datadog__mute_monitor",
+  "steps": 2,
+  "prompt": 3886,
+  "cached": 1232,
+  "out": 155,
+  "n_tools_first": 2,
+  "picked": "datadog__mute_monitor",
+  "args": {
+   "monitor_id": 99123,
+   "minutes": 60
+  },
+  "ok": true,
+  "why": "",
+  "sec": 4.8
+ },
+ {
+  "strategy": "search_call",
+  "query": "Acknowledge PagerDuty incident PXK12.",
+  "gold": "pagerduty__acknowledge_incident",
+  "steps": 2,
+  "prompt": 3585,
+  "cached": 1226,
+  "out": 157,
+  "n_tools_first": 2,
+  "picked": "pagerduty__acknowledge_incident",
+  "args": {
+   "incident_id": "PXK12"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.8
+ },
+ {
+  "strategy": "search_call",
+  "query": "지난달 AWS 비용 서비스별로 알려줘.",
+  "gold": "aws__get_cost_and_usage",
+  "steps": 2,
+  "prompt": 3609,
+  "cached": 1232,
+  "out": 230,
+  "n_tools_first": 2,
+  "picked": "aws__get_cost_and_usage",
+  "args": {
+   "start": "2026-09-01T00:00:00Z",
+   "end": "2026-10-01T00:00:00Z"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.0
+ },
+ {
+  "strategy": "search_call",
+  "query": "CloudFront 배포 E2ABC의 /static/* 캐시 무효화해줘.",
+  "gold": "aws__invalidate_cloudfront",
+  "steps": 2,
+  "prompt": 3911,
+  "cached": 1252,
+  "out": 167,
+  "n_tools_first": 2,
+  "picked": "aws__invalidate_cloudfront",
+  "args": {
+   "distribution_id": "E2ABC",
+   "paths": "/static/*"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.5
+ },
+ {
+  "strategy": "search_call",
+  "query": "Retry the failed GitLab pipeline 5531 in infra/terraform.",
+  "gold": "gitlab__retry_pipeline",
+  "steps": 2,
+  "prompt": 3914,
+  "cached": 1240,
+  "out": 188,
+  "n_tools_first": 2,
+  "picked": "gitlab__retry_pipeline",
+  "args": {
+   "project": "infra/terraform",
+   "pipeline_id": 5531
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.8
+ },
+ {
+  "strategy": "search_call",
+  "query": "Merge PR #42 in acme/api with squash.",
+  "gold": "github__merge_pull_request",
+  "steps": 2,
+  "prompt": 4219,
+  "cached": 1222,
+  "out": 188,
+  "n_tools_first": 2,
+  "picked": "github__merge_pull_request",
+  "args": {
+   "repo": "acme/api",
+   "number": 42,
+   "method": "squash"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.1
+ },
+ {
+  "strategy": "search_call",
+  "query": "GitLab group/app 에 feature/login → main 머지 리퀘스트 열어줘.",
+  "gold": "gitlab__create_merge_request",
+  "steps": 2,
+  "prompt": 4125,
+  "cached": 1252,
+  "out": 231,
+  "n_tools_first": 2,
+  "picked": "gitlab__create_merge_request",
+  "args": {
+   "project": "group/app",
+   "source_branch": "feature/login",
+   "target_branch": "main",
+   "title": "Merge feature/login into main"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.8
+ },
+ {
+  "strategy": "search_call",
+  "query": "Jira PAY-311 을 Done 으로 넘겨줘.",
+  "gold": "jira__transition_issue",
+  "steps": 2,
+  "prompt": 3746,
+  "cached": 1236,
+  "out": 218,
+  "n_tools_first": 2,
+  "picked": "jira__transition_issue",
+  "args": {
+   "issue_key": "PAY-311",
+   "status": "Done"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 4.0
+ },
+ {
+  "strategy": "search_call",
+  "query": "Leave a comment on Figma file k3yF: 'Button contrast too low'.",
+  "gold": "figma__post_comment",
+  "steps": 2,
+  "prompt": 3594,
+  "cached": 1242,
+  "out": 156,
+  "n_tools_first": 2,
+  "picked": "figma__post_comment",
+  "args": {
+   "file_key": "k3yF",
+   "message": "Button contrast too low"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.4
+ },
+ {
+  "strategy": "search_call",
+  "query": "100달러가 원화로 얼마야?",
+  "gold": "util__currency_convert",
+  "steps": 2,
+  "prompt": 3659,
+  "cached": 1216,
+  "out": 163,
+  "n_tools_first": 2,
+  "picked": "util__currency_convert",
+  "args": {
+   "amount": 100,
+   "from": "USD",
+   "to": "KRW"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.5
+ },
+ {
+  "strategy": "search_call",
+  "query": "Share the Google Doc 1AbC with intern@acme.com as a viewer.",
+  "gold": "gdrive__share_file",
+  "steps": 2,
+  "prompt": 3717,
+  "cached": 1242,
+  "out": 200,
+  "n_tools_first": 2,
+  "picked": "gdrive__share_file",
+  "args": {
+   "file_id": "1AbC",
+   "email": "intern@acme.com",
+   "role": "reader"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 3.1
+ },
+ {
+  "strategy": "search_call",
+  "query": "커뮤니티 슬랙 #announcements 채널에 'v2.0 released' 공지 올려줘.",
+  "gold": "slack_community__send_message",
+  "steps": 2,
+  "prompt": 3918,
+  "cached": 1264,
+  "out": 220,
+  "n_tools_first": 2,
+  "picked": "slack_community__send_message",
+  "args": {
+   "channel": "#announcements",
+   "text": "v2.0 released"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.5
+ },
+ {
+  "strategy": "search_call",
+  "query": "Post 'standup in 5' to #team-core in our internal Slack.",
+  "gold": "slack__send_message",
+  "steps": 2,
+  "prompt": 3888,
+  "cached": 1234,
+  "out": 179,
+  "n_tools_first": 2,
+  "picked": "slack__send_message",
+  "args": {
+   "channel": "#team-core",
+   "text": "standup in 5"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.3
+ },
+ {
+  "strategy": "search_call",
+  "query": "Open an issue in acme-oss/sdk (our public OSS repo): 'Typo in README'.",
+  "gold": "github_oss__create_issue",
+  "steps": 2,
+  "prompt": 3972,
+  "cached": 1254,
+  "out": 174,
+  "n_tools_first": 2,
+  "picked": "github_oss__create_issue",
+  "args": {
+   "repo": "acme-oss/sdk",
+   "title": "Typo in README"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.5
+ },
+ {
+  "strategy": "search_call",
+  "query": "acme/billing (사내 private 레포)의 열린 PR 목록 보여줘.",
+  "gold": "github__list_pull_requests",
+  "steps": 2,
+  "prompt": 4031,
+  "cached": 1248,
+  "out": 190,
+  "n_tools_first": 2,
+  "picked": "github__list_pull_requests",
+  "args": {
+   "repo": "acme/billing",
+   "state": "open"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.0
+ },
+ {
+  "strategy": "search_call",
+  "query": "레거시 Jira 서버에 있는 OLD-77 이슈 내용 보여줘 (2022년 프로젝트).",
+  "gold": "jira_legacy__get_issue",
+  "steps": 2,
+  "prompt": 4057,
+  "cached": 1276,
+  "out": 157,
+  "n_tools_first": 2,
+  "picked": "jira_legacy__get_issue",
+  "args": {
+   "issue_key": "OLD-77"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.6
+ },
+ {
+  "strategy": "search_call",
+  "query": "Comment 'fixed in 3.2' on Jira Cloud issue PAY-12.",
+  "gold": "jira__add_comment",
+  "steps": 2,
+  "prompt": 3744,
+  "cached": 1248,
+  "out": 164,
+  "n_tools_first": 2,
+  "picked": "jira__add_comment",
+  "args": {
+   "issue_key": "PAY-12",
+   "body": "fixed in 3.2"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.8
+ },
+ {
+  "strategy": "search_call",
+  "query": "Search the community Slack for messages about 'rate limit'.",
+  "gold": "slack_community__search_messages",
+  "steps": 2,
+  "prompt": 3650,
+  "cached": 1226,
+  "out": 145,
+  "n_tools_first": 2,
+  "picked": "slack_community__search_messages",
+  "args": {
+   "query": "rate limit"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 1.8
+ },
+ {
+  "strategy": "search_call",
+  "query": "공개 OSS 레포 acme-oss/cli 에 v1.4.0 릴리스 만들어줘.",
+  "gold": "github_oss__create_release",
+  "steps": 2,
+  "prompt": 4109,
+  "cached": 1266,
+  "out": 227,
+  "n_tools_first": 2,
+  "picked": "github_oss__create_release",
+  "args": {
+   "repo": "acme-oss/cli",
+   "tag": "v1.4.0"
+  },
+  "ok": true,
+  "why": "",
+  "sec": 2.1
+ }
+]

@@ -198,3 +198,104 @@
 | eval | 12/12, pass^3 = 1 | 천장 효과 → 더 어려운 task 필요 |
 
 다음 루프 후보: (1) 실패율 20–80%가 나오는 어려운 eval task 세트, (2) detached job 실행(재시작 후 결과 회수), (3) 세션 단위 tool registry + MCP Streamable HTTP/OAuth, (4) 웹 브라우징 tool(egress 프록시 경유).
+
+---
+
+## Loop 11 — tool이 많을 때 tool 선택
+
+> 사용자 요청: "tool이나 MCP가 많을 때 tool을 잘 고르는 방식 리서치. 실제 문제를 정의한 뒤 해결 과정을 기록."
+> 이번 루프부터 API backend 사용 (Haiku 5.5, `GATEWAY_BACKEND=anthropic`, 기본 effort=max). 리서치: [R4](research/R4_tool_selection.md).
+
+### 11.0 문제 정의
+**상황**: 사내 챗봇에 MCP 서버 23개(GitHub, GitLab, Jira, Linear, Slack, Teams, Gmail, Outlook, GCal, Drive, Notion, Confluence, Postgres, BigQuery, Salesforce, HubSpot, Stripe, Zendesk, Datadog, PagerDuty, AWS, Figma, util)를 연결했다. tool은 126개이고, 같은 일을 하는 tool이 여러 서버에 있다(이슈 생성 4종, 메시지 전송 4종, 메일 2종, 캘린더 2종, 문서 검색 3종, SQL 2종, CRM 2종).
+**질문**: (1) 모든 tool을 매번 넣으면 무엇이 문제인가? (2) 어떤 노출 전략이 정확하고 싸고 빠른가? (3) 이 프로젝트의 전제(OpenAI 호환 API)에서는 무엇을 쓸 수 있나?
+**측정**: 질의 40개(영어 20 / 한국어 20, 대부분 헷갈리기 쉬운 쌍), 정답 tool과 핵심 인자(repo, channel, issue key 등)를 채점. 지표는 정확도, 요청당 입력 토큰, 캐시 적중, LLM 호출 수, 시간.
+**전략** (`tests/experiments/tool_selection.py`)
+
+| 이름 | 방식 |
+|---|---|
+| all | 모든 tool 노출 |
+| all30 | 정답 + 무작위 29개 (tool이 적었다면?) |
+| retrieve8 | **사용자 원문**으로 BM25 top-8 검색 후 노출 |
+| search_load | `search_tools` meta-tool → 찾은 tool을 `tools`에 추가 |
+| search_call | `tools=[search_tools, call_tool]` 고정, 스키마는 검색 결과 본문으로 반환 |
+| hierarchical | 시스템 프롬프트에 서버 목록 → `load_server` |
+| hybrid (3라운드에서 추가) | retrieve8 + `search_tools` fallback |
+
+### 11.1 사전 점검 (LLM 없이)
+- compact 카탈로그: 126 tool ≈ 12.7k 토큰.
+- BM25 원문 검색 recall: **영어 top-1 16/20, 한국어 top-1 6/20**(top-8 20/20 vs 14/20). 설명이 영어라 한국어 질의는 "Jira", "Stripe" 같은 고유명사가 있을 때만 맞는다. → 검색 기반 방식의 첫 번째 위험 요인으로 기록.
+
+### 11.2 1라운드 — compact 카탈로그 (126 tools), 첫 catalog 호출로 채점
+
+| 전략 | 정확도 | tool 수(첫 요청) | 입력 토큰/질의 | LLM 호출 | 시간 |
+|---|---|---|---|---|---|
+| all | 38/40 | 126 | 12,726 | 1.0 | 2.1s |
+| all30 | 40/40 | 30 | 3,332 | 1.0 | 1.8s |
+| retrieve8 | 32/40 | 6 | 934 | 0.9 | 1.8s |
+| search_load | 38/40 | 1 | 1,779 | 2.0 | 3.0s |
+| search_call | 37/40 | 2 | 1,957 | 2.0 | 2.7s |
+| hierarchical | 37/40 | 1 | 2,665 | 2.0 | 2.9s |
+
+- 발견 1: **Haiku 5.5는 126개를 다 줘도 거의 틀리지 않는다.** all의 실패 2건은 "SQL 실행 전에 `describe_table`/`get_table_schema`부터 호출"이었고, 이것은 오답이 아니라 합리적인 사전 조회다. 채점 방식(첫 호출만 봄)의 한계.
+- 발견 2: **진짜 실패는 retrieve8에만** 있었다. 한국어 질의 5건이 "검색 결과 없음"이거나 정답을 놓침 → 모델이 정답 tool을 볼 수조차 없었다(R4 §4의 우려가 재현됨).
+- 발견 3: 검색형은 토큰이 85% 적은 대신 round-trip이 하나 늘어 +0.6–0.9s.
+- 발견 4 (**gateway 버그**): all에서 매 요청 `cache_read=0, cache_write=12,721`. 모든 질의가 같은 tools+system prefix를 쓰는데도 **매번 새로 캐시를 썼다**(write는 1.25배 가격). 원인: gateway가 자동 캐싱(breakpoint = 요청 맨 끝)만 써서, 사용자 메시지가 다른 요청끼리는 공유되는 breakpoint가 없었다. 같은 대화 안의 multi-turn(Loop 6)에서는 문제가 드러나지 않았다.
+  → 수정: **system 블록 끝에 명시적 `cache_control`** 추가(tools → system 순서라 tools+system이 한 덩어리로 캐시됨).
+
+### 11.3 2라운드 — realistic 카탈로그로 난이도 올리기
+1라운드는 실제 환경보다 쉬웠다. 두 가지를 실제처럼 바꿨다.
+- 실제 MCP처럼 **설명을 길게**(용도, 파라미터 설명, 반환 형식, 에러, 권한, 예시, tool당 약 500 토큰).
+- **같은 제품의 인스턴스 여러 개**: 사내 Slack / 커뮤니티 Slack, 사내 GitHub org / OSS org, Jira Cloud / 레거시 Jira Server → **154 tools, 약 77k 토큰**(Anthropic 사례의 "58 tools ≈ 55k"와 같은 규모). 인스턴스를 구분해야 하는 질의 8개를 추가해 총 48개.
+
+| 전략 | 정확도(첫 호출) | 입력 토큰/질의 | 캐시 적중 | 시간 |
+|---|---|---|---|---|
+| all | 45/48 | 76,958 | **70,447** | 2.7s |
+| retrieve8 | 37/48 | 3,584 | 0 | 2.1s |
+| search_load | 43/48 | 4,014 | 193 | 3.0s |
+| search_call | 44/48 | 4,114 | 1,104 | 3.5s |
+| hierarchical | 41/48 | 5,471 | 2,652 | 2.9s |
+
+- 캐시 수정 효과: 동시에 들어간 첫 4건을 빼면 모든 요청이 **76,851 토큰을 캐시에서 읽음**(prefix의 92%).
+- **인스턴스 혼동 0건**: 커뮤니티/사내, OSS/사내, 레거시/클라우드를 모든 전략이 맞췄다(긴 설명 첫 줄의 `[인스턴스 요약]`이 효과적).
+- 남은 "오답"은 대부분 사전 조회(`list_teams` → create, `get_issue` → transition)였다. 검색형·계층형이 사전 조회를 더 많이 했다.
+- → 채점을 바꿨다: **조회형 tool(get/list/search/describe…)에는 가짜 결과를 돌려주고 계속 진행**하게 하고, 정답 tool에 도달하면 성공, **다른 상태 변경 tool을 먼저 호출하면 "잘못된 행동"으로 실패** 처리.
+
+### 11.4 3라운드 — 최종 결과 기준 채점 + hybrid 추가
+
+| 전략 | 정확도 | 잘못된 행동 | 요청당 tool 수 | 입력 토큰/질의 | LLM 호출 | 시간 |
+|---|---|---|---|---|---|---|
+| all | 48/48 | 0 | 154 | 85,037 | 1.1 | 2.9s |
+| **hybrid** | **48/48** | 0 | 7 | **4,636** | 1.2 | **2.3s** |
+| retrieve8 | 42/48 | 0 | 6 | 3,925 | 1.0 | 2.0s |
+| search_load | 48/48 | 0 | 1→ | 4,306 | 2.1 | 3.3s |
+| search_call | 48/48 | 0 | 2 | 4,647 | 2.1 | 4.0s |
+| hierarchical | 48/48 | 0 | 1→ | 6,394 | 2.2 | 3.3s |
+
+- retrieve8의 실패 6건은 **전부 한국어 질의의 검색 실패**(결과 없음 5, tool 미호출 1). 모델 문제가 아니라 검색 recall 문제.
+- **hybrid** = 원문 top-8 + `search_tools` fallback. 검색이 맞으면 1번 호출로 끝나고(영어 대부분), 놓치면 모델이 영어로 다시 검색해 회복(한국어). 정확도는 all과 같고, 토큰은 **95% 적고**, 시간도 가장 짧았다.
+- effort=low에서도 같은 결과: all 48/48 (1.6s), hybrid 48/48 (1.2s), search_call 48/48 (2.3s). 이 규모에서 Haiku 5.5의 선택 정확도는 effort에 거의 영향받지 않았다.
+- ⚠ 캐시 수치 주의: 3라운드의 retrieve8·search 계열 cached 값에는 2라운드에서 같은 프롬프트로 써 둔 캐시가 섞여 있다(TTL 안에 재실행). 캐시 비교는 all(공유 prefix)만 신뢰할 수 있다.
+
+### 11.5 "모두 노출"이 깨지는 지점
+- 카탈로그를 4배(616 tools)로 늘려 1회씩 호출: 308 tools = 입력 154k 토큰 4.8s, 616 tools = **308k 토큰 7.4s**. 그래도 정답을 골랐지만 **매 턴** 이 비용과 지연이 든다.
+- 프로젝트 전제(OpenAI 호환 모델)에서는 이 점이 결정적이다. 자체 호스팅 오픈 모델은 컨텍스트가 32k–128k인 경우가 많다 → **154 tools(77k)만으로 32k/64k 모델은 요청 자체가 불가능**하고, 128k 모델은 대화에 쓸 공간이 거의 남지 않는다. tool 선택 정확도도 작은 모델일수록 떨어진다(R4 §1).
+
+### 11.6 해결책을 agent에 반영
+- `agent/tool_router.py` **ToolRouter(hybrid)**: pinned core tools + 사용자 메시지 기준 BM25 top-k + `search_tools`(모델이 영어로 쿼리를 쓴다, 찾은 tool은 다음 턴부터 호출 가능). `Context(router=...)`일 때 loop가 매 step `tools`를 router에서 가져오고, prefix가 안정되도록 이름순으로 정렬.
+- `search_tools`는 router가 있을 때만 노출(기본 tool 목록에서 제외).
+- 통합 테스트 `tests/test_l7_tool_router.py` (154 tools, 실제 agent loop): **8/8 PASS (128s)**. 검색이 맞은 질의는 요청당 tool 9개로 바로 실행. 검색이 실패한 한국어 질의(검색 결과 0 → `search_tools`만 노출)는 모두 `search_tools` → 정답 tool로 회복.
+  - 관찰: tool 결과가 가짜(`{"ok":true}`)라서 모델이 확인용 조회를 1–2번 더 했다. 실제 결과라면 줄어들 것으로 보이지만 검증하지는 않음.
+
+### 11.7 결론
+1. 이 모델과 이 규모(150 tools, 77k)에서는 **"정확도" 문제가 아니라 비용·지연·컨텍스트 문제**였다. 정확도 문제는 검색을 잘못 설계했을 때(원문 검색, fallback 없음) 생겼다.
+2. 선택 기준:
+   - 모든 tool 정의가 컨텍스트의 일부만 차지하고 tool 세트가 고정적이라면 → **all + 명시적 prefix 캐싱**이 가장 단순하다(캐시 후 실질 입력 약 8.5k 토큰 상당).
+   - tool이 많거나, 세션마다 tool 세트가 다르거나(권한·연결 상태), 컨텍스트가 작은 OpenAI 호환 모델이라면 → **hybrid**(retrieval + search fallback).
+   - 원문 검색만 쓰는 방식(retrieve-only)은 쓰지 않는다. 검색이 놓치면 회복할 길이 없다.
+3. 검색 품질: 사용자 언어와 tool 설명 언어가 다르면 BM25가 무너진다 → 모델이 쿼리를 다시 쓰게 하거나, 다국어 임베딩, 다국어 별칭.
+4. 같은 제품의 여러 인스턴스는 **description 첫 줄에 인스턴스 요약**(`[Slack — public community workspace]`)을 넣고 이름 prefix를 인스턴스별로 두면 혼동이 없었다.
+5. gateway의 prompt cache breakpoint는 **공유 prefix(tools+system) 끝에 명시적으로** 둬야 한다. 자동 캐싱만 쓰면 대화 간 공유가 안 된다.
+
+### 11.8 회귀 (API backend, 캐시 수정·router 반영 후)
+L1 4/4, L2 7/7, L6 MCP 4/4, L7 router 8/8 PASS. (중간에 dockerd가 죽어 L2의 sandbox 테스트 4건이 docker run 단계에서 실패 → 데몬 재기동 후 재실행 PASS. 코드 문제 아님)

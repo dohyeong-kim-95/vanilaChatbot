@@ -92,6 +92,14 @@ def save_note(ctx, note):
     return f"saved note #{len(ctx.notes)}"
 
 
+@tool("Search all connected tools by keywords (write the query in English) when none of the tools you have fits. "
+      "Found tools become callable on your next turn.", {"query": S})
+def search_tools(ctx, query):
+    found = ctx.router.search(query)
+    return "\n".join(f"{n}: {REGISTRY[n]['schema']['function']['description'].splitlines()[0]}" for n in found) \
+        or "No matching tools."
+
+
 @tool("Get the current UTC date/time.", {}, required=[])
 def current_time(ctx):
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -121,4 +129,5 @@ def open_pull_request(ctx, branch, title, body):
 
 
 def schemas(names=None):
-    return [t["schema"] for n, t in REGISTRY.items() if names is None or n in names]
+    # search_tools only makes sense with a ToolRouter, which names it explicitly
+    return [t["schema"] for n, t in REGISTRY.items() if (n in names if names is not None else n != "search_tools")]

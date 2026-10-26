@@ -56,7 +56,10 @@ async def complete(messages, tools, tool_choice=None):
                         "input_schema": t["function"].get("parameters") or {"type": "object", "properties": {}}}
                        for t in tools]
     if system:
-        kw["system"] = system
+        # explicit breakpoint after tools+system: that prefix is shared by every session using the same tool set.
+        # The automatic (top-level) breakpoint sits at the end of the conversation, which differs per request,
+        # so on its own it never lets two different conversations reuse the tools+system prefix (Loop 11).
+        kw["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
     # streaming + get_final_message: effort=max can think for a long time.
     # drop_block: agent-side compaction edits history, which invalidates restored thinking blocks
     # ("preserved thinking" check). Instead of a 400, the API drops the stale blocks and reports them.

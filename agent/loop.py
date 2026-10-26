@@ -23,6 +23,7 @@ class Context:
     sandbox: object = None
     docs: object = None
     egress: object = None        # EgressProxy (allowlist) when the sandbox has network
+    router: object = None        # ToolRouter: expose a relevant subset of many tools (+ search_tools fallback)
     github_token: str = None
     github_repo: str = None      # "owner/repo"
     remote_url: str = None
@@ -158,6 +159,8 @@ def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, histo
     if task is not None:
         msgs.append({"role": "user", "content": task})
         checkpoint(msgs, None)
+        if ctx.router:
+            ctx.router.start(task)
     tools = schemas(tool_names)
     for step in range(max_steps):
         do_calls(ctx, msgs, step, emit, log, checkpoint)
@@ -165,6 +168,8 @@ def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, histo
             emit({"type": "final", "content": "[cancelled]"})
             return "[cancelled]", msgs
         msgs[:] = compact(msgs, client, model, budget, notes=ctx.notes)
+        if ctx.router:  # tools may grow after search_tools; keep the list sorted so the prefix is stable
+            tools = sorted(ctx.router.schemas(), key=lambda t: t["function"]["name"])
         r = client.chat.completions.create(model=model, messages=msgs, tools=tools)
         m = r.choices[0].message
         msgs.append(m.model_dump(exclude_none=True))
