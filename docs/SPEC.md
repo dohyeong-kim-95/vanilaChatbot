@@ -361,6 +361,27 @@ users/{u}/projects/{p}/outputs/              결과물
 - **운영**(미검증): 로컬 디렉터리 → 오브젝트 스토리지(사용자 prefix + 요청마다 서버 권한 검사, 저장소 키는 sandbox에 넣지 않음),
   대화·이벤트·문서 인덱스는 DB, 업로드 용량·악성코드 검사, outputs 보관 기간, 계정 삭제 시 일괄 삭제, 조직 공용 skill/MCP.
 
+### 9.4 아티팩트와 고정 리포트 [검증: Loop 14, 리서치 R6]
+- **아티팩트**(Claude 방식): `artifact` tool, command는 `create`, `update`(`old_str`을 `new_str`로 바꿈, 최신 버전에서 정확히 1회 일치해야 함), `rewrite` 세 가지.
+  - 종류: html, markdown, svg, mermaid, code.
+  - 내용은 `content`나 `file`로 넘긴다. `file`은 workspace 파일이며, 스크립트가 계산한 숫자를 옮겨 적지 않게 하려고 둔다.
+  - 저장 위치는 호스트의 `projects/{p}/artifacts/{id}/{n}.json`. 버전은 불변이고 출처(session, run)를 기록한다. 저장 즉시 SSE `artifact` 이벤트를 보낸다.
+- **렌더링 격리**: 아티팩트 내용은 비신뢰 입력이다.
+  1. 별도 출처의 렌더러(`server/render.py`)가 내려준다. 운영에서는 별도 등록 도메인을 쓴다.
+  2. URL에는 (user, project, id, version)을 담은 HMAC 토큰을 넣는다. 유효 시간은 10분. 서명 불일치, 만료, 없음은 모두 똑같이 404로 답한다.
+  3. 렌더러 CSP: `connect-src 'none'`. 스크립트와 스타일은 cdnjs에서만, 이미지는 data:/blob:만. `form-action 'none'`, `frame-src 'none'`, `frame-ancestors`는 앱만 허용한다.
+  4. 앱 쪽 iframe은 `sandbox="allow-scripts"`만 준다. 앱 CSP의 `frame-src`를 렌더러로 한정해서, iframe이 스스로 다른 사이트로 이동해 데이터를 내보내는 것을 막는다.
+  5. CSP로 못 막는 WebRTC는 렌더러가 페이지 맨 앞에서 `RTCPeerConnection` 등을 지운다. 측정 결과는 Loop 14.
+- **고정 리포트**: `show_report(id, data)`. 모델은 숫자(JSON)만 보내고, 레이아웃은 `agent/report.py` 템플릿이 고정한다.
+  - 템플릿 구성: 요약, 카테고리 막대 차트(예산 눈금 포함, 서버에서 SVG로 그림), 큰 거래, 메모.
+  - 스크립트와 외부 리소스가 없고 모든 텍스트를 escape한다.
+  - 데이터 형식을 엄격하게 검사한다. 카테고리 합 ≠ 총액이거나 정렬이 틀리면 tool 결과에 WARNING을 넣어 모델이 고치게 한다.
+- **영역별 캡처**: `GET /projects/{p}/artifacts/{a}/sections/{s}.png`. headless Chrome으로 `<section>` 하나를 2배율로 캡처한다(JS 끔, 모든 요청 차단).
+  - 각 section에 자체 제목과 고정 폭이 있어서 문서에 붙였을 때 따로 읽힌다.
+  - UI에는 section마다 [복사]·[저장] 버튼이 있다.
+- **최소 UI**(`server/static`): 사이드바(사용자, 프로젝트, 대화, 아티팩트), 채팅(fetch로 SSE를 받고 승인 버튼 표시), 아티팩트 패널(버전 선택, 코드 보기).
+  - 모델·tool 텍스트는 textContent로만 넣는다.
+
 ---
 
 ## 10. 평가
@@ -396,7 +417,12 @@ agent/egress.py         sandbox egress allowlist 프록시 (CONNECT 전용)
 agent/mcp_adapter.py    MCP 서버 tool → registry (annotation 승인, pinning)
 agent/tool_router.py    tool이 많을 때 hybrid 라우팅 (BM25 top-k + search_tools)
 agent/userstore.py      사용자별 저장 공간 (지시사항·설정 병합, 업로드, checkout/commit)
-server/app.py           채팅 서버 (durable run, 이벤트 로그, interrupt/resume, 취소, 복구)
+agent/artifacts.py      아티팩트 저장 (버전 불변, 출처)
+agent/report.py         고정 지출 리포트 템플릿 (데이터 검증, SVG 차트, section 구성)
+server/app.py           채팅 서버 (durable run, 이벤트 로그, interrupt/resume, 취소, 복구, 아티팩트 API, UI 서빙)
+server/render.py        아티팩트 렌더러 (별도 출처, 서명 URL, CSP, WebRTC 제거)
+server/capture.py       리포트 section PNG 캡처 (headless Chrome)
+server/static/          최소 웹 UI (채팅 + 아티팩트 패널)
 tests/test_l1_gateway.py  Loop 1
 tests/test_l2_agent.py    Loop 2
 tests/test_l3_runtime.py  Loop 3
@@ -408,7 +434,9 @@ tests/fixtures/mcp_orders.py  테스트용 MCP 서버
 tests/test_l7_tool_router.py  Loop 11 (154 tools에서 router 통합)
 tests/experiments/tool_selection.py, tool_catalog.py  Loop 11 전략 비교 실험
 tests/test_l8_userstore.py    Loop 12 (사용자 격리, write-back 경계, 지시사항 우선순위, 메모리 오염, 영속성)
-docs/research/          R1–R5 리서치 노트
+tests/eval/finance/           Loop 13 (월간 지출 eval v0: 합성 내보내기 6종, 24문항)
+tests/test_l9_artifacts.py    Loop 14 (아티팩트 저장/tool, 서명 URL, 브라우저 격리, 리포트·캡처, 모델 사용 패턴)
+docs/research/          R1–R6 리서치 노트
 docs/LOOP_LOG.md        루프별 실험 기록
 ```
 
@@ -427,6 +455,9 @@ EGRESS_CA=/path/to/upstream-ca.pem python tests/test_l5_egress.py   # upstream�
 python tests/test_l6_mcp.py
 python tests/test_l7_tool_router.py
 K=3 python tests/test_l8_userstore.py      # 결정적 3개는 LLM 없이 몇 초
+K=3 python tests/test_l9_artifacts.py      # Playwright + 시스템 Chrome(AGENT_CHROME_CHANNEL, ""=번들 Chromium)
+# UI: AGENT_ROOT=/tmp/agent uvicorn server.app:app --port 8200 & AGENT_ROOT=/tmp/agent uvicorn server.render:app --port 8201 &
+#     → http://127.0.0.1:8200  (렌더러는 http://localhost:8201: 포트뿐 아니라 사이트도 다르게)
 python tests/eval/run_eval.py 3 4          # k=3, 동시 4개
 # 실제 OpenAI 호환 모델로: LLM_BASE_URL=https://.../v1 LLM_API_KEY=... LLM_MODEL=... python tests/test_l2_agent.py
 ```

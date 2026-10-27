@@ -13,6 +13,10 @@ GET  /runs/{id}                         -> {status, ...}
 GET  /runs/{id}/events                  SSE, `id:` = seq; resume with Last-Event-ID (or ?after=)
 POST /runs/{id}/approval                {approved: bool}       (resumes an interrupted run)
 POST /runs/{id}/cancel
+GET  /projects | /projects/{p}/sessions | /sessions/{id}            lists, chat history (for the UI)
+GET  /projects/{p}/artifacts | /projects/{p}/artifacts/{a}?version=n  -> {..., view_url} (renderer, server/render.py)
+GET  /projects/{p}/artifacts/{a}/sections/{s}.png?version=n           a report section as an image (server/capture.py)
+GET  /                                  minimal web UI (server/static)
 
 Everything a run needs (history, notes, status, in-flight tool) is in SQLite and checkpointed after every
 message, so a server restart resumes `running` runs and keeps `awaiting_approval` ones. Files live in the user
@@ -28,14 +32,17 @@ import uuid
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
+from agent import report
+from agent.artifacts import ArtifactStore
 from agent.loop import SYSTEM, Context, Interrupt, run
 from agent.rag import DocStore
 from agent.sandbox import Sandbox
 from agent.tools import schemas
 from agent.userstore import ID_RE, UserStore
+from server import capture, render
 
 ROOT = Path(os.environ.get("AGENT_ROOT", "/tmp/agent-sessions"))
 ROOT.mkdir(parents=True, exist_ok=True)
@@ -50,7 +57,8 @@ LOCK = threading.Lock()
 CANCEL = {}  # process-local
 _read = lambda env: Path(os.environ[env]).read_text() if os.environ.get(env) else ""
 STORE = UserStore(ROOT, org_policy=_read("AGENT_ORG_POLICY"), org_settings=json.loads(_read("AGENT_ORG_SETTINGS") or "{}"))
-TOOLS = [t["function"]["name"] for t in schemas()] + ["remember"]
+TOOLS = [t["function"]["name"] for t in schemas()] + ["remember", "artifact", "show_report"]
+STATIC = Path(__file__).parent / "static"
 app = FastAPI()
 
 
@@ -79,6 +87,8 @@ def drive(rid, task=None, decisions=None):
     ctx = Context(sandbox=sb, docs=DocStore(str(ROOT / f"{sid}.docs.db")), notes=json.loads(notes),
                   git_dir=str(run_dir / "git"), remote_url=settings.get("git_remote"),
                   memory=lambda note: STORE.remember(user, note, f"session {sid}, run {rid}"),
+                  artifacts=artifacts(user, project, on_save=lambda meta: emit(rid, {"type": "artifact", **meta}),
+                                      source=f"session {sid}, run {rid}"),
                   approve=lambda name, args: None,  # never block a thread on a human: interrupt instead
                   decisions=decisions or {}, cancel=CANCEL.setdefault(rid, threading.Event()))
     try:
@@ -122,6 +132,11 @@ def _drive(rid, task, ctx, msgs, sid):
         q("UPDATE runs SET status=? WHERE id=?", status, rid)
         emit(rid, {"type": "run_finished", "outcome": status})
     return finish
+
+
+def artifacts(user, project, **kw):
+    # host-side, outside the run's workspace: saved the moment the tool runs, not on write-back
+    return ArtifactStore(STORE.project_dir(user, project) / "artifacts", **kw)
 
 
 def start(rid, **kw):
@@ -325,3 +340,88 @@ async def events(rid: str, request: Request, after: int = 0, user=Depends(caller
             await asyncio.sleep(0.2)
 
     return StreamingResponse(sse(), media_type="text/event-stream")
+
+
+@app.get("/projects")
+def list_projects(user=Depends(caller)):
+    return {"projects": STORE.projects(user)}
+
+
+@app.get("/projects/{pid}/sessions")
+def list_sessions(pid: str, user=Depends(caller)):
+    own_project(pid, user)
+    return {"sessions": [r[0] for r in q("SELECT id FROM sessions WHERE user_id=? AND project_id=? ORDER BY rowid DESC",
+                                          user, pid)]}
+
+
+@app.get("/sessions/{sid}")
+def get_session(sid: str, user=Depends(caller)):
+    """Chat as the user saw it: their messages, the assistant's text, and which artifacts were saved."""
+    project = own_session(sid, user)
+    msgs, out = json.loads(q("SELECT history FROM sessions WHERE id=?", sid)[0][0]), []
+    for m in msgs[1:]:
+        if m["role"] in ("user", "assistant") and isinstance(m.get("content"), str) and m["content"]:
+            out.append({"role": m["role"], "content": m["content"]})
+        for tc in m.get("tool_calls") or []:
+            if tc["function"]["name"] == "artifact":
+                try:
+                    out.append({"role": "artifact", "id": json.loads(tc["function"]["arguments"])["id"]})
+                except (ValueError, KeyError, TypeError):
+                    pass
+    active = q("""SELECT runs.id, runs.status FROM runs WHERE session_id=? AND status IN ('running','awaiting_approval')
+                  ORDER BY rowid DESC LIMIT 1""", sid)
+    return {"session_id": sid, "project_id": project, "messages": out,
+            "active_run": {"run_id": active[0][0], "status": active[0][1]} if active else None}
+
+
+@app.get("/projects/{pid}/artifacts")
+def list_artifacts(pid: str, user=Depends(caller)):
+    return {"artifacts": artifacts(user, own_project(pid, user)).list()}
+
+
+@app.get("/projects/{pid}/artifacts/{aid}")
+def get_artifact(pid: str, aid: str, version: int = None, user=Depends(caller)):
+    try:
+        a = artifacts(user, own_project(pid, user)).get(aid, version)
+    except (KeyError, ValueError):
+        raise HTTPException(404, "no such artifact")
+    a["versions"] = artifacts(user, pid).versions(aid)
+    if a["type"] == "report":
+        a["sections"] = [{"id": s, "title": report.SECTIONS[s]} for s in report.sections(json.loads(a["content"]))]
+    a["view_url"] = f"{render.RENDER_ORIGIN}/a/{render.sign(user, pid, aid, a['version'])}"
+    return a
+
+
+@app.get("/projects/{pid}/artifacts/{aid}/sections/{section}.png")
+def section_png(pid: str, aid: str, section: str, version: int = None, user=Depends(caller)):
+    """One section of a report as an image (or section=all), for pasting into a document."""
+    try:
+        a = artifacts(user, own_project(pid, user)).get(aid, version)
+        if a["type"] != "report":
+            raise KeyError(aid)
+        img = capture.png(json.loads(a["content"]), section)
+    except (KeyError, ValueError):
+        raise HTTPException(404, "no such report section")
+    name = f"{aid}-v{a['version']}-{section}.png"
+    return Response(img, media_type="image/png", headers={"Content-Disposition": f'inline; filename="{name}"',
+                                                           "Cache-Control": "no-store"})
+
+
+# The UI's CSP is part of artifact isolation: frame-src = the renderer only, so an artifact cannot navigate its
+# iframe to another site (a way to send data out that the renderer's own CSP cannot stop).
+UI_CSP = (f"default-src 'self'; frame-src {render.RENDER_ORIGIN}; script-src 'self'; "
+          "style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; "
+          "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+
+
+@app.get("/")
+def ui():
+    return FileResponse(STATIC / "index.html", headers={"Content-Security-Policy": UI_CSP})
+
+
+@app.get("/static/{name}")
+def static(name: str):
+    f = STATIC / name
+    if name not in ("app.js", "app.css") or not f.exists():
+        raise HTTPException(404)
+    return FileResponse(f, headers={"Content-Security-Policy": UI_CSP, "X-Content-Type-Options": "nosniff"})

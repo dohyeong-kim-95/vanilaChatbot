@@ -4,3 +4,4 @@ openai
 httpx
 anthropic
 mcp
+playwright

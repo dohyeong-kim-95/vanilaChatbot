@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vanilaChatbot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono&display=swap">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <label for="user">사용자</label>
+    <input id="user" autocomplete="off" placeholder="alice">
+    <label for="project">프로젝트</label>
+    <div class="row">
+      <select id="project"></select>
+      <button id="new-project" title="새 프로젝트">새로</button>
+    </div>
+    <div class="row between">
+      <span class="label">대화</span>
+      <button id="new-session">새 대화</button>
+    </div>
+    <ul id="sessions"></ul>
+    <span class="label">아티팩트</span>
+    <ul id="artifacts"></ul>
+  </aside>
+
+  <main id="chat">
+    <div id="messages"></div>
+    <form id="composer">
+      <textarea id="input" rows="3" placeholder="메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
+      <button id="send" type="submit">보내기</button>
+    </form>
+  </main>
+
+  <section id="panel" hidden>
+    <header>
+      <h2 id="art-title"></h2>
+      <select id="art-version" title="버전"></select>
+      <button id="art-source">코드</button>
+      <button id="art-close" title="닫기">닫기</button>
+    </header>
+    <div id="art-sections" hidden></div>
+    <div id="frame-wrap"></div>
+    <pre id="art-code" hidden></pre>
+  </section>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

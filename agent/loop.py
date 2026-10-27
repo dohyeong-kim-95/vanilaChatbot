@@ -26,6 +26,7 @@ class Context:
     router: object = None        # ToolRouter: expose a relevant subset of many tools (+ search_tools fallback)
     git_dir: str = None          # server workspaces: trusted git metadata outside the sandbox (userstore.checkout)
     memory: callable = None      # remember(note) -> persists to the user's memory (after approval)
+    artifacts: object = None     # ArtifactStore for the `artifact` tool
     github_token: str = None
     github_repo: str = None      # "owner/repo"
     remote_url: str = None

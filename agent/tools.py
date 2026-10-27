@@ -4,7 +4,7 @@ import datetime
 import os
 import json
 
-from . import github
+from . import github, report
 
 REGISTRY = {}
 
@@ -100,6 +100,65 @@ def remember(ctx, note):
     return "saved to long-term memory"
 
 
+@tool("Show the user an artifact: standalone content they will view or reuse, rendered next to the chat "
+      "(a report, dashboard, document, diagram, small web app). Use it for substantial self-contained content "
+      "(roughly 20+ lines); answer short questions in plain text. Every change makes a new version.\n"
+      "- create: new artifact. Give id (lowercase-slug), type, title, and content OR file (a workspace file whose "
+      "text becomes the content; prefer file when a script computed the numbers in it).\n"
+      "- update: change part of the latest version: old_str (exact, unique) -> new_str. Prefer this for small edits.\n"
+      "- rewrite: replace the whole content (content or file) when most of it changes.\n"
+      "type: html (one self-contained page; external scripts/styles only from https://cdnjs.cloudflare.com with an "
+      "exact version; no network requests and no external images: embed all data in the page), markdown, svg, "
+      "mermaid, code (set language).",
+      {"command": {"type": "string", "enum": ["create", "update", "rewrite"]}, "id": S,
+       "type": {"type": "string", "enum": ["html", "markdown", "svg", "mermaid", "code"]}, "title": S,
+       "content": S, "file": S, "old_str": S, "new_str": S, "language": S}, required=["command", "id"])
+def artifact(ctx, command, id, type=None, title=None, content=None, file=None, old_str=None, new_str=None,
+             language=None):
+    store = ctx.artifacts
+    if command not in ("create", "update", "rewrite"):
+        raise ValueError("command must be create, update or rewrite")
+    if type == "report" or (command != "create" and store.versions(id) and store.get(id)["type"] == "report"):
+        raise ValueError("reports are made with show_report")
+    if command != "update":
+        if (content is None) == (file is None):
+            raise ValueError("give exactly one of content or file")
+        if file is not None:
+            content = ctx.sandbox.path(file).read_text(encoding="utf-8")
+    if command == "create":
+        if store.versions(id):
+            raise ValueError(f"artifact {id!r} exists; use update or rewrite")
+        if not type or not title:
+            raise ValueError("create needs type and title")
+        meta = store.save(id, type, title, content, language)
+    else:
+        cur = store.get(id)
+        if command == "update":
+            if old_str is None or new_str is None:
+                raise ValueError("update needs old_str and new_str")
+            n = cur["content"].count(old_str)
+            if n != 1:
+                raise ValueError(f"old_str must match the latest version exactly once, matched {n} times")
+            content = cur["content"].replace(old_str, new_str)
+        meta = store.save(id, type or cur["type"], title or cur["title"], content, language or cur["language"],
+                          command)
+    return f"artifact {meta['id']} saved as version {meta['version']} ({meta['type']}, {len(content)} chars)"
+
+
+@tool("Show the user the standard monthly spending report (fixed layout: summary, spending by category as a "
+      "bar chart with budgets, largest transactions, notes). You only supply the numbers: compute them with code "
+      "first and copy them exactly. The user can capture each section as an image. Calling it again with the same "
+      "id makes a new version.",
+      {"id": S, "data": report.SCHEMA}, required=["id", "data"])
+def show_report(ctx, id, data):
+    clean, warnings = report.validate(data)
+    store = ctx.artifacts
+    meta = store.save(id, "report", clean["title"], json.dumps(clean, ensure_ascii=False),
+                      command="rewrite" if store.versions(id) else "create")
+    return f"report {meta['id']} saved as version {meta['version']}" + \
+        "".join(f"\nWARNING: {w}. Check your numbers and call show_report again if they are wrong." for w in warnings)
+
+
 @tool("Search all connected tools by keywords (write the query in English) when none of the tools you have fits. "
       "Found tools become callable on your next turn.", {"query": S})
 def search_tools(ctx, query):
@@ -143,6 +202,7 @@ def open_pull_request(ctx, branch, title, body):
 
 
 def schemas(names=None):
-    # search_tools needs a ToolRouter and remember needs a user store; callers that have them name them
+    # search_tools needs a ToolRouter, remember a user store, artifact/show_report an artifact store; callers that have them
+    # name them
     return [t["schema"] for n, t in REGISTRY.items()
-            if (n in names if names is not None else n not in ("search_tools", "remember"))]
+            if (n in names if names is not None else n not in ("search_tools", "remember", "artifact", "show_report"))]

@@ -409,3 +409,45 @@ sandbox 안에서 한 번에 심고, 저장소로 되돌린 뒤 확인했다.
    - sandbox 이미지에 pandas/openpyxl/matplotlib → 코드가 짧아짐.
    - effort를 낮춰 비교(Loop 11에서 effort=low가 tool 선택에 미친 영향 참고).
    - 각 변경은 pass^3 24/24를 유지하는지와 시간 중앙값으로 비교한다.
+
+## Loop 14 — 아티팩트 (Claude 벤치마킹) + 고정 리포트·영역별 캡처
+
+리서치 `docs/research/R6_artifacts.md`, 명세 SPEC §9.4. 테스트 `tests/test_l9_artifacts.py`.
+
+### 14.1 구현
+- `artifact` tool: command는 create, update(old_str를 new_str로 바꿈), rewrite. 종류는 html, markdown, svg, mermaid, code. `file=`로 workspace 파일 내용을 그대로 넣을 수 있음. 버전은 불변이고 SSE `artifact` 이벤트를 보냄.
+- 렌더러 `server/render.py`: 별도 출처, HMAC 서명 URL(10분), CSP(`connect-src 'none'`, cdnjs만, `frame-ancestors`=앱). 페이지 맨 앞에서 WebRTC 생성자를 제거.
+- 앱 UI `server/static`: iframe에 `sandbox="allow-scripts"`, 앱 CSP `frame-src`=렌더러.
+- `show_report` + `agent/report.py`: 모델은 숫자(JSON)만 보내고 템플릿은 고정. SVG 차트를 서버에서 그리고, 스크립트는 없음. 숫자가 서로 안 맞으면 WARNING을 돌려줌.
+- `server/capture.py`: 리포트 section을 PNG로 캡처(headless Chrome, JS 끔, 요청 차단, 2배율). UI의 section별 [복사]·[저장] 버튼.
+
+### 14.2 격리 측정 (실제 Chrome, 악성 아티팩트가 모든 탈출 경로를 시도, 외부 수신기 sink로 판정)
+| 시도 | 결과 |
+|---|---|
+| 부모 DOM, top/자기 localStorage, 쿠키 | 차단 (SecurityError) |
+| fetch: 앱 API, 외부 | 차단 (CSP) |
+| img, script, css, prefetch, 자식 iframe, form, beacon | sink 도달 0 |
+| window.open, top 이동 | 차단 |
+| **iframe 자기 이동** (`location=외부?data`) | 앱 CSP `frame-src`로 차단 (sandbox 속성만으로는 못 막음) |
+| **WebRTC STUN** (직접) | **처음엔 패킷이 sink에 도달**. 생성자 제거 후 차단 |
+| WebRTC (about:blank / srcdoc 자식에서 새 생성자 꺼내기) | 차단 (`frame-src 'none'`, opaque origin) |
+| 다른 페이지가 렌더러 URL을 iframe으로 넣기 | `frame-ancestors`로 차단 |
+
+- JS 반환값은 증거가 아니다. `sendBeacon`은 true를 반환하고, sandbox 안의 `form.submit()`은 조용히 무시된다. 판정은 sink 기준으로 한다.
+
+### 14.3 모델 사용 패턴 (CLI backend, Haiku 5.5 effort=max)
+| 테스트 | k | 결과 |
+|---|---|---|
+| 짧은 질문에 아티팩트를 쓰지 않음 | 1 | 0/1 사용 (정상) |
+| 할 일 앱 생성 | 1 | 성공, 렌더링 오류 없음. 다만 **907초, 출력 22.6만 토큰** |
+| 이어서 제목 한 단어 변경 | 1 | update가 아니라 **rewrite** 사용 (86초, 1.9만 토큰). 결과는 맞음 |
+| 지출 리포트, 고정 템플릿 (`show_report`) | 1/3 완료 | 숫자 정확(총액, 카테고리 전부), **136초**, 출력 3.5만 토큰 |
+| 지출 대시보드, 모델이 HTML 작성 | 진행 중 | |
+
+### 14.4 결론 (중간)
+1. 범용 아티팩트는 Claude 방식대로 동작하지만, 모델이 HTML/JS를 직접 쓰면 매우 비싸다. 이 제품의 주 경로는 **고정 템플릿 + 숫자만 받기**다.
+2. 격리는 "HTTP 요청 차단"만으로는 부족했다. WebRTC와 iframe 자기 이동은 각각 별도 대책이 필요했다.
+3. 다음 후보:
+   - update를 쓰도록 유도해 보기. tool 설명 조정 후 측정.
+   - 리포트 section 추가: 전월 대비 카테고리, 예산 표.
+   - 여러 파일(카드 A·B·은행)을 합친 리포트.
