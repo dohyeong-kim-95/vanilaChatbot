@@ -381,3 +381,31 @@ sandbox 안에서 한 번에 심고, 저장소로 되돌린 뒤 확인했다.
 | L8 userstore | 7/7 PASS | |
 
 다음 후보: settings의 `allowed_domains`를 egress 프록시에 연결, 같은 프로젝트 동시 대화를 브랜치로 허용, 용량 제한/보관 기간, 조직 공용 skill·MCP, 실제 오브젝트 스토리지(S3 prefix + 사용자별 IAM 조건).
+
+## Loop 13 — 문제 정의와 eval v0 (월간 지출 리포트)
+
+문제: `docs/PROBLEM.md`. eval: `tests/eval/finance/` (합성 내보내기 파일 6종, 질문 24개, 정답은 생성한 레코드에서 계산). 결과 `docs/eval_finance_v0.json`.
+설정: CLI backend, Haiku 5.5 effort=max, tool = bash/read/write/edit, sandbox는 `python:3.12-slim`(pandas·openpyxl·matplotlib 없음), k=3, 동시 5.
+
+### 13.1 기준선
+| 지표 | 결과 | 목표 |
+|---|---|---|
+| pass@1 | **72/72 (100%)** | |
+| pass^3 | **24/24** | 주 지표 |
+| 시간 중앙값 / p90 / 최대 | 205s / 345s / 727s | 질문당 ≤120s |
+| 120s 이내 | **5/72** | |
+| LLM 호출 / tool 호출 (중앙값) | 5 / 4 | |
+| 토큰 (중앙값, 입력 / 출력) | 16k / 50k | |
+
+- 모든 태그(cp949, 취소 상계, 할부, 카드대금 이중계산, xlsx·USD, 리포트)가 3/3이다.
+- 라이브러리가 없어도 막히지 않았다. xlsx는 `zipfile` + `ElementTree`로 직접 파싱했고, 차트 PNG는 `struct` + `zlib`으로 픽셀을 직접 써서 만들었다(CRC 자체 검증까지).
+- 출력 토큰이 입력의 3배다. 매번 파서·검증 스크립트를 처음부터 새로 짠다.
+
+### 13.2 해석
+1. **정확도는 천장이다.** 이 eval로는 개선을 측정할 수 없다. 원인은 합성 데이터: 형식이 내가 만든 규칙대로 깨끗하게 지저분하다. 실제 카드사 파일로 바꿔야 어려운 케이스가 나온다.
+2. **실제 문제는 속도다.** 목표 2분을 넘는 비율이 93%. 시간 대부분은 매 질문마다 파서를 새로 작성·검증하는 출력 토큰이다.
+3. 따라서 다음 개선 후보는 "정확도를 올리는 것"이 아니라 "같은 정확도를 더 빨리":
+   - 형식별 파서를 도메인 tool(`load_transactions`)로 제공 → 매번 다시 짜지 않음.
+   - sandbox 이미지에 pandas/openpyxl/matplotlib → 코드가 짧아짐.
+   - effort를 낮춰 비교(Loop 11에서 effort=low가 tool 선택에 미친 영향 참고).
+   - 각 변경은 pass^3 24/24를 유지하는지와 시간 중앙값으로 비교한다.
