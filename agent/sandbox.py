@@ -17,12 +17,15 @@ def truncate(s, limit=MAX_OUT):
 
 
 class Sandbox:
-    def __init__(self, workspace, network="none", egress=None):
-        """egress: an EgressProxy -> internal network whose only way out is that proxy's allowlist."""
+    def __init__(self, workspace, network="none", egress=None, readonly=(), name=None):
+        """egress: an EgressProxy -> internal network whose only way out is that proxy's allowlist.
+        readonly: workspace subdirs mounted read-only (and refused by host-side write tools too)."""
         self.workspace = Path(workspace).resolve()
+        self.readonly = [self.workspace / d for d in readonly]
         self.workspace.mkdir(parents=True, exist_ok=True)
         os.chown(self.workspace, 1000, 1000)  # sandbox runs as uid 1000
-        self.name = "sbx-" + uuid.uuid4().hex[:10]
+        self.name = "sbx-" + (name or uuid.uuid4().hex[:10])
+        subprocess.run(["docker", "rm", "-f", self.name], capture_output=True)  # orphan of a crashed server
         extra = []
         if egress:
             from .egress import NETWORK
@@ -37,7 +40,8 @@ class Sandbox:
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--pids-limit", "256", "--memory", "1g", "--cpus", "1",
             "--user", "1000:1000", "-e", "HOME=/tmp", "-e", "PYTHONDONTWRITEBYTECODE=1",
-            "-v", f"{self.workspace}:/workspace", "-w", "/workspace",
+            "-v", f"{self.workspace}:/workspace", *[a for d in self.readonly for a in (
+                "-v", f"{d}:/workspace/{d.relative_to(self.workspace)}:ro")], "-w", "/workspace",
             IMAGE, "sleep", "infinity"], check=True, capture_output=True)
 
     def exec(self, command, timeout=60):
@@ -50,11 +54,14 @@ class Sandbox:
             subprocess.run(["docker", "exec", self.name, "pkill", "-f", command[:50]], capture_output=True)
             return f"exit_code=124\n[timeout after {timeout}s]"
 
-    def path(self, rel):
-        """Resolve a workspace-relative path; refuse escapes (../, absolute, symlinks out)."""
+    def path(self, rel, write=False):
+        """Resolve a workspace-relative path; refuse escapes (../, absolute, symlinks out). write=True also
+        refuses read-only mounts: host-side tools write to the host directory, bypassing the container's :ro."""
         p = (self.workspace / rel.removeprefix("/workspace/").lstrip("/")).resolve()
         if p != self.workspace and self.workspace not in p.parents:
             raise PermissionError(f"path escapes workspace: {rel}")
+        if write and any(p == d or d in p.parents for d in self.readonly):
+            raise PermissionError(f"read-only: {rel}")
         return p
 
     def close(self):

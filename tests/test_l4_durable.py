@@ -17,7 +17,7 @@ from agent import github  # noqa: E402
 
 TMP = Path(tempfile.mkdtemp(prefix="l4-"))
 DATA = TMP / "data"
-C = httpx.Client(base_url="http://127.0.0.1:8200", timeout=None)
+C = httpx.Client(base_url="http://127.0.0.1:8200", timeout=None, headers={"X-User": "tester"})
 
 
 def server():
@@ -51,13 +51,18 @@ def events(rid, after=0, stop=lambda ev: False):
     return out
 
 
-def git_session(sid):
-    ws, origin = DATA / sid, TMP / f"{sid}-origin.git"
+def new_session(remote=None):
+    """Project per test (Loop 12: files live in the user's project, the sandbox exists only during a run)."""
+    pid = "p" + os.urandom(4).hex()
+    C.post("/projects", json={"project_id": pid})
+    if remote:
+        C.put(f"/projects/{pid}/settings", json={"settings": {"git_remote": str(remote)}})
+    return C.post("/sessions", json={"project_id": pid}).json()["session_id"]
+
+
+def bare_origin():
+    origin = TMP / f"{os.urandom(4).hex()}-origin.git"
     subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
-    for a in (["init", "-q", "-b", "main"], ["remote", "add", "origin", str(origin)],
-              ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"]):
-        github.git(ws, *a)
-    subprocess.run(["chown", "-R", "1000:1000", str(ws)], check=True)
     return origin
 
 
@@ -73,8 +78,8 @@ def history_valid(sid):
 def t_reconnect_and_approval_across_restart():
     srv = server()
     try:
-        sid = C.post("/sessions").json()["session_id"]
-        origin = git_session(sid)
+        origin = bare_origin()
+        sid = new_session(origin)
         rid = C.post(f"/sessions/{sid}/messages", json={"content": (
             "Create hello.py that prints 'hi', run it to check, commit it on branch feat/hello, "
             "then open a pull request.")}).json()["run_id"]
@@ -105,7 +110,7 @@ def t_reconnect_and_approval_across_restart():
 def t_crash_mid_tool():
     srv = server()
     try:
-        sid = C.post("/sessions").json()["session_id"]
+        sid = new_session()
         rid = C.post(f"/sessions/{sid}/messages", json={"content": (
             "Run exactly this bash command once: `sleep 15 && echo done > marker.txt`. "
             "Then tell me whether marker.txt exists.")}).json()["run_id"]
@@ -129,7 +134,7 @@ def t_crash_mid_tool():
 def t_cancel_keeps_history_valid():
     srv = server()
     try:
-        sid = C.post("/sessions").json()["session_id"]
+        sid = new_session()
         rid = C.post(f"/sessions/{sid}/messages", json={"content": (
             "Create files a.txt, b.txt, c.txt, d.txt one per turn with write_file, then list them.")}).json()["run_id"]
         evs = events(rid, stop=lambda ev: ev["type"] == "tool_result")

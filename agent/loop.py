@@ -24,6 +24,8 @@ class Context:
     docs: object = None
     egress: object = None        # EgressProxy (allowlist) when the sandbox has network
     router: object = None        # ToolRouter: expose a relevant subset of many tools (+ search_tools fallback)
+    git_dir: str = None          # server workspaces: trusted git metadata outside the sandbox (userstore.checkout)
+    memory: callable = None      # remember(note) -> persists to the user's memory (after approval)
     github_token: str = None
     github_repo: str = None      # "owner/repo"
     remote_url: str = None

@@ -1,42 +1,56 @@
-"""Chat backend (MVP): durable runs decoupled from HTTP, replayable event log, approval = interrupt/resume.
+"""Chat backend (MVP): durable runs decoupled from HTTP, replayable event log, approval = interrupt/resume,
+per-user storage (agent/userstore.py) with a disposable sandbox per run.
 
-POST /sessions                          -> {session_id}
+Every request carries the caller's identity (X-User: stand-in for real auth); resources of other users are 404.
+PUT  /instructions | /projects/{p}/instructions   {text}      user / project CLAUDE.md
+PUT  /settings     | /projects/{p}/settings       {settings}  never visible to the sandbox
+POST /projects                          {project_id}
+POST /projects/{p}/uploads              {name, text}           (immutable, read-only in the sandbox)
+POST /sessions                          {project_id} -> {session_id}
 POST /sessions/{id}/documents           {name, text}           (RAG upload)
-POST /sessions/{id}/messages            {content}  -> {run_id}  (409 if a run is active)
+POST /sessions/{id}/messages            {content}  -> {run_id}  (409 if a run is active in the project)
 GET  /runs/{id}                         -> {status, ...}
 GET  /runs/{id}/events                  SSE, `id:` = seq; resume with Last-Event-ID (or ?after=)
 POST /runs/{id}/approval                {approved: bool}       (resumes an interrupted run)
 POST /runs/{id}/cancel
 
 Everything a run needs (history, notes, status, in-flight tool) is in SQLite and checkpointed after every
-message, so a server restart resumes `running` runs and keeps `awaiting_approval` ones.
+message, so a server restart resumes `running` runs and keeps `awaiting_approval` ones. Files live in the user
+store; a run checks the project out, and writes repo/outputs back when it ends or pauses for approval.
 """
 import asyncio
 import json
 import os
+import shutil
 import sqlite3
 import threading
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent.loop import SYSTEM, Context, Interrupt, run
 from agent.rag import DocStore
 from agent.sandbox import Sandbox
+from agent.tools import schemas
+from agent.userstore import ID_RE, UserStore
 
 ROOT = Path(os.environ.get("AGENT_ROOT", "/tmp/agent-sessions"))
 ROOT.mkdir(parents=True, exist_ok=True)
 DB = sqlite3.connect(ROOT / "agent.db", check_same_thread=False, isolation_level=None)
 DB.executescript("""
-CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, history TEXT, notes TEXT DEFAULT '[]');
+CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, user_id TEXT, project_id TEXT, history TEXT,
+                                    notes TEXT DEFAULT '[]');
 CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, session_id TEXT, status TEXT, inflight TEXT, pending TEXT);
 CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, type TEXT, data TEXT);
 """)
 LOCK = threading.Lock()
-SANDBOXES, CANCEL = {}, {}  # process-local; rebuilt lazily after a restart (workspace is on disk)
+CANCEL = {}  # process-local
+_read = lambda env: Path(os.environ[env]).read_text() if os.environ.get(env) else ""
+STORE = UserStore(ROOT, org_policy=_read("AGENT_ORG_POLICY"), org_settings=json.loads(_read("AGENT_ORG_SETTINGS") or "{}"))
+TOOLS = [t["function"]["name"] for t in schemas()] + ["remember"]
 app = FastAPI()
 
 
@@ -49,40 +63,65 @@ def emit(rid, ev):
     q("INSERT INTO events(run_id, type, data) VALUES (?,?,?)", rid, ev["type"], json.dumps(ev, ensure_ascii=False))
 
 
-def sandbox(sid):
-    if sid not in SANDBOXES:
-        SANDBOXES[sid] = Sandbox(ROOT / sid)
-    return SANDBOXES[sid]
-
-
 def drive(rid, task=None, decisions=None):
-    """Run (or resume) an agent run in a worker thread. All state goes through the DB."""
+    """Run (or resume) an agent run in a worker thread. All state goes through the DB and the user store;
+    the sandbox lives only while this worker does (an approval wait holds no container)."""
     sid = q("SELECT session_id FROM runs WHERE id=?", rid)[0][0]
-    history, notes = q("SELECT history, notes FROM sessions WHERE id=?", sid)[0]
+    user, project, history, notes = q("SELECT user_id, project_id, history, notes FROM sessions WHERE id=?", sid)[0]
     msgs = json.loads(history)
-    ctx = Context(sandbox=sandbox(sid), docs=DocStore(str(ROOT / f"{sid}.docs.db")), notes=json.loads(notes),
+    if task is not None:  # instructions/memory may have changed since the last message; fixed during a run
+        msgs[0] = {"role": "system", "content": SYSTEM + "\n\n" + STORE.instructions(user, project)}
+    run_dir = ROOT / "work" / rid
+    if not run_dir.exists():  # else: a crashed worker's uncommitted workspace, keep it
+        STORE.checkout(user, project, run_dir)
+    sb = Sandbox(run_dir / "ws", readonly=("uploads",), name=rid)
+    settings = STORE.settings(user, project)
+    ctx = Context(sandbox=sb, docs=DocStore(str(ROOT / f"{sid}.docs.db")), notes=json.loads(notes),
+                  git_dir=str(run_dir / "git"), remote_url=settings.get("git_remote"),
+                  memory=lambda note: STORE.remember(user, note, f"session {sid}, run {rid}"),
                   approve=lambda name, args: None,  # never block a thread on a human: interrupt instead
                   decisions=decisions or {}, cancel=CANCEL.setdefault(rid, threading.Event()))
+    try:
+        finish = _drive(rid, task, ctx, msgs, sid)
+    finally:
+        sb.close()
+    try:  # write back before announcing the end, so a client that sees run_finished sees the saved files
+        r = STORE.commit(user, project, run_dir, f"run {rid}")
+        if r["skipped"]:
+            emit(rid, {"type": "warning", "message": f"not saved (symlinks/special files): {r['skipped']}"})
+        shutil.rmtree(run_dir)
+    except Exception as e:  # keep run_dir for inspection; storage is unchanged
+        emit(rid, {"type": "error", "message": f"saving workspace failed: {type(e).__name__}: {e}"})
+    finish()
 
+
+def _drive(rid, task, ctx, msgs, sid):
+    """Returns the step that publishes the outcome (run after the workspace is saved)."""
     def checkpoint(m, inflight):
         q("UPDATE sessions SET history=?, notes=? WHERE id=?", json.dumps(m), json.dumps(ctx.notes), sid)
         q("UPDATE runs SET inflight=? WHERE id=?", inflight, rid)
 
     emit(rid, {"type": "run_started", "resumed": task is None})
     try:
-        run(task, ctx, history=msgs, emit=lambda ev: emit(rid, ev), log=lambda *_: None, checkpoint=checkpoint)
+        run(task, ctx, tool_names=TOOLS, history=msgs, emit=lambda ev: emit(rid, ev), log=lambda *_: None,
+            checkpoint=checkpoint)
         status = "cancelled" if ctx.cancel.is_set() else "succeeded"
     except Interrupt as i:
         req = {"call_id": i.call_id, "tool": i.name, "arguments": i.arguments}
-        q("UPDATE runs SET status='awaiting_approval', inflight=NULL, pending=? WHERE id=?", json.dumps(req), rid)
-        emit(rid, {"type": "approval_request", **req})
-        emit(rid, {"type": "run_finished", "outcome": "interrupt"})
-        return
+
+        def finish():
+            q("UPDATE runs SET status='awaiting_approval', inflight=NULL, pending=? WHERE id=?", json.dumps(req), rid)
+            emit(rid, {"type": "approval_request", **req})
+            emit(rid, {"type": "run_finished", "outcome": "interrupt"})
+        return finish
     except Exception as e:
         status = "error"
         emit(rid, {"type": "error", "message": f"{type(e).__name__}: {e}"})
-    q("UPDATE runs SET status=? WHERE id=?", status, rid)
-    emit(rid, {"type": "run_finished", "outcome": status})
+
+    def finish():
+        q("UPDATE runs SET status=? WHERE id=?", status, rid)
+        emit(rid, {"type": "run_finished", "outcome": status})
+    return finish
 
 
 def start(rid, **kw):
@@ -103,8 +142,56 @@ def recover():
         start(rid)
 
 
+def caller(x_user: str = Header(None)):
+    """Stand-in for real authentication. The user id always comes from here, never from a request body."""
+    if not x_user or not ID_RE.match(x_user):
+        raise HTTPException(401, "missing or invalid X-User")
+    return x_user
+
+
+def own_session(sid, user):
+    row = q("SELECT user_id, project_id FROM sessions WHERE id=?", sid)
+    if not row or row[0][0] != user:
+        raise HTTPException(404, "no such session")  # same answer as "does not exist": no probing
+    return row[0][1]
+
+
+def own_run(rid, user):
+    row = q("SELECT session_id FROM runs WHERE id=?", rid)
+    if not row:
+        raise HTTPException(404, "no such run")
+    own_session(row[0][0], user)
+
+
+def own_project(project, user):
+    if not ID_RE.match(project) or project not in STORE.projects(user):
+        raise HTTPException(404, "no such project")
+    return project
+
+
 class Msg(BaseModel):
     content: str
+
+
+class Project(BaseModel):
+    project_id: str
+
+
+class SessionReq(BaseModel):
+    project_id: str
+
+
+class Text(BaseModel):
+    text: str
+
+
+class Settings(BaseModel):
+    settings: dict
+
+
+class Upload(BaseModel):
+    name: str
+    text: str
 
 
 class Doc(BaseModel):
@@ -116,37 +203,92 @@ class Decision(BaseModel):
     approved: bool
 
 
+@app.post("/projects")
+def create_project(p: Project, user=Depends(caller)):
+    if not ID_RE.match(p.project_id):
+        raise HTTPException(422, "invalid project_id")
+    STORE.create_project(user, p.project_id)
+    return {"project_id": p.project_id}
+
+
+@app.put("/instructions")
+def user_instructions(t: Text, user=Depends(caller)):
+    STORE.set_instructions(user, t.text)
+    return {"ok": True}
+
+
+@app.put("/projects/{pid}/instructions")
+def project_instructions(pid: str, t: Text, user=Depends(caller)):
+    STORE.set_instructions(user, t.text, own_project(pid, user))
+    return {"ok": True}
+
+
+@app.put("/settings")
+def user_settings(st: Settings, user=Depends(caller)):
+    STORE.set_settings(user, st.settings)
+    return {"ok": True}
+
+
+@app.put("/projects/{pid}/settings")
+def project_settings(pid: str, st: Settings, user=Depends(caller)):
+    STORE.set_settings(user, st.settings, own_project(pid, user))
+    return {"ok": True}
+
+
+@app.get("/memory")
+def get_memory(user=Depends(caller)):
+    return {"memory": STORE.memory(user)}
+
+
+@app.post("/projects/{pid}/uploads")
+def upload(pid: str, u: Upload, user=Depends(caller)):
+    try:
+        return {"sha256": STORE.upload(user, own_project(pid, user), u.name, u.text.encode())}
+    except FileExistsError as e:
+        raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
 @app.post("/sessions")
-def create_session():
+def create_session(r: SessionReq, user=Depends(caller)):
+    own_project(r.project_id, user)
     sid = uuid.uuid4().hex[:12]
-    q("INSERT INTO sessions(id, history) VALUES (?,?)", sid, json.dumps([{"role": "system", "content": SYSTEM}]))
-    sandbox(sid)
+    q("INSERT INTO sessions(id, user_id, project_id, history) VALUES (?,?,?,?)", sid, user, r.project_id,
+      json.dumps([{"role": "system", "content": SYSTEM}]))
     return {"session_id": sid}
 
 
 @app.post("/sessions/{sid}/documents")
-def add_doc(sid: str, d: Doc):
+def add_doc(sid: str, d: Doc, user=Depends(caller)):
+    own_session(sid, user)
     return {"chunks": DocStore(str(ROOT / f"{sid}.docs.db")).add_text(d.name, d.text)}
 
 
 @app.post("/sessions/{sid}/messages")
-def message(sid: str, m: Msg):
-    if q("SELECT 1 FROM runs WHERE session_id=? AND status IN ('running','awaiting_approval')", sid):
-        raise HTTPException(409, "a run is already active in this session")
+def message(sid: str, m: Msg, user=Depends(caller)):
+    project = own_session(sid, user)
     rid = uuid.uuid4().hex[:12]
-    q("INSERT INTO runs(id, session_id, status) VALUES (?,?,'running')", rid, sid)
+    # one active run per project: two runs would each check out the repo and the later write-back would win
+    row = q("""INSERT INTO runs(id, session_id, status) SELECT ?, ?, 'running' WHERE NOT EXISTS (
+               SELECT 1 FROM runs JOIN sessions s ON s.id = runs.session_id WHERE s.user_id=? AND s.project_id=?
+               AND runs.status IN ('running','awaiting_approval')) RETURNING id""", rid, sid, user, project)
+    if not row:
+        raise HTTPException(409, "a run is already active in this project")
     start(rid, task=m.content)
     return {"run_id": rid}
 
 
 @app.get("/runs/{rid}")
-def get_run(rid: str):
+def get_run(rid: str, user=Depends(caller)):
+    own_run(rid, user)
     (sid, status, pending), = q("SELECT session_id, status, pending FROM runs WHERE id=?", rid)
     return {"run_id": rid, "session_id": sid, "status": status, "pending": json.loads(pending or "null")}
 
 
 @app.post("/runs/{rid}/approval")
-def approval(rid: str, d: Decision):
+def approval(rid: str, d: Decision, user=Depends(caller)):
+    own_run(rid, user)
     # compare-and-set: a double click / two tabs cannot resume (and run the tool) twice
     row = q("UPDATE runs SET status='running' WHERE id=? AND status='awaiting_approval' RETURNING pending", rid)
     if not row:
@@ -156,7 +298,8 @@ def approval(rid: str, d: Decision):
 
 
 @app.post("/runs/{rid}/cancel")
-def cancel(rid: str):
+def cancel(rid: str, user=Depends(caller)):
+    own_run(rid, user)
     CANCEL.setdefault(rid, threading.Event()).set()
     if q("SELECT 1 FROM runs WHERE id=? AND status='awaiting_approval'", rid):  # no worker to notice the flag
         q("UPDATE runs SET status='running' WHERE id=?", rid)
@@ -165,7 +308,8 @@ def cancel(rid: str):
 
 
 @app.get("/runs/{rid}/events")
-async def events(rid: str, request: Request, after: int = 0):
+async def events(rid: str, request: Request, after: int = 0, user=Depends(caller)):
+    own_run(rid, user)
     after = int(request.headers.get("last-event-id") or after)
 
     async def sse():

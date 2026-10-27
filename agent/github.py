@@ -16,6 +16,15 @@ def git(ws, *args):
     return p.returncode, (p.stdout + p.stderr).strip()
 
 
+def git_wt(git_dir, work_tree, *args):
+    """git whose metadata (config, hooks, filters, core.worktree) lives OUTSIDE the sandbox-writable tree.
+    With `git -C <workspace>`, a planted .git/config can define a clean filter that `git add` runs on the host,
+    or point core.worktree at host files. Here only the work tree is untrusted."""
+    p = subprocess.run(["git", *SAFE, f"--git-dir={git_dir}", f"--work-tree={work_tree}", *args],
+                       capture_output=True, text=True)
+    return p.returncode, (p.stdout + p.stderr).strip()
+
+
 def clone(url, ws, token=None):
     if token and url.startswith("https://"):
         url = url.replace("https://", f"https://x-access-token:{token}@", 1)
@@ -26,11 +35,12 @@ def clone(url, ws, token=None):
     subprocess.run(["chown", "-R", "1000:1000", str(ws)], check=True)  # sandbox user owns the tree
 
 
-def push(ws, branch, token=None, remote_url=None):
-    url = remote_url or git(ws, "remote", "get-url", "origin")[1]
+def push(ws, branch, token=None, remote_url=None, git_dir=None):
+    run = (lambda *a: git_wt(git_dir, ws, *a)) if git_dir else (lambda *a: git(ws, *a))
+    url = remote_url or run("remote", "get-url", "origin")[1]
     if token and url.startswith("https://"):
         url = url.replace("https://", f"https://x-access-token:{token}@", 1)
-    return git(ws, "push", url, f"HEAD:refs/heads/{branch}")
+    return run("push", url, f"HEAD:refs/heads/{branch}")
 
 
 def create_pr(owner, repo, head, base, title, body, token):
