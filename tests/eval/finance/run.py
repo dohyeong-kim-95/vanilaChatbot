@@ -1,6 +1,10 @@
 """eval v0 (docs/PROBLEM.md): monthly spending questions over card/bank exports. Gateway on :8100.
 python tests/eval/finance/run.py [k] [workers] [--skills] [case_id ...]   -> docs/eval_finance_v0[_skills].json
---skills (Loop 15): skills list in the system prompt, use_skill tool, /skills mounted in the sandbox."""
+--skills (Loop 15): skills list in the system prompt, use_skill tool, /skills mounted in the sandbox.
+EFFORT=low|...|max: sent per request (reasoning_effort); unset = the gateway default. OUT=name: result file stem.
+FOLLOWUP=1 (Loop 22): when the first answer is wrong, the "user" says it looks wrong once (same conversation); the
+effort policy raises the effort for that turn. Recorded as pass2 / seconds2 / effort2."""
+FOLLOWUP = "답이 틀린 것 같아요. 다시 확인해서 outputs/answer.json을 고쳐 주세요."
 import json
 import os
 import shutil
@@ -26,6 +30,22 @@ CODE = ["bash", "read_file", "write_file", "edit_file"]
 TASK_PREFIX = "업로드한 파일은 /workspace/uploads 에 있어요. 결과물은 /workspace/outputs 에 저장해 주세요.\n\n"
 
 
+def _grade(case, ws):
+    try:
+        got = json.loads((ws / "outputs/answer.json").read_text())["answer"]
+    except Exception as e:
+        return None, False, f"no answer.json: {type(e).__name__}"
+    ok = match(case["expected"], got, case["tol"])
+    why = None if ok else "wrong answer"
+    if case["id"] == "a_report":
+        png = ws / "outputs/chart.png"
+        has_png = png.exists() and png.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+        has_md = (ws / "outputs/report.md").exists()
+        if not (has_png and has_md):
+            ok, why = False, f"report.md={has_md} chart.png={has_png}"
+    return got, ok, why
+
+
 def one(case, i, fixtures, tmp, use_skills=False):
     ws = tmp / f"{case['id']}-{i}"
     (ws / "uploads").mkdir(parents=True)
@@ -41,26 +61,19 @@ def one(case, i, fixtures, tmp, use_skills=False):
     res = {"case": case["id"], "tag": case["tag"], "i": i, "expected": case["expected"]}
     try:
         system = "\n\n".join(filter(None, [SYSTEM, skills.prompt(sk)]))
-        final, _ = run(TASK_PREFIX + case["prompt"], Context(sandbox=sb, skills=sk),
-                       tool_names=CODE + ["use_skill"] * use_skills, client=m, max_steps=30,
-                       history=[{"role": "system", "content": system}],
-                       log=lambda l: tools.append(l.split("(")[0].split("] ")[1]))
+        ctx = Context(sandbox=sb, skills=sk)
+        kw = dict(tool_names=CODE + ["use_skill"] * use_skills, client=m, max_steps=30, effort=os.environ.get("EFFORT"),
+                  log=lambda l: tools.append(l.split("(")[0].split("] ")[1]))
+        final, msgs = run(TASK_PREFIX + case["prompt"], ctx, history=[{"role": "system", "content": system}], **kw)
         res.update(final=(final or "")[:300], llm_calls=m.calls, tool_calls=len(tools),
                    prompt_tokens=m.prompt, completion_tokens=m.completion)
-        try:
-            got = json.loads((ws / "outputs/answer.json").read_text())["answer"]
-        except Exception as e:
-            res.update(got=None, pass_=False, why=f"no answer.json: {type(e).__name__}")
-            return res
-        ok = match(case["expected"], got, case["tol"])
-        why = None if ok else "wrong answer"
-        if case["id"] == "a_report":
-            png = ws / "outputs/chart.png"
-            has_png = png.exists() and png.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
-            has_md = (ws / "outputs/report.md").exists()
-            if not (has_png and has_md):
-                ok, why = False, f"report.md={has_md} chart.png={has_png}"
+        got, ok, why = _grade(case, ws)
         res.update(got=got, pass_=ok, why=why)
+        if not ok and os.environ.get("FOLLOWUP"):
+            t2 = time.time()
+            run(FOLLOWUP, ctx, history=msgs, **kw)
+            got2, ok2, why2 = _grade(case, ws)
+            res.update(got2=got2, pass2=ok2, why2=why2, seconds2=round(time.time() - t2), effort2=ctx.effort_used)
     except Exception as e:
         res.update(pass_=False, why=f"error: {repr(e)[:200]}")
     finally:
@@ -89,11 +102,15 @@ def main(k=3, workers=4, only=(), use_skills=False):
     n = sum(x["pass_"] for x in res)
     passk = sum(all(x["pass_"] for x in res if x["case"] == c["id"]) for c in cases)
     print(f"pass@1 {n}/{len(res)} = {n / len(res):.0%}   pass^{k} {passk}/{len(cases)}")
+    fu = [x for x in res if "pass2" in x]
+    if fu:
+        print(f"follow-up after a wrong answer: fixed {sum(x['pass2'] for x in fu)}/{len(fu)}, efforts "
+              f"{sorted({x['effort2'] for x in fu})}, seconds {[x['seconds2'] for x in fu]}")
     secs = sorted(x["seconds"] for x in res)
     print(f"seconds median {statistics.median(secs)}  p90 {secs[int(len(secs) * .9) - 1]}  <=120s "
           f"{sum(s <= 120 for s in secs)}/{len(secs)}   use_skill called {sum('use_skill' in x['tools'] for x in res)}"
           f"/{len(res)}")
-    out = ROOT / "docs" / ("eval_finance_v0_skills.json" if use_skills else "eval_finance_v0.json")
+    out = ROOT / "docs" / ((os.environ.get("OUT") or ("eval_finance_v0_skills" if use_skills else "eval_finance_v0")) + ".json")
     out.write_text(json.dumps(res, indent=1, ensure_ascii=False, default=lambda o: sorted(o) if isinstance(o, set) else str(o)))
     print("->", out)
 

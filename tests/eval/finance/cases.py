@@ -13,6 +13,7 @@ import datetime as dt
 import io
 import json
 import random
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -234,7 +235,7 @@ def match(exp, got, tol=1):
         return exp == got
     if isinstance(exp, (int, float)):
         try:
-            return abs(float(str(got).replace(",", "").replace("원", "").replace("%", "")) - exp) <= tol
+            return abs(float(re.sub(r"[,\s원%$]|USD|KRW", "", str(got), flags=re.I)) - exp) <= tol  # units: Loop 22
         except (TypeError, ValueError):
             return False
     if isinstance(exp, str):

@@ -168,6 +168,9 @@ function onEvent(rid, ev, seq, status) {
       status.textContent = name;
       break;
     }
+    case "effort":
+      status.textContent = ev.reason === "correction" ? "다시 꼼꼼히 확인하는 중…" : "오류가 이어져 더 깊게 생각하는 중…";
+      break;
     case "agent_progress":
       status.textContent = `${ev.agent}: ${ev.message}`;
       break;

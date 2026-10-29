@@ -31,6 +31,7 @@ class Context:
     agents: dict = field(default_factory=dict)  # name -> manifest (agent.delegate.discover) for agent__* tools
     emit: callable = lambda ev: None             # set by run(): tools that report progress (connected agents)
     llm: callable = None                         # set by run(): messages -> text, for connected agents' LLM calls
+    effort_used: str = None                      # effort of the last model call (after any escalation)
     github_token: str = None
     github_repo: str = None      # "owner/repo"
     remote_url: str = None
@@ -166,14 +167,43 @@ def do_calls(ctx, msgs, step, emit, log, checkpoint):
         checkpoint(msgs, None)
 
 
+# Effort policy (Loop 22). Low is ~9x faster than max at the same accuracy on our evals, so runs start at the
+# configured effort and go up to ESCALATE only on signals we can observe: the user correcting the last answer, or a
+# streak of failing tool calls. Never to max (10-30x slower).
+ESCALATE = "high"
+CORRECTION_RE = re.compile(r"틀렸|틀린|틀려|아닌데|아니잖|잘못|다시\s*(확인|계산|해|봐|봐줘)|재확인|맞아\?|wrong|incorrect|not right",
+                           re.I)
+ERROR_STREAK = 2
+
+
+def _cheap(effort):
+    return effort in ("low", "medium")
+
+
+def _error_streak(msgs):
+    """Failing tool results in a row, across turns (assistant turns in between do not reset it)."""
+    n = 0
+    for m in reversed(msgs):
+        if m["role"] == "assistant":
+            continue
+        if m["role"] != "tool" or not str(m.get("content", "")).lstrip().startswith(("ERROR", "exit_code=1", "exit_code=2")):
+            break
+        n += 1
+    return n
+
+
 def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, history=None, log=print,
         emit=lambda ev: None, budget=60_000, checkpoint=lambda msgs, inflight: None, effort=None):
     """task=None resumes `history` (after an Interrupt or a restart): pending tool calls run first.
-    effort: sent as OpenAI `reasoning_effort` only when given (some endpoints reject the field)."""
+    effort: sent as OpenAI `reasoning_effort` only when given (some endpoints reject the field); a low/medium
+    effort is raised to ESCALATE for this run when the user corrects the previous answer or tools keep failing."""
     client = client or OpenAI(base_url=os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8100/v1"),
                               api_key=os.environ.get("LLM_API_KEY", "dummy"))
     model = model or os.environ.get("LLM_MODEL") or client.models.list().data[0].id
     msgs = history if history is not None else [{"role": "system", "content": SYSTEM}]
+    if task is not None and _cheap(effort) and CORRECTION_RE.search(task) and any(m["role"] == "assistant" for m in msgs):
+        effort = ESCALATE
+        emit({"type": "effort", "effort": effort, "reason": "correction"})
     if task is not None:
         for tc in pending_calls(msgs):  # a previous run failed mid-call: every tool_use needs its result first
             msgs.append({"role": "tool", "tool_call_id": tc["id"], "content": "ERROR: not run; the previous run failed."})
@@ -187,6 +217,9 @@ def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, histo
         model=model, messages=m, **({"extra_body": {"reasoning_effort": effort}} if effort else {})).choices[0].message.content
     for step in range(max_steps):
         do_calls(ctx, msgs, step, emit, log, checkpoint)
+        if _cheap(effort) and _error_streak(msgs) >= ERROR_STREAK:
+            effort = ESCALATE
+            emit({"type": "effort", "effort": effort, "reason": "tool errors"})
         if ctx.cancel.is_set():
             emit({"type": "final", "content": "[cancelled]"})
             return "[cancelled]", msgs
@@ -195,6 +228,7 @@ def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, histo
             tools = sorted(ctx.router.schemas(), key=lambda t: t["function"]["name"])
         r = client.chat.completions.create(model=model, messages=msgs, tools=tools,
                                            **({"extra_body": {"reasoning_effort": effort}} if effort else {}))
+        ctx.effort_used = effort
         m = r.choices[0].message
         msgs.append(m.model_dump(exclude_none=True))
         checkpoint(msgs, None)

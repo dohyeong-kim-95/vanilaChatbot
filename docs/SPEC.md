@@ -92,6 +92,7 @@
 
 ### 2.4 지연·비용
 - effort는 요청마다 OpenAI `reasoning_effort`로 보낸다(게이트웨이가 low–max 검증). 서버 기본값 low(`AGENT_EFFORT`), 프로젝트 settings `effort`로 올린다. 근거: Loop 15–16에서 max는 low보다 약 9–30배 느렸고 정확도는 같았다(k=1–2). [검증]
+- **effort 자동 조정** [검증: Loop 22]: run은 설정된 effort(기본 low)로 시작하고, 관찰할 수 있는 신호가 있을 때만 그 run을 `high`로 올린다(max는 쓰지 않는다). 신호: (1) 직전 답이 있는 대화에서 사용자가 정정("틀렸", "아닌데", "다시 확인" …, `CORRECTION_RE`), (2) tool 결과가 턴을 넘어 연속 2번 실패. 올라가면 SSE `effort` 이벤트를 보낸다. 낮추지는 않는다.
 - [검증] 지연은 추론 effort가 지배: Haiku effort=max 6–9s/step, low ≈3s/step(CLI). 프롬프트 2k→25k 토큰은 영향 미미.
 - [검증] backend 차이: 같은 L2 스위트가 CLI 에뮬레이션 9분 33초 → 네이티브 API 104초. 운영은 네이티브 tool calling + streaming backend가 전제.
 - 작업 1건(버그 수정+커밋+PR)이 6–10 step → effort=max면 수 분. → **단계별 effort 정책**: 계획/검증은 높게, 단순 tool 반복은 낮게(모델 설정으로 노출).
@@ -498,6 +499,7 @@ tests/test_l12_triage.py      Loop 17 (sniff 판정, ask_user 중단/재개, 실
 tests/test_l13_logview.py     Loop 18 (집계 = 정답, 원문 미저장, Chrome에서 패턴·막대 클릭 → 캡처)
 tests/test_l14_review_fixes.py  Loop 19 (독립 리뷰 지적의 회귀: 심볼릭 링크 바꿔치기, 큰 출력, 예전 카드, 질문 전후 파일, sandbox 실패, 동시 업로드)
 tests/test_l15_agents.py      Loop 21 (연결된 에이전트: 결과·진행 이벤트, LLM 중계와 한도, 오동작 에이전트 격리, 모델의 선택)
+tests/test_l16_effort.py      Loop 22 (effort 정책: 정정 문구, 정정 시 상향, 연속 tool 오류 시 상향)
 tests/eval/logview/gen.py     합성 주문 서비스 로그 (배포 후 새 에러, 15분 장애, 스택 트레이스)
 tests/eval/shmoo/gen.py       합성 ATE shmoo 로그 (장치 24개 × 온도 2 × VDD 16 × 주파수 17, 결함 3종)
 docs/research/          R1–R6 리서치 노트

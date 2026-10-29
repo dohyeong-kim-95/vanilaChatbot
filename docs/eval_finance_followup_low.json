@@ -1,0 +1,261 @@
+[
+ {
+  "case": "a_mom",
+  "tag": "monthly",
+  "i": 0,
+  "expected": {
+   "category": "교통",
+   "increase": 165000
+  },
+  "final": "카드A 8월→9월 카테고리별 증감을 계산했습니다. 9월에 가장 많이 늘어난 카테고리는 **교통**으로 **+165,000원**(270,500원 → 435,500원)입니다. 2위는 생활(+109,300원)입니다.\n\n검증: 8월 합계 1,406,100원, 9월 합계 1,605,300원이 카테고리 합과 일치합니다. 두 파일 모두 취소 건은 확인되지 않았습니다.\n\n결과는 `/workspace/outputs/answer.json`에 저장했습니다:\n`{\"answer\": {\"category\": \"교통\", \"increase\": 165000}}`",
+  "llm_calls": 4,
+  "tool_calls": 3,
+  "prompt_tokens": 14856,
+  "completion_tokens": 1962,
+  "got": {
+   "category": "교통",
+   "increase": 165000
+  },
+  "pass_": true,
+  "why": null,
+  "seconds": 22,
+  "tools": [
+   "use_skill",
+   "bash",
+   "bash"
+  ]
+ },
+ {
+  "case": "a_mom",
+  "tag": "monthly",
+  "i": 1,
+  "expected": {
+   "category": "교통",
+   "increase": 165000
+  },
+  "final": "카드A 8월 대비 9월에 가장 많이 늘어난 카테고리는 **교통**이며, 늘어난 금액은 **165,000원**입니다(270,500원 → 435,500원). 취소 건은 signed 합계로 순액 반영했습니다. 다른 카테고리는 생활 +109,300원, 쇼핑 +38,000원, 문화 -113,100원, 구독과 식비는 변동 없음입니다.\n\n결과는 /workspace/outputs/answer.json 에 저장했습니다: {\"answer\": {\"category\": \"교통\", \"increase\": 165000}}\n\n참고: 업로드 폴더에 xlsx 파일이",
+  "llm_calls": 4,
+  "tool_calls": 3,
+  "prompt_tokens": 14956,
+  "completion_tokens": 1790,
+  "got": {
+   "category": "교통",
+   "increase": 165000
+  },
+  "pass_": true,
+  "why": null,
+  "seconds": 18,
+  "tools": [
+   "use_skill",
+   "bash",
+   "bash"
+  ]
+ },
+ {
+  "case": "a_mom",
+  "tag": "monthly",
+  "i": 2,
+  "expected": {
+   "category": "교통",
+   "increase": 165000
+  },
+  "final": "카드A 8월 대비 9월에 가장 많이 늘어난 카테고리는 **교통**이며, 늘어난 금액은 **165,000원**입니다 (270,500원 → 435,500원).\n\n확인 방법: card_a_2026-08.csv와 card_a_2026-09.csv의 카테고리별 합계를 계산했고, 카테고리 합계가 각 월 총액(8월 1,406,100원, 9월 1,605,300원)과 일치하는 것을 확인했습니다. 취소 건은 없었습니다.\n\n다른 카테고리 증감: 생활 +109,300원, 쇼핑 +38,000원, 문화 -113,100원, 구독·식비 변동 없음.\n\n결과는 /",
+  "llm_calls": 5,
+  "tool_calls": 4,
+  "prompt_tokens": 20038,
+  "completion_tokens": 1946,
+  "got": {
+   "category": "교통",
+   "increase": 165000
+  },
+  "pass_": true,
+  "why": null,
+  "seconds": 21,
+  "tools": [
+   "use_skill",
+   "bash",
+   "bash",
+   "bash"
+  ]
+ },
+ {
+  "case": "a_mom",
+  "tag": "monthly",
+  "i": 3,
+  "expected": {
+   "category": "교통",
+   "increase": 165000
+  },
+  "final": "카드A 8월 대비 9월에 가장 많이 늘어난 카테고리는 **교통**으로, 165,000원 증가했습니다(270,500원 → 435,500원).\n\n다른 카테고리 변화: 생활 +109,300원, 쇼핑 +38,000원, 문화 −113,100원, 구독·식비 변동 없음.\n\n계산: `card_a_2026-08.csv`, `card_a_2026-09.csv`를 tx.py로 읽고 카테고리별 `signed()` 합계(취소 반영)를 비교했습니다. 두 파일 모두 헤더와 날짜 범위(8/1~8/31, 9/1~9/30)가 정상이었습니다.\n\n결과는 `/works",
+  "llm_calls": 5,
+  "tool_calls": 4,
+  "prompt_tokens": 20637,
+  "completion_tokens": 1528,
+  "got": {
+   "category": "교통",
+   "increase": 165000
+  },
+  "pass_": true,
+  "why": null,
+  "seconds": 19,
+  "tools": [
+   "use_skill",
+   "bash",
+   "bash",
+   "write_file"
+  ]
+ },
+ {
+  "case": "a_mom",
+  "tag": "monthly",
+  "i": 4,
+  "expected": {
+   "category": "교통",
+   "increase": 165000
+  },
+  "final": "카드A 8월 대비 9월에 가장 많이 늘어난 카테고리는 **교통**으로, 270,500원에서 435,500원으로 **165,000원** 늘었습니다.\n\n- 입력: /workspace/uploads/card_a_2026-08.csv, card_a_2026-09.csv (xlsx 파일은 없음)\n- 취소 반영: tx.py의 signed() 규칙으로 계산\n- 카테고리별 증감: 생활 +109,300, 쇼핑 +38,000, 문화 -113,100, 구독·식비 변동 없음\n- 저장: /workspace/outputs/answer.json = {\"cat",
+  "llm_calls": 5,
+  "tool_calls": 4,
+  "prompt_tokens": 118652,
+  "completion_tokens": 129559,
+  "got": null,
+  "pass_": false,
+  "why": "no answer.json: KeyError",
+  "got2": null,
+  "pass2": false,
+  "why2": "no answer.json: KeyError",
+  "seconds2": 54,
+  "effort2": "high",
+  "seconds": 426,
+  "tools": [
+   "use_skill",
+   "bash",
+   "bash",
+   "bash",
+   "bash",
+   "bash"
+  ]
+ },
+ {
+  "case": "b_net",
+  "tag": "cancel",
+  "i": 0,
+  "expected": 2753000,
+  "final": "카드B 2026년 9월 실제 사용액은 **2,753,000원**입니다.\n\n- 승인 30건 합계 2,829,300원에서 취소 2건(다이소 48,500원, 교보문고 21,600원)과 카카오T 부분취소 6,200원을 뺐습니다.\n- 할부 3건(이케아 3개월, 하이마트 3개월, 애플스토어 6개월)은 결제 총액 기준으로 포함했습니다.\n- 결과는 /workspace/outputs/answer.json 에 {\"answer\": 2753000}으로 저장했습니다.",
+  "llm_calls": 6,
+  "tool_calls": 5,
+  "prompt_tokens": 27091,
+  "completion_tokens": 3116,
+  "got": 2753000,
+  "pass_": true,
+  "why": null,
+  "seconds": 30,
+  "tools": [
+   "use_skill",
+   "bash",
+   "bash",
+   "bash",
+   "write_file"
+  ]
+ },
+ {
+  "case": "b_net",
+  "tag": "cancel",
+  "i": 1,
+  "expected": 2753000,
+  "final": "카드B 2026년 9월 실제 사용액은 **2,829,300원**입니다.\n\n계산: 승인 건 합계 2,829,300원에서 취소 2건(다이소 48,500원, 교보문고 21,600원)과 부분취소 1건(카카오T 6,200원)을 뺐습니다. 할부 3건(이케아 713,700원, 하이마트 433,700원)과 6개월 할부 1건(애플스토어 820,700원)은 결제 총액 기준으로 포함했습니다. 검산: 전체 출금 2,905,600원 = 2,829,300 + 6,200 + 48,500 + 21,600.\n\n참고로 취소 건을 환불로 상계하면 순사용액은 2,75",
+  "llm_calls": 5,
+  "tool_calls": 4,
+  "prompt_tokens": 19628,
+  "completion_tokens": 2926,
+  "got": 2829300,
+  "pass_": false,
+  "why": "wrong answer",
+  "got2": 2753000,
+  "pass2": true,
+  "why2": null,
+  "seconds2": 56,
+  "effort2": "high",
+  "seconds": 138,
+  "tools": [
+   "use_skill",
+   "bash",
+   "bash",
+   "bash",
+   "bash",
+   "bash"
+  ]
+ },
+ {
+  "case": "b_net",
+  "tag": "cancel",
+  "i": 2,
+  "expected": 2753000,
+  "final": "\n<invoke_tool_placeholder>\n</invoke_tool_placeholder>\n\n\n<invoke_tool_placeholder>\n</invoke_tool_placeholder>\n\n\n<invoke_tool_placeholder>\n</invoke_tool_placeholder>",
+  "llm_calls": 3,
+  "tool_calls": 2,
+  "prompt_tokens": 9501,
+  "completion_tokens": 826,
+  "got": null,
+  "pass_": false,
+  "why": "no answer.json: FileNotFoundError",
+  "got2": 2753000,
+  "pass2": true,
+  "why2": null,
+  "seconds2": 76,
+  "effort2": "high",
+  "seconds": 98,
+  "tools": [
+   "use_skill",
+   "bash",
+   "bash",
+   "bash",
+   "bash"
+  ]
+ },
+ {
+  "case": "b_net",
+  "tag": "cancel",
+  "i": 3,
+  "expected": 2753000,
+  "final": "카드B 2026년 9월 실제 사용액은 **2,753,000원**입니다.\n\n- 원본: 33건, 승인 합계 2,829,300원 (취소 행 제외)\n- 취소 3건을 차감: 카카오T 부분취소 6,200원, 다이소 취소 48,500원, 교보문고 취소 21,600원 (합계 76,300원)\n- 할부 3건(이케아 3개월, 하이마트 3개월, 애플스토어 6개월)은 결제 총액 기준으로 반영\n- 2,829,300 − 76,300 = 2,753,000\n\n결과는 `/workspace/outputs/answer.json`에 `{\"answer\": 2753000}",
+  "llm_calls": 5,
+  "tool_calls": 4,
+  "prompt_tokens": 19209,
+  "completion_tokens": 3400,
+  "got": 2753000,
+  "pass_": true,
+  "why": null,
+  "seconds": 38,
+  "tools": [
+   "use_skill",
+   "bash",
+   "bash",
+   "bash"
+  ]
+ },
+ {
+  "case": "b_net",
+  "tag": "cancel",
+  "i": 4,
+  "expected": 2753000,
+  "final": "카드B 2026년 9월 실제 사용액은 **2,753,000원**입니다.\n\n계산: 승인 거래 30건 합계 2,829,300원에서 취소 2건(다이소 48,500원, 교보문고 21,600원)과 부분취소 1건(카카오T 6,200원), 총 76,300원을 뺐습니다. 할부 건(이케아 3개월 713,700원, 하이마트 3개월 433,700원, 애플스토어 6개월 820,700원)은 결제 총액 기준으로 넣었습니다.\n\n결과는 /workspace/outputs/answer.json에 저장했습니다: {\"answer\": 2753000}",
+  "llm_calls": 8,
+  "tool_calls": 7,
+  "prompt_tokens": 119547,
+  "completion_tokens": 133713,
+  "got": 2753000,
+  "pass_": true,
+  "why": null,
+  "seconds": 420,
+  "tools": [
+   "use_skill",
+   "bash",
+   "bash",
+   "bash",
+   "bash",
+   "bash",
+   "bash"
+  ]
+ }
+]
