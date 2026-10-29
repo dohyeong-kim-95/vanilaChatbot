@@ -92,9 +92,15 @@ def installments(x):
 
 
 def signed(r):
-    """Spending with cancellations netted: rows whose status contains 취소 (취소, 부분취소, 승인취소) count negative.
-    A 부분취소 row's amount is the cancelled part, so summing signed() over all rows gives the net."""
-    return -r["amount"] if "취소" in (r["status"] or "") else r["amount"]
+    """Spending with cancellations netted: cancel rows (status 취소/부분취소/승인취소, 취소여부=Y, or a negative card
+    amount = refund) count negative. A 부분취소 row's amount is the cancelled part, so summing signed() over all
+    rows gives the net."""
+    return -r["amount"] if r["cancel"] else r["amount"]
+
+
+def _is_cancel(status, header):
+    s = str(status or "").strip()
+    return "취소" in s or ("취소" in str(header or "") and s.upper() in ("Y", "YES", "예", "O", "1", "TRUE"))
 
 
 # ---- reading tables ---------------------------------------------------------------------------------------------
@@ -192,13 +198,11 @@ def _parse(path, sheet, rows, enc):
     for n, row in enumerate(rows[hi + 1:], hi + 2):
         if not any(str(c).strip() for c in row):
             continue
-        if any(TOTAL_RE.match(str(c)) for c in row[:3]):
-            skipped.append((n, "total row"))
-            continue
         dtm = date_time(get(row, "date"))
-        if not dtm:
-            skipped.append((n, f"no date: {row[:4]}"))
+        if not dtm:  # total rows have no date; a merchant named "TOTAL WINE" with a date is a real transaction
+            skipped.append((n, "total row" if any(TOTAL_RE.match(str(c)) for c in row[:3]) else f"no date: {row[:4]}"))
             continue
+        cancel = _is_cancel(get(row, "status"), rows[hi][col["status"]] if "status" in col else None)
         out_amt, in_amt = number(get(row, "out")), number(get(row, "in"))
         if "out" in col or "in" in col:
             amount, direction = (out_amt, "out") if out_amt else (in_amt or 0, "in")
@@ -207,10 +211,11 @@ def _parse(path, sheet, rows, enc):
             if amount is None:
                 skipped.append((n, f"no amount: {row[:4]}"))
                 continue
-            if amount < 0:  # some exports write refunds as negative amounts
-                amount, direction = -amount, "in"
+            if amount < 0:  # some exports write refunds as negative amounts: a cancel of spending
+                amount, cancel = -amount, True
         out.append({"file": Path(path).name, "sheet": sheet, "row": n, "date": dtm[0], "time": dtm[1],
                     "merchant": str(get(row, "merchant") or "").strip(), "amount": amount, "direction": direction,
+                    "cancel": cancel,
                     "status": str(get(row, "status") or "").strip(),
                     "installments": installments(get(row, "installments")),
                     "category": (str(get(row, "category")).strip() or None) if "category" in col else None,
@@ -259,7 +264,9 @@ def describe(rows, info):
                 lines.append(f"  {d}: {len(s)} rows, sum of amount {sum(r['amount'] for r in s):,}")
         st = sorted({r["status"] for r in mine if r["status"]})
         if st:
-            lines.append(f"  status values: {st}  (signed() nets rows containing 취소)")
+            lines.append(f"  status values: {st}")
+        if any(r["cancel"] for r in mine):
+            lines.append(f"  cancel rows (refunds/취소): {sum(r['cancel'] for r in mine)}, signed() nets them")
         inst = sorted({r["installments"] for r in mine if r["installments"] > 1})
         if inst:
             lines.append(f"  installment months present: {inst}")

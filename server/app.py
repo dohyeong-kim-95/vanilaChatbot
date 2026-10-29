@@ -57,7 +57,7 @@ LOCK = threading.Lock()
 CANCEL = {}  # process-local
 _read = lambda env: Path(os.environ[env]).read_text() if os.environ.get(env) else ""
 STORE = UserStore(ROOT, org_policy=_read("AGENT_ORG_POLICY"), org_settings=json.loads(_read("AGENT_ORG_SETTINGS") or "{}"))
-TOOLS = [t["function"]["name"] for t in schemas()] + ["remember", "artifact", "show_report", "show_shmoo", "use_skill", "ask_user"]
+TOOLS = [t["function"]["name"] for t in schemas()] + ["remember", "artifact", "show_report", "show_shmoo", "show_logview", "use_skill", "ask_user"]
 SKILLS = skills.discover()
 # Loop 15: effort=max was ~9x slower than low on the finance eval with the same accuracy (k=1). Default low;
 # a project can raise it with settings {"effort": "high"} (user/project/org layers, §9.3).
@@ -78,6 +78,18 @@ def emit(rid, ev):
 def drive(rid, task=None, decisions=None):
     """Run (or resume) an agent run in a worker thread. All state goes through the DB and the user store;
     the sandbox lives only while this worker does (an approval wait holds no container)."""
+    try:
+        paused = _work(rid, task, decisions)
+    except Exception as e:  # checkout, docker, storage: fail the run visibly instead of leaving it 'running' (locked)
+        q("UPDATE runs SET status='error', inflight=NULL WHERE id=?", rid)
+        emit(rid, {"type": "error", "message": f"{type(e).__name__}: {e}"})
+        emit(rid, {"type": "run_finished", "outcome": "error"})
+        paused = False
+    if not paused:
+        CANCEL.pop(rid, None)
+
+
+def _work(rid, task, decisions):
     sid = q("SELECT session_id FROM runs WHERE id=?", rid)[0][0]
     user, project, history, notes = q("SELECT user_id, project_id, history, notes FROM sessions WHERE id=?", sid)[0]
     msgs = json.loads(history)
@@ -97,17 +109,20 @@ def drive(rid, task=None, decisions=None):
                   approve=lambda name, args: None,  # never block a thread on a human: interrupt instead
                   decisions=decisions or {}, cancel=CANCEL.setdefault(rid, threading.Event()))
     try:
-        finish = _drive(rid, task, ctx, msgs, sid, settings.get("effort") or EFFORT)
+        finish, paused = _drive(rid, task, ctx, msgs, sid, settings.get("effort") or EFFORT)
     finally:
         sb.close()
     try:  # write back before announcing the end, so a client that sees run_finished sees the saved files
         r = STORE.commit(user, project, run_dir, f"run {rid}")
         if r["skipped"]:
             emit(rid, {"type": "warning", "message": f"not saved (symlinks/special files): {r['skipped']}"})
-        shutil.rmtree(run_dir)
+        if not paused:  # a paused run resumes in this workspace: files outside repo/outputs survive the wait
+            # shortcut: an approval/question never answered keeps its run dir; add cleanup by age when disk matters
+            shutil.rmtree(run_dir)
     except Exception as e:  # keep run_dir for inspection; storage is unchanged
         emit(rid, {"type": "error", "message": f"saving workspace failed: {type(e).__name__}: {e}"})
     finish()
+    return paused
 
 
 def _drive(rid, task, ctx, msgs, sid, effort):
@@ -128,7 +143,7 @@ def _drive(rid, task, ctx, msgs, sid, effort):
             q("UPDATE runs SET status='awaiting_approval', inflight=NULL, pending=? WHERE id=?", json.dumps(req), rid)
             emit(rid, {"type": "question" if REGISTRY[req["tool"]].get("ask") else "approval_request", **req})
             emit(rid, {"type": "run_finished", "outcome": "interrupt"})
-        return finish
+        return finish, True
     except Exception as e:
         status = "error"
         emit(rid, {"type": "error", "message": f"{type(e).__name__}: {e}"})
@@ -136,7 +151,7 @@ def _drive(rid, task, ctx, msgs, sid, effort):
     def finish():
         q("UPDATE runs SET status=? WHERE id=?", status, rid)
         emit(rid, {"type": "run_finished", "outcome": status})
-    return finish
+    return finish, False
 
 
 def artifacts(user, project, **kw):
@@ -220,6 +235,7 @@ class Doc(BaseModel):
 
 
 class Decision(BaseModel):
+    call_id: str                  # the pending call this answers (a stale card must not answer a newer call)
     approved: bool | None = None  # approval tools
     answer: str | None = None     # ask_user
 
@@ -312,26 +328,29 @@ def approval(rid: str, d: Decision, user=Depends(caller)):
     own_run(rid, user)
     # compare-and-set: a double click / two tabs cannot resume (and run the tool) twice
     pending = q("SELECT pending FROM runs WHERE id=? AND status='awaiting_approval'", rid)
-    if not pending:
-        raise HTTPException(409, "run is not awaiting approval")
+    if not pending or json.loads(pending[0][0])["call_id"] != d.call_id:
+        raise HTTPException(409, "run is not awaiting this call")
     ask = REGISTRY[json.loads(pending[0][0])["tool"]].get("ask")
     value = d.answer.strip()[:2000] if ask and d.answer and d.answer.strip() else None if ask else d.approved
     if value is None:
         raise HTTPException(422, "this run waits for an answer" if ask else "this run waits for approved: true/false")
-    row = q("UPDATE runs SET status='running' WHERE id=? AND status='awaiting_approval' RETURNING pending", rid)
+    row = q("""UPDATE runs SET status='running' WHERE id=? AND status='awaiting_approval'
+               AND json_extract(pending, '$.call_id')=? RETURNING pending""", rid, d.call_id)
     if not row:
-        raise HTTPException(409, "run is not awaiting approval")
-    start(rid, decisions={json.loads(row[0][0])["call_id"]: value})
+        raise HTTPException(409, "run is not awaiting this call")
+    start(rid, decisions={d.call_id: value})
     return {"ok": True}
 
 
 @app.post("/runs/{rid}/cancel")
 def cancel(rid: str, user=Depends(caller)):
     own_run(rid, user)
+    if not q("SELECT 1 FROM runs WHERE id=? AND status IN ('running','awaiting_approval')", rid):
+        return {"ok": True}  # already finished: nothing to cancel (and no flag left behind)
     CANCEL.setdefault(rid, threading.Event()).set()
-    if q("SELECT 1 FROM runs WHERE id=? AND status='awaiting_approval'", rid):  # no worker to notice the flag
-        q("UPDATE runs SET status='running' WHERE id=?", rid)
-        start(rid)  # the pending call gets a 'cancelled' result, history stays valid
+    # no worker to notice the flag while paused: resume once (compare-and-set), the pending call gets 'cancelled'
+    if q("UPDATE runs SET status='running' WHERE id=? AND status='awaiting_approval' RETURNING id", rid):
+        start(rid)
     return {"ok": True}
 
 
@@ -376,15 +395,21 @@ def get_session(sid: str, user=Depends(caller)):
         if m["role"] in ("user", "assistant") and isinstance(m.get("content"), str) and m["content"]:
             out.append({"role": m["role"], "content": m["content"]})
         for tc in m.get("tool_calls") or []:
-            if tc["function"]["name"] == "artifact":
+            if tc["function"]["name"] in ("artifact", "show_report", "show_shmoo", "show_logview"):
                 try:
                     out.append({"role": "artifact", "id": json.loads(tc["function"]["arguments"])["id"]})
                 except (ValueError, KeyError, TypeError):
                     pass
-    active = q("""SELECT runs.id, runs.status FROM runs WHERE session_id=? AND status IN ('running','awaiting_approval')
-                  ORDER BY rowid DESC LIMIT 1""", sid)
-    return {"session_id": sid, "project_id": project, "messages": out,
-            "active_run": {"run_id": active[0][0], "status": active[0][1]} if active else None}
+    active = q("""SELECT runs.id, runs.status, runs.pending FROM runs WHERE session_id=?
+                  AND status IN ('running','awaiting_approval') ORDER BY rowid DESC LIMIT 1""", sid)
+    run = None
+    if active:  # history already holds what was said; the UI follows only events after `seq`
+        rid, status, pending = active[0]
+        pending = json.loads(pending) if status == "awaiting_approval" and pending else None
+        run = {"run_id": rid, "status": status, "seq": q("SELECT COALESCE(MAX(seq), 0) FROM events WHERE run_id=?", rid)[0][0],
+               "pending": pending and {**pending, "type": "question" if REGISTRY[pending["tool"]].get("ask")
+                                       else "approval_request"}}
+    return {"session_id": sid, "project_id": project, "messages": out, "active_run": run}
 
 
 @app.get("/projects/{pid}/artifacts")
@@ -401,7 +426,7 @@ def get_artifact(pid: str, aid: str, version: int = None, user=Depends(caller)):
     a["versions"] = artifacts(user, pid).versions(aid)
     if a["type"] == "report":
         a["sections"] = [{"id": s, "title": report.SECTIONS[s]} for s in report.sections(json.loads(a["content"]))]
-    a["capture"] = a["type"] == "shmoo"  # the page itself renders its current view to PNG (postMessage)
+    a["capture"] = a["type"] in ("shmoo", "logview")  # the page itself renders its current view to PNG (postMessage)
     a["view_url"] = f"{render.RENDER_ORIGIN}/a/{render.sign(user, pid, aid, a['version'])}"
     return a
 

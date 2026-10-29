@@ -23,13 +23,14 @@ from tx import load, load_all, signed
 rows = load("/workspace/uploads/card_b_2026-09.csv")
 ```
 Row fields: `date` "YYYY-MM-DD", `time`, `merchant` (가맹점 or bank 적요), `amount` (KRW, always positive),
-`direction` "out"/"in", `status` (raw, "" if none), `installments` (1 = 일시불), `category` (None if the file
+`direction` "out"/"in", `status` (raw, "" if none), `cancel` (True for 취소/부분취소 status, 취소여부=Y, or a
+negative card amount = refund), `installments` (1 = 일시불), `category` (None if the file
 has none), `foreign_amount` + `currency` (foreign sheets; `amount` is then the 원화환산), `file`, `sheet`, `row`.
 
 ## 3. Rules (apply unless the user says otherwise)
 | Situation | Rule |
 |---|---|
-| 취소 / 부분취소 rows | Net them: `sum(signed(r) for r in rows)`. A 부분취소 row's amount is the cancelled part. |
+| 취소 / 부분취소 / refund rows | Net them: `sum(signed(r) for r in rows)` (uses `cancel`). A 부분취소 row's amount is the cancelled part. |
 | Spending per merchant/category with cancels | Group by key and sum `signed(r)`. |
 | 할부 (installments > 1) | "사용액/결제 총액" = full amount. "이번 달 청구액" = `amount // installments` (원 미만 버림) unless told otherwise. |
 | Bank 출금 that pays a card bill (적요 contains "카드" and "결제"/"대금") | Already counted in the card files. Exclude when combining bank + card spending. |

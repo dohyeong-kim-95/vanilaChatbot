@@ -8,12 +8,14 @@ import io
 import json
 import re
 import sys
+import tempfile
 from collections import Counter
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1] / "shmoo" / "scripts"))
 sys.path.insert(0, str(HERE.parents[1] / "card-transactions" / "scripts"))
+import logs  # noqa: E402
 import shmoo  # noqa: E402
 import tx  # noqa: E402
 
@@ -22,21 +24,23 @@ LEVEL = re.compile(r"\b(FATAL|CRITICAL|ERROR|ERR|WARN(?:ING)?|INFO|DEBUG|TRACE)\
 STAMP = re.compile(r"\d{4}[-/.]\d{2}[-/.]\d{2}[ T]\d{2}:\d{2}(:\d{2})?|\b[A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2}\b")
 
 
-def _text(path):
-    raw = Path(path).read_bytes()[:MAX_BYTES]
+def _head(path):
+    """First MAX_BYTES, cut at the last newline (no half character, no half JSON line); whether it was cut."""
+    with open(path, "rb") as fh:
+        raw = fh.read(MAX_BYTES + 1)
+    if len(raw) <= MAX_BYTES:
+        return raw, False
+    raw = raw[:MAX_BYTES]
+    return raw[:raw.rfind(b"\n") + 1] or raw, True
+
+
+def _text(raw):
     for enc in ("utf-8-sig", "cp949"):
         try:
             return raw.decode(enc), enc
         except UnicodeDecodeError:
             continue
     return raw.decode("utf-8", "replace"), "binary/unknown"
-
-
-def _shape(msg):
-    """Message template: numbers, hex ids, quoted strings replaced, so repeats group together."""
-    msg = re.sub(r"0x[0-9a-fA-F]+|\b[0-9a-f]{8,}\b", "<id>", msg)
-    msg = re.sub(r"\"[^\"]*\"|'[^']*'", "<str>", msg)
-    return re.sub(r"\d+(\.\d+)?", "<n>", msg).strip()[:120]
 
 
 def _table(lines):
@@ -60,7 +64,15 @@ def sniff(path):
         out.update(kind="spreadsheet", sheets=[i.get("sheet") for i in infos])
         out["fits"] = [("card-transactions", "date + amount columns found")] if ok else []
         return out
-    text, enc = _text(p)
+    raw, cut = _head(p)
+    text, enc = _text(raw)
+    sample = p  # the skill loaders read whole files: give them only the head of a big one (sandbox has 1 GB)
+    if cut:
+        tmp = tempfile.NamedTemporaryFile(suffix=p.suffix, delete=False)
+        tmp.write(raw)
+        tmp.close()
+        sample = Path(tmp.name)
+        out["sampled_bytes"] = len(raw)
     with p.open("rb") as fh:
         out["lines"] = sum(1 for _ in fh)
     lines = [l for l in text.splitlines() if l.strip()]
@@ -78,7 +90,7 @@ def sniff(path):
         if table:
             out.update(kind="table", delimiter=repr(table[0]), columns=table[1])
     try:  # known formats: ask their own loaders, whatever the table guess said
-        h, rows = shmoo.read_table(p)
+        h, rows = shmoo.read_table(sample)
         m = shmoo.guess(h, rows[:20000])
         vals = {r[m["result"]].strip().upper() for r in rows[:5000]} if m["result"] else set()
         if m["x"] and m["y"] and vals and vals <= shmoo.PASS | shmoo.FAIL:
@@ -87,7 +99,7 @@ def sniff(path):
     except Exception:
         pass
     try:
-        rows, infos = tx.load(p, with_info=True)
+        rows, infos = tx.load(sample, with_info=True)
         if rows and not any("error" in i for i in infos):
             out.setdefault("kind", "table")
             fits.append(("card-transactions", f"date + amount columns, {len(rows)} transactions"))
@@ -99,11 +111,13 @@ def sniff(path):
         if levels or len(stamps) > len(lines) / 2:
             out.update(kind="text log", levels=dict(levels.most_common()),
                        time_span=[stamps[0], stamps[-1]] if stamps else None)
-            bad = [_shape(LEVEL.split(l, 1)[-1]) for l in lines if (m := LEVEL.search(l)) and
+            bad = [logs.shape(LEVEL.split(l, 1)[-1]) for l in lines if (m := LEVEL.search(l)) and
                    m.group(1) in ("FATAL", "CRITICAL", "ERROR", "ERR", "WARN", "WARNING")]
             out["top_error_shapes"] = Counter(bad).most_common(5)
         else:
             out["kind"] = "unknown text"
+    if sample != p:
+        sample.unlink()
     out["fits"] = fits
     return out
 

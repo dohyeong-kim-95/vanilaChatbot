@@ -69,8 +69,18 @@ def guess(header, rows):
     device = [c for c in header if re.search(r"WAFER|DIE_?X|DIE_?Y|^X$|^Y$|CHIP|DEVICE|DUT|SERIAL|UNIT", c.upper())]
     used = {result, x, y, *device}
     filters = [c for c in header if c not in used and re.search(r"TEMP|TEST|PATTERN|CORNER|MODE", c.upper())
-               and 1 < len({r[c] for r in rows[:20000]}) <= 50]
+               and 1 < _distinct(rows, c, 51) <= 50]
     return {"x": x, "y": y, "result": result, "device": device, "filters": filters}
+
+
+def _distinct(rows, col, stop):
+    """Distinct values of a column over ALL rows (logs sweep one temperature at a time), counting up to `stop`."""
+    seen = set()
+    for r in rows:
+        seen.add(r[col])
+        if len(seen) >= stop:
+            break
+    return len(seen)
 
 
 class Grid:
@@ -96,7 +106,7 @@ class Grid:
 
 def _norm_axis(v):
     n = _num(v)
-    return (f"{n:g}" if n is not None else v)
+    return (f"{n:.15g}" if n is not None else v)  # :g keeps 6 digits: 2000001000 Hz and 2000002000 Hz merged
 
 
 def load(path, x, y, result, device, filters=(), pass_values=None, header_rows=None):
@@ -188,13 +198,18 @@ def analyze(g, min_hole=3):
     wall     boundary at the top y rows is far left of the other devices (a slow path not fixed by more voltage)
     low      pass rate far below the other devices for the same condition"""
     found = []
+    passed, tested = Counter(), Counter()  # one pass over the cells (pass_rate per device was O(devices x cells))
+    for (d, c, _, _), v in g.cells.items():
+        tested[d, c] += 1
+        passed[d, c] += v == "P"
     for combo in g.combos():
-        rates = {d: pass_rate(g, d, combo) for d in g.devices}
+        rates = {d: 100 * passed[d, combo] / tested[d, combo] if tested[d, combo] else None for d in g.devices}
         known = sorted(r for r in rates.values() if r is not None)
         med = known[len(known) // 2] if known else 0
         edges = {d: _edge(g, d, combo) for d in g.devices}
         top = len(g.ys) - 1
-        top_med = sorted(e[top] for e in edges.values())[len(edges) // 2]
+        measured = sorted(edges[d][top] for d in g.devices if rates[d] is not None)  # untested devices are not -1s
+        top_med = measured[len(measured) // 2]
         cond = dict(zip(g.filter_cols, combo))
         for d in g.devices:
             if rates[d] is None:

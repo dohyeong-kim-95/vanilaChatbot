@@ -203,8 +203,10 @@ def name(ctx, **args) -> str
 - 검색 대상은 사용자가 권한을 가진 tool, pinning된 description만 (§4.3).
 - 평가는 첫 호출이 아니라 **최종 결과 + 잘못된 상태 변경 호출 수**로 한다(모델은 사전 조회를 먼저 하는 경우가 많음). [검증]
 
-### 4.5 경로 보안 [검증]
-- 모든 경로는 workspace 기준 resolve 후 workspace 밖이면 거부(`../`, 절대경로, symlink 탈출)
+### 4.5 경로 보안 [검증: Loop 19]
+- **호스트 코드는 컨테이너가 살아 있는 동안 workspace 파일을 열지 않는다.** `read_file`/`write_file`/`edit_file`, `artifact(file=)`, 뷰 tool은 `docker exec`로 컨테이너 안에서 읽고 쓴다(`Sandbox.read_bytes/write_bytes/copy_out`). 호스트에서 "검사 후 열기"를 하면 sandbox가 그 사이에 디렉터리를 심볼릭 링크로 바꿔 호스트 파일에 닿는다(측정 972/3000).
+- 경로는 `/workspace` 기준으로 문자열 정규화해 `../`를 거부한다. 심볼릭 링크는 컨테이너 안에서 풀리고, 읽기 전용 마운트는 커널이 지킨다.
+- 상한: `read_file`/`edit_file` 20MB, 뷰 파싱 64MB, 명령 출력은 스트리밍으로 앞뒤 5KB만(서버 메모리 보호).
 - 모델이 `/workspace/x`와 `x`를 섞어 쓰므로 **정규화된 절대경로로 상태 추적**
 
 ### 4.6 Skills [검증: Loop 15]
@@ -406,11 +408,15 @@ users/{u}/projects/{p}/outputs/              결과물
   - 앱은 그 iframe의 window에서 온, 같은 nonce의, PNG 시그니처가 맞는 20MB 미만 응답만 받는다.
   - 렌더러 CSP(`connect-src 'none'`)는 그대로다. 서버 캡처(§9.4)와 달리 사용자가 클릭한 상태가 그대로 찍힌다.
 
+- `show_logview(id, file, title, bucket_seconds)` [검증: Loop 18]: 텍스트 로그 → 시간대별 레벨 막대 + 패턴 표. 원문 줄과 원래 값은 저장하지 않는다(패턴은 숫자·ID·IP·따옴표 안 문자열을 가림). 파싱은 `skills/log-triage/scripts/logs.py`. 캡처 프로토콜은 shmoo와 같다(`agent/views.py`).
+
 ### 9.6 사용자에게 묻기와 로그 triage [검증: Loop 17]
 - `ask_user(question, options[{label, description}])`: 실행을 멈추고 선택지를 보여 준 뒤, 고른 답(또는 직접 입력)으로 이어간다.
   - 승인과 같은 Interrupt 경로를 쓴다. 상태는 `awaiting_approval`, 이벤트는 `question`. 답은 `POST /runs/{id}/approval {answer}`.
   - 대기 중에는 컨테이너가 없다. 새로고침이나 재접속 시에는 이벤트 로그에서 질문 카드가 다시 나온다.
+  - 답에는 `call_id`가 필수다. 지금 대기 중인 호출과 같을 때만 받는다(CAS 조건에 포함, 아니면 409). 예전 카드가 새 호출에 답하는 것을 막는다(Loop 19).
   - 승인 tool에는 `{approved}`만, 질문에는 `{answer}`만 받는다(422). compare-and-set으로 두 번 답할 수 없다(409).
+  - 멈춘 run의 작업 폴더는 재개까지 유지한다(질문 전 만든 파일이 남음). `GET /sessions/{id}`는 대기 중인 카드와 마지막 이벤트 seq를 주고, UI는 그 카드만 그린 뒤 그 뒤 이벤트만 받는다.
   - 질문 형식 검사(질문 1–500자, 선택지 2–5개)는 사용자에게 보이기 전에 한다. 틀리면 모델에게 오류로 돌려준다. 모델이 `answer` 인자를 직접 넣으면 거부한다.
 - `log-triage` skill: `sniff.py`가 파일마다 종류(표, 텍스트 로그, JSON lines, 스프레드시트)와 맞는 skill(`fits`)을 알려 준다. 판정은 각 skill의 로더로 직접 해 본다.
   - 흐름: 훑기 → 질문 한 번(첫 문장에서 파일이 무엇인지 구체적인 수치로 말함, 파일 종류에 맞는 선택지) → 맞는 skill과 뷰.
@@ -453,7 +459,9 @@ agent/tool_router.py    tool이 많을 때 hybrid 라우팅 (BM25 top-k + search
 agent/userstore.py      사용자별 저장 공간 (지시사항·설정 병합, 업로드, checkout/commit)
 agent/artifacts.py      아티팩트 저장 (버전 불변, 출처)
 agent/report.py         고정 지출 리포트 템플릿 (데이터 검증, SVG 차트, section 구성)
-agent/shmoo.py          인터랙티브 shmoo 뷰 (데이터 구성, 페이지 템플릿, 캡처 응답)
+agent/shmoo.py          인터랙티브 shmoo 뷰 (데이터 구성, 페이지 템플릿)
+agent/logview.py        인터랙티브 텍스트 로그 뷰 (레벨 × 시간, 패턴 표)
+agent/views.py          템플릿 뷰 공용: 데이터 inline, 캡처 프로토콜
 agent/skills.py         skill 발견(SKILL.md frontmatter), 프롬프트 목록, `/skills` 마운트 경로
 skills/card-transactions/  첫 skill: 카드·은행 내보내기 로더(tx.py, 표준 라이브러리) + 도메인 규칙
 skills/log-triage/      처음 보는 파일 판정(sniff.py) + "무엇을 볼까요?" 질문 + 맞는 skill로 넘김
@@ -478,6 +486,9 @@ tests/test_l9_artifacts.py    Loop 14 (아티팩트 저장/tool, 서명 URL, 브
 tests/test_l10_skills.py      Loop 15 (skill 발견·tool, 파서 = 정답, 처음 보는 형식, sandbox 읽기 전용 마운트)
 tests/test_l11_shmoo.py       Loop 16 (결함 탐지 = 정답, tool 오류, 실제 Chrome에서 클릭 → 캡처, 로그 속 마크업)
 tests/test_l12_triage.py      Loop 17 (sniff 판정, ask_user 중단/재개, 실제 앱 + Chrome + 가짜 LLM으로 질문 카드, LLM triage)
+tests/test_l13_logview.py     Loop 18 (집계 = 정답, 원문 미저장, Chrome에서 패턴·막대 클릭 → 캡처)
+tests/test_l14_review_fixes.py  Loop 19 (독립 리뷰 지적의 회귀: 심볼릭 링크 바꿔치기, 큰 출력, 예전 카드, 질문 전후 파일, sandbox 실패, 동시 업로드)
+tests/eval/logview/gen.py     합성 주문 서비스 로그 (배포 후 새 에러, 15분 장애, 스택 트레이스)
 tests/eval/shmoo/gen.py       합성 ATE shmoo 로그 (장치 24개 × 온도 2 × VDD 16 × 주파수 17, 결함 3종)
 docs/research/          R1–R6 리서치 노트
 docs/LOOP_LOG.md        루프별 실험 기록

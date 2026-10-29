@@ -3,7 +3,10 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const state = { user: "", project: "", session: "", artifact: null, streaming: false };
+const state = { user: "", project: "", session: "", artifact: null, streaming: false, follow: null };
+
+// One followed run at a time: switching conversation/project stops the old stream (else its events land here).
+function stopFollow() { state.follow?.abort(); state.follow = null; }
 
 function store(key, value) {
   try { value === undefined ? (value = localStorage.getItem(key)) : localStorage.setItem(key, value); } catch (e) { value = null; }
@@ -54,6 +57,7 @@ async function loadProject() {
   $("sessions").replaceChildren();
   $("artifacts").replaceChildren();
   $("messages").replaceChildren();
+  stopFollow();
   state.session = "";
   if (!state.project) return;
   store("project", state.project);
@@ -89,12 +93,18 @@ function markActive() {
 }
 
 async function openSession(sid) {
+  stopFollow();
   state.session = sid;
   markActive();
   const s = await api(`/sessions/${sid}`);
+  if (state.session !== sid) return;  // the user already switched again; a late answer must not paint over it
   $("messages").replaceChildren();
   for (const m of s.messages) m.role === "artifact" ? addArtifactRef(m.id) : addMsg(m.role, m.content);
-  if (s.active_run) follow(s.active_run.run_id);
+  // History already has what was said: draw only the card that is waiting now, follow only newer events
+  // (replaying from 0 duplicated messages and redrew answered cards with live buttons).
+  const r = s.active_run;
+  if (r?.pending) (r.pending.type === "question" ? showQuestion : showApproval)(r.run_id, r.pending, r.seq);
+  else if (r) follow(r.run_id, r.seq);
 }
 
 // ---- chat -----------------------------------------------------------------------------------------
@@ -111,12 +121,14 @@ async function send(text) {
 
 // SSE over fetch (EventSource cannot send the X-User header). Resumes with Last-Event-ID.
 async function follow(rid, after = 0) {
+  stopFollow();
+  const ctl = state.follow = new AbortController();
   state.streaming = true;
   $("send").disabled = true;
   const status = el("div", "tool", "작업 중…");
   $("messages").append(status);
   try {
-    const r = await api(`/runs/${rid}/events`, { headers: { "Last-Event-ID": String(after) } });
+    const r = await api(`/runs/${rid}/events`, { headers: { "Last-Event-ID": String(after) }, signal: ctl.signal });
     const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
     let buf = "";
     for (;;) {
@@ -134,11 +146,14 @@ async function follow(rid, after = 0) {
       }
     }
   } catch (e) {
-    addMsg("error", String(e));
+    if (e.name !== "AbortError") addMsg("error", String(e));
   } finally {
     status.remove();
-    state.streaming = false;
-    $("send").disabled = false;
+    if (state.follow === ctl) {
+      state.follow = null;
+      state.streaming = false;
+      $("send").disabled = false;
+    }
   }
 }
 
@@ -172,7 +187,7 @@ function showApproval(rid, ev, seq) {
   const no = el("button", null, "거절");
   const decide = async (approved) => {
     yes.disabled = no.disabled = true;
-    await api(`/runs/${rid}/approval`, { method: "POST", body: JSON.stringify({ approved }) });
+    await api(`/runs/${rid}/approval`, { method: "POST", body: JSON.stringify({ call_id: ev.call_id, approved }) });
     box.replaceChildren(el("div", "tool", `${ev.tool}: ${approved ? "승인함" : "거절함"}`));
     follow(rid, seq);
   };
@@ -193,7 +208,7 @@ function showQuestion(rid, ev, seq) {
   const answer = async (text) => {
     for (const b of box.querySelectorAll("button, input")) b.disabled = true;
     try {
-      await api(`/runs/${rid}/approval`, { method: "POST", body: JSON.stringify({ answer: text }) });
+      await api(`/runs/${rid}/approval`, { method: "POST", body: JSON.stringify({ call_id: ev.call_id, answer: text }) });
     } catch (e) {
       addMsg("error", String(e));
       for (const b of box.querySelectorAll("button, input")) b.disabled = false;

@@ -120,7 +120,9 @@ def compact(msgs, client, model, budget, keep_tools=2, notes=()):
     if est_tokens(msgs) <= budget:
         return msgs
     # tail = last assistant(tool_calls) message + its tool results; never split that pair
-    cut = max(i for i, m in enumerate(msgs) if m["role"] == "assistant")
+    cut = max((i for i, m in enumerate(msgs) if m["role"] == "assistant"), default=None)
+    if cut is None:  # nothing to summarize yet (e.g. a huge first message)
+        return msgs
     head, middle, tail = msgs[:2], msgs[2:cut], msgs[cut:]
     if not middle:
         return msgs
@@ -170,6 +172,8 @@ def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, histo
     model = model or os.environ.get("LLM_MODEL") or client.models.list().data[0].id
     msgs = history if history is not None else [{"role": "system", "content": SYSTEM}]
     if task is not None:
+        for tc in pending_calls(msgs):  # a previous run failed mid-call: every tool_use needs its result first
+            msgs.append({"role": "tool", "tool_call_id": tc["id"], "content": "ERROR: not run; the previous run failed."})
         msgs.append({"role": "user", "content": task})
         checkpoint(msgs, None)
         if ctx.router:

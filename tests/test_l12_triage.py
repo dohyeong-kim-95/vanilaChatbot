@@ -155,15 +155,15 @@ def t_ui_question_flow():
         assert labels == ["이상한 칩 찾기", "전체 요약"], labels
         page.screenshot(path=str(TMP / "ui-question.png"))
         rid = l9.client("alice").get(f"/sessions/{page.evaluate('() => state.session')}").json()["active_run"]["run_id"]
-        r = l9.client("alice").post(f"/runs/{rid}/approval", json={"approved": True})
+        r = l9.client("alice").post(f"/runs/{rid}/approval", json={"call_id": "q1", "approved": True})
         assert r.status_code == 422, (r.status_code, r.text)
-        assert l9.client("bob").post(f"/runs/{rid}/approval", json={"answer": "x"}).status_code == 404
+        assert l9.client("bob").post(f"/runs/{rid}/approval", json={"call_id": "q1", "answer": "x"}).status_code == 404
         page.reload()  # the pending question comes back from the event log
         page.wait_for_selector(".question button.option")
         page.locator(".question button.option").first.click()
         page.wait_for_selector("text=선택: The user answered: 이상한 칩 찾기")
         assert page.locator(".question .answered").inner_text() == "이상한 칩 찾기"
-        assert l9.client("alice").post(f"/runs/{rid}/approval", json={"answer": "again"}).status_code == 409
+        assert l9.client("alice").post(f"/runs/{rid}/approval", json={"call_id": "q1", "answer": "again"}).status_code == 409
         print(f"    ui -> {TMP / 'ui-question.png'}")
     finally:
         b.close(); pw.stop(); l9.kill(ps); srv.should_exit = True
@@ -172,7 +172,7 @@ def t_ui_question_flow():
 # ---------------------------------------------------------------- LLM
 
 CASES = [("shmoo_L2610A.csv", "show_shmoo", ["shmoo"]), ("card_b_2026-09.csv", "show_report", ["카드", "거래", "지출"]),
-         ("app.log", "artifact", ["로그", "log"])]
+         ("app.log", "show_logview", ["로그", "log"])]
 
 
 def t_llm_triage():
@@ -198,7 +198,7 @@ def t_llm_triage():
             try:
                 ans, _ = run("업로드한 파일은 /workspace/uploads 에 있어요.\n\n로그 분석해줘", ctx,
                              tool_names=["bash", "read_file", "write_file", "edit_file", "use_skill", "ask_user",
-                                         "show_shmoo", "show_report", "artifact"],
+                                         "show_shmoo", "show_report", "show_logview", "artifact"],
                              client=m, max_steps=25, history=[{"role": "system", "content": "\n\n".join(
                                  [SYSTEM, skills.prompt(sk)])}],
                              log=lambda l: calls.append(l.split("(")[0].split("] ")[1]))
@@ -206,10 +206,10 @@ def t_llm_triage():
                 sb.close()
             q = asked[0] if asked else {}
             shown = [a["type"] for a in ctx.artifacts.list()]
-            ok_view = {"show_shmoo": "shmoo", "show_report": "report"}.get(view)
+            ok_view = {"show_shmoo": "shmoo", "show_report": "report", "show_logview": "logview"}[view]
             rows.append({"file": fname, "asked": len(asked), "says_what": any(w in q.get("question", "") for w in words),
                          "options": [o["label"] for o in q.get("options", [])], "views": shown,
-                         "view_ok": (ok_view in shown) if ok_view else bool(shown), "tools": calls,
+                         "view_ok": ok_view in shown, "tools": calls,
                          "sec": round(time.time() - t0), "out_tokens": m.completion,
                          "question": q.get("question", "")[:200], "answer": (ans or "")[:200]})
             print("   ", json.dumps(rows[-1], ensure_ascii=False))

@@ -93,8 +93,9 @@ def t_reconnect_and_approval_across_restart():
 
         kill(srv); srv = server()                                          # server dies while waiting for a human
         assert C.get(f"/runs/{rid}").json()["status"] == "awaiting_approval"
-        assert C.post(f"/runs/{rid}/approval", json={"approved": True}).status_code == 200
-        assert C.post(f"/runs/{rid}/approval", json={"approved": True}).status_code == 409  # double click
+        cid = C.get(f"/runs/{rid}").json()["pending"]["call_id"]
+        assert C.post(f"/runs/{rid}/approval", json={"call_id": cid, "approved": True}).status_code == 200
+        assert C.post(f"/runs/{rid}/approval", json={"call_id": cid, "approved": True}).status_code == 409  # double click
         part3 = events(rid, after=seqs[-1])
         print("    after restart: ", " ".join(e["type"] for _, e in part3))
         types = [e["type"] for _, e in part3]

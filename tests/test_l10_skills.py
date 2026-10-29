@@ -86,7 +86,8 @@ def t_unseen_formats():
     assert info[0]["header_row"] == 4 and info[0]["skipped"] == [(9, "total row")], info
     assert [r["amount"] for r in rows] == [4500, 129000, 29000, 4500], rows
     assert rows[0]["date"] == "2026-09-02" and rows[1]["installments"] == 3 and rows[0]["installments"] == 1
-    assert rows[2]["direction"] == "in" and sum(signed(r) for r in rows if r["direction"] == "out") == 129000
+    assert rows[2]["cancel"] and rows[3]["cancel"] and not rows[1]["cancel"]  # -29,000 refund, 승인취소
+    assert sum(signed(r) for r in rows) == 4500 + 129000 - 29000 - 4500, [signed(r) for r in rows]
 
     from openpyxl import Workbook
     wb = Workbook()

@@ -1,11 +1,14 @@
 """Predefined tool registry. Each tool = OpenAI function schema + python impl.
 Tools flagged `approval=True` are outward-facing and need a human yes before running.
 Tools flagged `ask=True` need a human answer (a string), passed to the impl as `answer`."""
+import contextlib
 import datetime
-import os
 import json
+import tempfile
+from pathlib import Path
 
-from . import github, report, shmoo
+from . import github, logview, report, shmoo
+from .artifacts import MAX_SIZE as ARTIFACT_MAX
 
 REGISTRY = {}
 
@@ -23,6 +26,18 @@ def tool(description, params, required=None, approval=False, ask=False):
 
 
 S = {"type": "string"}
+READ_MAX = 20 * 1024 * 1024  # read_file / edit_file: bigger files are for bash (head, sed -n, grep)
+# shortcut: show_shmoo/show_logview parse in the shared server process (64 MB took 9.5 s, 319 MB RSS); 16 MB keeps
+# that small. Move parsing into the sandbox (logs.py --json) when users need bigger logs.
+VIEW_MAX = 16 * 1024 * 1024
+
+
+@contextlib.contextmanager
+def _host_copy(ctx, rel):
+    """A private host copy of a workspace file (streamed through the container, capped) for server-side parsers."""
+    with tempfile.TemporaryDirectory(prefix="view-") as d:
+        yield ctx.sandbox.copy_out(rel, Path(d) / "data", VIEW_MAX)
+TEMPLATES = {"report": "show_report", "shmoo": "show_shmoo", "logview": "show_logview"}  # our pages, data only
 
 
 @tool("Run a bash command in the isolated sandbox (cwd=/workspace; network only to allowlisted HTTPS domains, "
@@ -50,8 +65,9 @@ def request_network_access(ctx, domain, reason):
 @tool("Read a UTF-8 text file in the workspace, with line numbers.",
       {"path": S, "offset": {"type": "integer"}, "limit": {"type": "integer"}}, required=["path"])
 def read_file(ctx, path, offset=1, limit=400):
-    lines = ctx.sandbox.path(path).read_text(encoding="utf-8").splitlines()
-    ctx.read_files.add(ctx.sandbox.path(path))
+    offset = max(1, int(offset))  # 1-based; a 0 from the model would slice from the end
+    lines = ctx.sandbox.read_bytes(path, READ_MAX).decode("utf-8").splitlines()
+    ctx.read_files.add(ctx.sandbox.cpath(path))
     sel = lines[offset - 1: offset - 1 + limit]
     more = f"\n[... {len(lines) - offset + 1 - len(sel)} more lines]" if len(lines) > offset - 1 + limit else ""
     return "\n".join(f"{i:>5}\t{l}" for i, l in enumerate(sel, offset)) + more
@@ -59,24 +75,20 @@ def read_file(ctx, path, offset=1, limit=400):
 
 @tool("Create or overwrite a file in the workspace.", {"path": S, "content": S})
 def write_file(ctx, path, content):
-    p = ctx.sandbox.path(path, write=True)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8")
-    os.chown(p, 1000, 1000)
-    ctx.read_files.add(ctx.sandbox.path(path))
+    ctx.sandbox.write_bytes(path, content.encode("utf-8"))
+    ctx.read_files.add(ctx.sandbox.cpath(path))
     return f"wrote {len(content)} chars to {path}"
 
 
 @tool("Replace an exact, unique snippet in a file. Read the file first.", {"path": S, "old": S, "new": S})
 def edit_file(ctx, path, old, new):
-    if ctx.sandbox.path(path) not in ctx.read_files:
+    if ctx.sandbox.cpath(path) not in ctx.read_files:
         raise ValueError("read_file this path before editing it")
-    p = ctx.sandbox.path(path, write=True)
-    text = p.read_text(encoding="utf-8")
+    text = ctx.sandbox.read_bytes(path, READ_MAX).decode("utf-8")
     n = text.count(old)
     if n != 1:
         raise ValueError(f"`old` must match exactly once, matched {n} times")
-    p.write_text(text.replace(old, new), encoding="utf-8")
+    ctx.sandbox.write_bytes(path, text.replace(old, new).encode("utf-8"))
     return f"edited {path}"
 
 
@@ -119,14 +131,13 @@ def artifact(ctx, command, id, type=None, title=None, content=None, file=None, o
     store = ctx.artifacts
     if command not in ("create", "update", "rewrite"):
         raise ValueError("command must be create, update or rewrite")
-    if type in ("report", "shmoo") or (command != "create" and store.versions(id) and
-                                       store.get(id)["type"] in ("report", "shmoo")):
-        raise ValueError("reports are made with show_report, shmoo views with show_shmoo")
+    if type in TEMPLATES or (command != "create" and store.versions(id) and store.get(id)["type"] in TEMPLATES):
+        raise ValueError(f"{type or store.get(id)['type']} views are made with {TEMPLATES[type or store.get(id)['type']]}")
     if command != "update":
         if (content is None) == (file is None):
             raise ValueError("give exactly one of content or file")
         if file is not None:
-            content = ctx.sandbox.path(file).read_text(encoding="utf-8")
+            content = ctx.sandbox.read_bytes(file, ARTIFACT_MAX).decode("utf-8")
     if command == "create":
         if store.versions(id):
             raise ValueError(f"artifact {id!r} exists; use update or rewrite")
@@ -193,12 +204,30 @@ def check_question(question, options):
        "pass_values": {"type": "array", "items": S, "description": "result values meaning pass, if not P/PASS/1/OK"},
        "title": S}, required=["id", "file", "x", "y", "result", "device"])
 def show_shmoo(ctx, id, file, x, y, result, device, filters=(), pass_values=None, title=None):
-    data, warnings, summary = shmoo.build(ctx.sandbox.path(file), x, y, result, device, filters, pass_values, title)
+    with _host_copy(ctx, file) as p:
+        data, warnings, summary = shmoo.build(p, x, y, result, device, filters, pass_values, title)
     store = ctx.artifacts
     meta = store.save(id, "shmoo", data["title"], json.dumps(data, ensure_ascii=False, separators=(",", ":")),
                       command="rewrite" if store.versions(id) else "create")
     return f"shmoo {meta['id']} saved as version {meta['version']}\n{summary}" + \
         "".join(f"\nWARNING: {w}" for w in warnings)
+
+
+@tool("Show the user an interactive view of a text log in the workspace (application/server/syslog/access logs): "
+      "entries over time stacked by level, and message patterns (numbers, ids, IPs, paths masked) with counts and "
+      "first/last time. The user toggles levels, clicks a pattern to chart only it, clicks a time bucket for its top "
+      "patterns, and copies the chart as an image. No raw lines are shown. The server parses the file; returns a "
+      "summary (levels, top patterns, busiest error buckets).",
+      {"id": S, "file": S, "title": S,
+       "bucket_seconds": {"type": "integer", "description": "time bucket; omit for automatic (~100 bars)"}},
+      required=["id", "file"])
+def show_logview(ctx, id, file, title=None, bucket_seconds=None):
+    with _host_copy(ctx, file) as p:
+        data, summary = logview.build(p, title or f"로그: {Path(file).name}", bucket_seconds)
+    store = ctx.artifacts
+    meta = store.save(id, "logview", data["title"], json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+                      command="rewrite" if store.versions(id) else "create")
+    return f"logview {meta['id']} saved as version {meta['version']}\n{summary}"
 
 
 @tool("Load a skill's instructions (see the Skills list in your instructions). Its files are mounted read-only in "
@@ -224,15 +253,16 @@ def current_time(ctx):
 
 @tool("git add -A and commit all workspace changes on a new or existing branch.", {"branch": S, "message": S})
 def git_commit(ctx, branch, message):
-    rc, cur = _git(ctx, "rev-parse", "--abbrev-ref", "HEAD")
-    if cur != branch:
-        rc, out = _git(ctx, "checkout", "-B", branch)
-    _git(ctx, "add", "-A")
-    rc, out = _git(ctx, "-c", "user.name=agent", "-c", "user.email=agent@local", "commit", "-m", message)
+    with ctx.sandbox.frozen():  # host git follows a work tree swapped for a symlink (review, Loop 19)
+        rc, cur = _git(ctx, "rev-parse", "--abbrev-ref", "HEAD")
+        if cur != branch:
+            rc, out = _git(ctx, "checkout", "-B", branch)
+        _git(ctx, "add", "-A")
+        rc, out = _git(ctx, "-c", "user.name=agent", "-c", "user.email=agent@local", "commit", "-m", message)
     return out
 
 
-def _git(ctx, *args):
+def _git(ctx, *args):  # call inside ctx.sandbox.frozen()
     if ctx.git_dir:  # server workspaces: git metadata is outside the sandbox, work tree = /workspace/repo
         return github.git_wt(ctx.git_dir, ctx.sandbox.path("repo"), *args)
     return github.git(ctx.sandbox.workspace, *args)
@@ -241,8 +271,9 @@ def _git(ctx, *args):
 @tool("Push the current branch and open a pull request. Requires human approval.",
       {"branch": S, "title": S, "body": S}, approval=True)
 def open_pull_request(ctx, branch, title, body):
-    ws = ctx.sandbox.path("repo") if ctx.git_dir else ctx.sandbox.workspace
-    rc, out = github.push(ws, branch, ctx.github_token, ctx.remote_url, ctx.git_dir)
+    with ctx.sandbox.frozen():
+        ws = ctx.sandbox.path("repo") if ctx.git_dir else ctx.sandbox.workspace
+        rc, out = github.push(ws, branch, ctx.github_token, ctx.remote_url, ctx.git_dir)
     if rc:
         raise RuntimeError(out)
     if not ctx.github_repo:  # local/bare remote (tests): push only
@@ -252,9 +283,9 @@ def open_pull_request(ctx, branch, title, body):
 
 
 def schemas(names=None):
-    # search_tools needs a ToolRouter, remember a user store, artifact/show_report an artifact store, use_skill skills;
-    # callers that have them name them
+    # search_tools needs a ToolRouter, remember a user store, artifact/show_* an artifact store, use_skill skills,
+    # request_network_access an egress proxy; callers that have them name them
     return [t["schema"] for n, t in REGISTRY.items()
             if (n in names if names is not None else
-                n not in ("search_tools", "remember", "artifact", "show_report", "show_shmoo", "use_skill",
-                          "ask_user"))]
+                n not in ("search_tools", "remember", "artifact", "show_report", "show_shmoo", "show_logview",
+                          "use_skill", "ask_user", "request_network_access"))]

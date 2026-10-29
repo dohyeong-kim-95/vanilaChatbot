@@ -8,6 +8,7 @@ OpenAI Chat Completions <-> Anthropic Messages translation:
                                 each assistant turn's full content by its tool_call ids and restore it.
 """
 import json
+from collections import OrderedDict
 import os
 
 import anthropic
@@ -15,7 +16,8 @@ import anthropic
 MODEL = os.environ.get("GATEWAY_MODEL", "claude-haiku-5-5")
 EFFORT = os.environ.get("GATEWAY_EFFORT", "max")
 client = anthropic.AsyncAnthropic()  # ANTHROPIC_API_KEY from env
-TURNS = {}  # tuple(tool_call ids) -> full assistant content blocks (in-memory, MVP)
+TURNS = OrderedDict()  # tuple(tool_call ids) -> full assistant content blocks (in-memory, MVP), oldest dropped first
+MAX_TURNS = 10_000  # a missing entry is rebuilt from the OpenAI message (thinking is then dropped, not an error)
 
 
 def to_anthropic(messages):
@@ -27,7 +29,7 @@ def to_anthropic(messages):
         if role in ("system", "developer"):
             system.append(content or "")
         elif role == "user":
-            out.append({"role": "user", "content": content or ""})
+            out.append({"role": "user", "content": content or "(empty)"})  # the API rejects empty content
         elif role == "assistant":
             calls = m.get("tool_calls") or []
             key = tuple(c["id"] for c in calls)
@@ -37,7 +39,7 @@ def to_anthropic(messages):
             blocks = [{"type": "text", "text": content}] if content else []
             blocks += [{"type": "tool_use", "id": c["id"], "name": c["function"]["name"],
                         "input": json.loads(c["function"]["arguments"] or "{}")} for c in calls]
-            out.append({"role": "assistant", "content": blocks or ""})
+            out.append({"role": "assistant", "content": blocks or [{"type": "text", "text": "(empty)"}]})
         elif role == "tool":
             block = {"type": "tool_result", "tool_use_id": m["tool_call_id"], "content": content or ""}
             if out and out[-1]["role"] == "user" and isinstance(out[-1]["content"], list):
@@ -80,6 +82,8 @@ async def complete(messages, tools, tool_choice=None, effort=EFFORT):
              for b in resp.content if b.type == "tool_use"]
     if calls:
         TURNS[tuple(c["id"] for c in calls)] = [b.model_dump(exclude_none=True) for b in resp.content]
+        while len(TURNS) > MAX_TURNS:
+            TURNS.popitem(last=False)
     finish = {"tool_use": "tool_calls", "max_tokens": "length", "refusal": "content_filter"}.get(
         resp.stop_reason, "stop")
     msg = {"role": "assistant", "content": text or None}

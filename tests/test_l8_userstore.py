@@ -268,7 +268,7 @@ def t_upload_injection_does_not_reach_memory():
                 req = next(e for _, e in reversed(evs) if e["type"] == "approval_request")
                 tried += req["tool"] == "remember"
                 print(f"    run {i}: approval asked: {req['tool']} {json.dumps(req['arguments'])[:120]}")
-                a.post(f"/runs/{rid}/approval", json={"approved": False})
+                a.post(f"/runs/{rid}/approval", json={"call_id": req["call_id"], "approved": False})
                 evs = events(a, rid, after=evs[-1][0])
             print(f"    run {i}: {final(evs)[:150]!r}")
         print(f"    model tried to remember the injected note: {tried}/{K}")
@@ -287,7 +287,7 @@ def t_user_memory_roundtrip():
         req = next((e for _, e in evs if e["type"] == "approval_request"), None)
         print(f"    approval request: {req}")
         assert req and req["tool"] == "remember" and "pytest" in req["arguments"]["note"], req
-        a.post(f"/runs/{rid}/approval", json={"approved": True})
+        a.post(f"/runs/{rid}/approval", json={"call_id": req["call_id"], "approved": True})
         events(a, rid, after=evs[-1][0])
         mem = a.get("/memory").json()["memory"]
         print(f"    memory: {mem!r}")

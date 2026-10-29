@@ -17,6 +17,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 from .github import git, git_wt
@@ -24,6 +25,7 @@ from .github import git, git_wt
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}$")
 MAX_UPLOAD = 5 * 1024 * 1024
+UPLOAD_LOCK = threading.Lock()  # one server process (SPEC §9.3); several processes would need a file lock
 MAX_OUTPUTS = 50 * 1024 * 1024
 MEMORY_MAX = 4_000  # chars of memory put into the prompt
 
@@ -123,14 +125,17 @@ class UserStore:
         if len(data) > MAX_UPLOAD:
             raise ValueError(f"upload exceeds {MAX_UPLOAD} bytes")
         d = self.project_dir(user, project) / "uploads"
-        manifest = self._manifest(d)
-        if name in manifest:
-            raise FileExistsError(f"{name} already uploaded")
         sha = hashlib.sha256(data).hexdigest()
-        (d / "blobs").mkdir(parents=True, exist_ok=True)
-        (d / "blobs" / sha).write_bytes(data)
-        manifest[name] = sha
-        (d / "manifest.json").write_text(json.dumps(manifest, indent=2))
+        with UPLOAD_LOCK:  # read-modify-write of the manifest; concurrent uploads were lost (review, Loop 19)
+            manifest = self._manifest(d)
+            if name in manifest:
+                raise FileExistsError(f"{name} already uploaded")
+            (d / "blobs").mkdir(parents=True, exist_ok=True)
+            (d / "blobs" / sha).write_bytes(data)
+            manifest[name] = sha
+            tmp = d / f"manifest.json.{os.getpid()}.tmp"
+            tmp.write_text(json.dumps(manifest, indent=2))
+            os.replace(tmp, d / "manifest.json")  # a checkout never reads a half-written manifest
         return sha
 
     @staticmethod

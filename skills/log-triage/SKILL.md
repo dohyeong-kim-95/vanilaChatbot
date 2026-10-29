@@ -21,7 +21,7 @@ option's description what you will show.
 |---|---|
 | shmoo | 이상한 칩 찾기 (shmoo 뷰 + 이상 패턴) / 조건별 마진 비교 (온도별 Vmin·Fmax) / 특정 칩 자세히 / 전체 요약 |
 | card-transactions | 월간 지출 리포트 (고정 리포트) / 카테고리·가맹점별 합계 / 특정 질문(취소, 할부, 해외) |
-| text log | 에러 원인 찾기 (많이 나온 에러 패턴, 처음 나온 시점) / 시간대별 추이 / 특정 키워드 추적 |
+| text log | 에러 패턴과 시점 (logview, 에러 먼저) / 시간대별 추이 (logview, 전체 레벨) / 특정 패턴 추적 |
 | table / json lines (no fit) | 컬럼 요약·분포 / 특정 컬럼 기준 집계 / 이상값 찾기 |
 
 If there are several unrelated files, ask which file first (one option per file) instead.
@@ -29,7 +29,10 @@ If there are several unrelated files, ask which file first (one option per file)
 ## 3. Do it
 - Load the matching skill with use_skill (shmoo, card-transactions) and follow it; its view tool is the artifact
   (`show_shmoo`, `show_report`).
-- Text logs and other tables: compute with bash (grep -c, awk, sort | uniq -c | sort -rn | head) or python on the
-  whole file, then show the result as a markdown artifact (tables of counts, top patterns with an example line
-  each, first/last time). Never paste the raw log.
+- Text logs (kind: text log): call `show_logview` with the file. It is the artifact: entries over time by level and
+  masked message patterns; the user clicks levels, patterns and time buckets and copies the chart. Use its summary
+  (levels, top patterns, busiest error buckets) for your answer; `python /skills/log-triage/scripts/logs.py FILE`
+  prints the same summary, and `import logs; entries, _ = logs.parse(path); logs.aggregate(entries)` gives the numbers for follow-ups.
+  Do not show raw log lines.
+- Other tables / JSON lines: compute with bash (awk, sort | uniq -c) or python, then a markdown artifact.
 - Finish with 2–3 sentences: what you found and what the user can click or ask next.

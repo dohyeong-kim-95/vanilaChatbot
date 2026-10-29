@@ -2,6 +2,7 @@
 isolation of untrusted artifact code (real Chrome via Playwright), and how the model uses the tool (create vs
 update, not overusing it, a finance dashboard whose numbers must be right). LLM tests need the gateway on :8100.
 python tests/test_l9_artifacts.py [test_name ...]   (K=3 by default for the LLM tests)"""
+import atexit
 import http.server
 import json
 import os
@@ -14,7 +15,6 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 import httpx
 
@@ -60,9 +60,9 @@ def client(user):
 
 
 def stub_sandbox(ws):
-    """Sandbox.path without a container (the artifact tool only reads files host-side)."""
-    sb = SimpleNamespace(workspace=Path(ws).resolve(), readonly=[])
-    sb.path = lambda rel, write=False: Sandbox.path(sb, rel, write)
+    """A real sandbox on `ws` (tools read workspace files through the container); closed at exit."""
+    sb = Sandbox(ws)
+    atexit.register(sb.close)
     return sb
 
 
@@ -76,7 +76,8 @@ def t_store_and_tool():
     ws = TMP / "ws"
     (ws / "outputs").mkdir(parents=True)
     (ws / "outputs" / "dash.html").write_text("<h1>from file</h1>")
-    (ws / "outputs" / "leak.html").symlink_to("/etc/passwd")
+    (TMP / "host-secret.txt").write_text("HOST SECRET")
+    (ws / "outputs" / "leak.html").symlink_to(TMP / "host-secret.txt")  # a host path: must not be followed
     saved = []
     ctx = Context(sandbox=stub_sandbox(ws), artifacts=ArtifactStore(TMP / "arts", on_save=saved.append))
     assert "version 1" in tool(ctx, command="create", id="todo", type="html", title="Todo", content="<h1>Todo</h1>")

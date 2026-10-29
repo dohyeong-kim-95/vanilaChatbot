@@ -24,7 +24,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 
-from agent import report, shmoo
+from agent import logview, report, shmoo
 from agent.artifacts import ArtifactStore
 from agent.userstore import UserStore
 
@@ -98,6 +98,8 @@ def page(a):
         return report.render(json.loads(c))
     if t == "shmoo":  # our template + script; log-derived text only via textContent
         return PRELUDE + shmoo.render(json.loads(c))
+    if t == "logview":  # same contract as shmoo
+        return PRELUDE + logview.render(json.loads(c))
     if t == "svg":
         return head + '<style>body{margin:0;max-width:none}svg{max-width:100%;height:auto}</style>' + c
     if t == "code":

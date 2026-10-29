@@ -9,9 +9,9 @@ All log-derived text is set with textContent; the data is inlined as JSON with `
 """
 import html
 import importlib.util
-import json
 
 from .skills import DIR
+from .views import CAPTURE_JS, data_json
 
 _spec = importlib.util.spec_from_file_location("shmoo_core", DIR / "shmoo" / "scripts" / "shmoo.py")
 core = importlib.util.module_from_spec(_spec)
@@ -43,10 +43,6 @@ def build(path, x, y, result, device, filters=(), pass_values=None, title=None):
     if missing:
         warnings.append(f"{missing} grid cells have no result (not tested)")
     return data, warnings, core.summary(g)
-
-
-def _data(obj):
-    return json.dumps(obj, ensure_ascii=False).replace("<", "\\u003c")
 
 
 CSS = """
@@ -266,33 +262,7 @@ function draw() {
   detail(); findings(); devices();
 }
 
-// ---- capture for the parent app: PNG of the plot as it is now
-function capture() {
-  const svg = $("plot").querySelector("svg");
-  const w = +svg.getAttribute("width"), h = +svg.getAttribute("height"), scale = 2;
-  const src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(svg));
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const c = document.createElement("canvas");
-      c.width = w * scale; c.height = h * scale;
-      const g = c.getContext("2d"); g.scale(scale, scale); g.drawImage(img, 0, 0);
-      c.toBlob((b) => b ? b.arrayBuffer().then(resolve) : reject(new Error("toBlob failed")), "image/png");
-    };
-    img.onerror = () => reject(new Error("svg load failed"));
-    img.src = src;
-  });
-}
-window.addEventListener("message", async (e) => {
-  if (e.source !== parent || !e.data || e.data.type !== "capture") return;
-  const name = [S.device === ALL ? "all" : D.devices[S.device], ...D.combos[S.combo]].join("_");
-  try {
-    const png = await capture();
-    parent.postMessage({ type: "capture", nonce: e.data.nonce, name, png }, "*", [png]);
-  } catch (err) {
-    parent.postMessage({ type: "capture", nonce: e.data.nonce, error: String(err) }, "*");
-  }
-});
+const captureName = () => [S.device === ALL ? "all" : D.devices[S.device], ...D.combos[S.combo]].join("_");
 draw();
 """
 
@@ -305,7 +275,7 @@ def render(d):
             '<div class="card"><h2>이상 패턴</h2><ul class="list" id="findings"></ul></div>'
             '<div class="card"><h2>장치별 통과율 (낮은 순)</h2><div class="scroll"><table id="devices"></table></div></div>'
             '</div></div>'
-            f'<script id="data" type="application/json">{_data(d)}</script>'
-            '<script>' + JS + 'document.getElementById("h").textContent = D.title;'
+            f'<script id="data" type="application/json">{data_json(d)}</script>'
+            '<script>' + JS + CAPTURE_JS + 'document.getElementById("h").textContent = D.title;'
             'document.getElementById("sub").textContent = `${D.y.name} × ${D.x.name} · 장치 ${D.devices.length}개`'
             ' + (D.filters.length ? " · 조건 " + D.filters.map((f) => f.name).join(", ") : "");</script></body></html>')
