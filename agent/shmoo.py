@@ -11,7 +11,7 @@ import html
 import importlib.util
 
 from .skills import DIR
-from .views import CAPTURE_JS, data_json
+from .views import CAPTURE_JS, FONT, MONO, data_json
 
 _spec = importlib.util.spec_from_file_location("shmoo_core", DIR / "shmoo" / "scripts" / "shmoo.py")
 core = importlib.util.module_from_spec(_spec)
@@ -50,8 +50,8 @@ CSS = """
         --none: #e7e5e4; --sel: #1c1917; }
 * { box-sizing: border-box; }
 body { margin: 0; padding: 16px; background: var(--bg); color: var(--text);
-       font: 14px/1.5 "Noto Sans KR", "Noto Sans CJK KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
-h1 { font-size: 17px; margin: 0 0 4px; font-weight: 600; }
+       font: 14px/1.5 FONT; }
+h1 { font-size: 17px; margin: 0 0 4px; font-weight: 700; }
 .sub { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
 .controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: end; margin-bottom: 12px; }
 .controls label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 2px; }
@@ -59,7 +59,7 @@ select { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 12px; align-items: start; }
 @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
-.card h2 { font-size: 13px; margin: 0 0 8px; font-weight: 600; }
+.card h2 { font-size: 13px; margin: 0 0 8px; font-weight: 700; }
 #plot svg { display: block; width: 100%; height: auto; }
 #plot rect.c { cursor: pointer; }
 #detail { font-size: 13px; min-height: 40px; }
@@ -144,9 +144,9 @@ function plot() {
   const w = Math.max(ML + NX * CW + MR, 480), h = MT + NY * CH + MB;  // min width: title and legend fit
   const s = svgEl("svg", { xmlns: "http://www.w3.org/2000/svg", viewBox: `0 0 ${w} ${h}`, width: w, height: h,
                            style: `max-width: ${w}px`,
-                           "font-family": "Noto Sans KR, Noto Sans CJK KR, Apple SD Gothic Neo, Malgun Gothic, sans-serif" });
+                           "font-family": FONT });
   s.append(svgEl("rect", { x: 0, y: 0, width: w, height: h, fill: "#ffffff" }));
-  s.append(svgEl("text", { x: 12, y: 22, "font-size": 15, "font-weight": 600, fill: "#1c1917" }, D.title));
+  s.append(svgEl("text", { x: 12, y: 22, "font-size": 15, "font-weight": 700, fill: "#1c1917" }, D.title));
   s.append(svgEl("text", { x: 12, y: 42, "font-size": 12, fill: "#625c57" },
                  `${devName(S.device)}${D.filters.length ? " · " + condText(S.combo) : ""}`));
   const ci = S.combo;
@@ -269,13 +269,13 @@ draw();
 
 def render(d):
     return (f'<!doctype html><html lang="ko"><meta charset="utf-8"><title>{html.escape(d["title"])}</title>'
-            f'<style>{CSS}</style><body><h1 id="h"></h1><div class="sub" id="sub"></div>'
+            f'<style>{CSS.replace("MONO", MONO).replace("FONT", FONT)}</style><body><h1 id="h"></h1><div class="sub" id="sub"></div>'
             '<div class="controls" id="controls"></div><div class="layout"><div class="card" id="plot"></div>'
             '<div class="side"><div class="card"><h2>선택한 칸</h2><div id="detail"></div></div>'
             '<div class="card"><h2>이상 패턴</h2><ul class="list" id="findings"></ul></div>'
             '<div class="card"><h2>장치별 통과율 (낮은 순)</h2><div class="scroll"><table id="devices"></table></div></div>'
             '</div></div>'
             f'<script id="data" type="application/json">{data_json(d)}</script>'
-            '<script>' + JS + CAPTURE_JS + 'document.getElementById("h").textContent = D.title;'
+            '<script>' + f'const FONT = {data_json(FONT)};' + JS + CAPTURE_JS + 'document.getElementById("h").textContent = D.title;'
             'document.getElementById("sub").textContent = `${D.y.name} × ${D.x.name} · 장치 ${D.devices.length}개`'
             ' + (D.filters.length ? " · 조건 " + D.filters.map((f) => f.name).join(", ") : "");</script></body></html>')

@@ -3,7 +3,7 @@
 대상: "현재 화면 복사"(shmoo, 로그 뷰)와 리포트 섹션 "복사"로 나오는 PNG.
 목표: PowerPoint 16:9 슬라이드에 **붙여 넣고 크기를 바꾸지 않아도** 발표용으로 바로 쓸 수 있는 이미지. 지금은 웹 대시보드(DXP) 화면을 잘라 붙인 느낌이다.
 
-목업(검증용 렌더, Noto Sans CJK KR로 그림): `/tmp/claude-1000/design-scratch/`
+목업(검증용 렌더, Noto Sans CJK KR로 그림. 글꼴은 이후 맑은 고딕 + Arial로 결정됨, 4.2): `/tmp/claude-1000/design-scratch/`
 `slide-full.png`, `slide-halves.png`, `shmoo-single-L.png`, `shmoo-all-M.png`, `log-L.png`, `report-categories-M.png`, `report-summary-S.png` (생성 스크립트 `mocks.py`).
 
 ---
@@ -109,33 +109,30 @@
 
 ### 4.2 타이포그래피
 
-**글꼴: Pretendard** (OFL 1.1, Inter + 본고딕 기반, 9 weight) [15]. 숫자·영문이 Inter 계열이라 `1.20 V`, `2.0 GHz`가 깔끔하다. 탭형 숫자(`tnum`)는 구현 시 렌더로 확인한다.
+**글꼴: 한글 = 맑은 고딕, 영문·숫자 = Arial** (2026-10-30 결정). 한국어 PowerPoint(Windows) 기본 조합이라 슬라이드의 다른 텍스트와 어울린다.
 
 ```
-font-family: "Pretendard", "Noto Sans CJK KR", "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
-font-variant-numeric: tabular-nums;   /* 눈금·표·금액 */
+font-family: Arial, "Liberation Sans", "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans CJK KR", sans-serif;
 ```
 
-- 이 머신에 있는 한글 글꼴은 `Noto Sans CJK KR` Regular/Bold 두 굵기뿐이다(`fc-list :lang=ko`). Pretendard, IBM Plex Sans KR, Spoqa Han Sans Neo는 없다.
-- **배포 방식이 제약 조건이다.** 렌더 프레임은 네트워크가 없다. CSP는 `font-src {CDN} data:`이고, 직렬화한 SVG를 `<img>`로 그리는 순간 외부 리소스는 아예 로드되지 않는다 [16]. 따라서 글꼴은 **data: URI로 인라인**해야 한다.
-  - 저장소에 `assets/fonts/Pretendard-{Regular,SemiBold}.otf`를 둔다(OFL 사본 포함).
-  - 뷰를 만들 때(`build`) 데이터와 템플릿 문자열에 실제로 쓰이는 글자만 `fontTools.subset`으로 잘라 woff2로 만든다. 예상 크기는 굵기당 수십 KB다. 이것을 페이지 CSS와 **캡처용 SVG 안의 `<style>@font-face`** 양쪽에 넣는다.
-  - 의존성 `fonttools[woff]`(brotli) 추가가 필요하다. 구현자 결정 사항이며, 이 문서에서는 설치하지 않았다.
-  - `MAX_CHARS` 예산(900,000)에서 글꼴 몫을 뺀다.
-- 서버 캡처(리포트)도 같은 인라인 `@font-face`를 쓴다. `page.route("**/*", abort)`는 data: URI를 막지 않는다. 그러면 서버와 클라이언트 캡처의 글꼴이 같아진다.
-- 굵기는 **400 / 600** 두 개만 쓴다. 폴백 Noto CJK KR에서는 600이 Bold로 그려진다.
-- 대안 비교: Noto Sans KR/CJK(OFL, 이미 설치됨, 폴백으로 충분) [17]; IBM Plex Sans KR(OFL, 자간이 넓어 좁은 M/S에서 불리) [18]; Spoqa Han Sans Neo(OFL, 굵기 5종) [19]. 단일 글꼴 하나를 번들한다면 숫자 품질 때문에 Pretendard를 고른다.
+- **Arial을 맨 앞에 둔다.** Arial에는 한글 글리프가 없으므로 한글은 자동으로 다음 글꼴(맑은 고딕)로 그려진다. 숫자·영문은 Arial이다. Arial 숫자는 기본이 고정폭이라 `tabular-nums` 없이도 표 숫자가 정렬된다.
+- 두 글꼴 모두 Microsoft 라이선스 글꼴이라 **번들·인라인하지 않고 시스템 글꼴을 쓴다.** 그래서 글꼴 서브셋(`fonttools`) 의존성이 필요 없다. 이미지로 그린 SVG도 설치된 시스템 글꼴은 쓸 수 있다(막히는 것은 외부 리소스뿐이다 [16]).
+- 사용자 PC가 Windows면 프레임 캡처(shmoo, 로그)가 정확히 Arial + 맑은 고딕이 된다. Mac은 Arial + Apple SD Gothic Neo가 된다(맑은 고딕은 Office를 설치했을 때만 있다).
+- 서버 캡처(리포트 섹션)를 하는 이 Linux 머신에는 둘 다 없다. 대신 **Liberation Sans**(Arial과 글자 폭이 같은 호환 글꼴, 레이아웃 동일)와 **Noto Sans CJK KR**로 그린다. 서버 캡처까지 맑은 고딕으로 맞추려면 라이선스가 있는 머신에 그 글꼴을 설치해야 한다(배포 환경 결정 사항).
+- 굵기는 **400 / 700** 두 개만 쓴다(맑은 고딕은 보통/굵게, Arial은 Regular/Bold).
+- 코드·패턴 표기(화면 전용, 캡처 아님): `Consolas, "Liberation Mono", monospace`.
+- 상수는 `agent/views.py`의 `FONT`, `MONO` 한 곳에 둔다. 템플릿 CSS, 캡처 SVG, 리포트, 앱 CSS가 같은 목록을 쓴다.
 
 **글자 크기** (캡처 논리 px → 슬라이드 pt, 배치 크기 그대로일 때):
 
 | 역할 | px | 슬라이드 pt | 굵기 | 색 |
 |---|---|---|---|---|
-| 제목 | 30 | 22.5 | 600 (700 폴백) | `--ink` |
+| 제목 | 30 | 22.5 | 700 | `--ink` |
 | 부제 | 20 | 15 | 400 | `--ink-2` |
-| 직접 라벨·주석 | 18 | 13.5 | 400/600 | `--ink` / `--ink-2` |
+| 직접 라벨·주석 | 18 | 13.5 | 400/700 | `--ink` / `--ink-2` |
 | 눈금·축 이름·범례 | 16 | 12 | 400 | `--ink-2` |
 | 출처 줄 | 14 | 10.5 | 400 | `--muted` |
-| KPI 숫자 | 56 / 36 | 42 / 27 | 600 | `--ink` |
+| KPI 숫자 | 56 / 36 | 42 / 27 | 700 | `--ink` |
 
 - **하한**: 읽어야 하는 글자는 16 px(12 pt) 이상이고, 출처 줄만 14 px다. Microsoft 접근성 가이드는 슬라이드 본문을 18 pt 이상으로 권한다 [2]. 차트 라벨은 본문이 아니라서 12 pt를 하한으로 둔다. 제목·주석은 13.5 pt 이상이다.
 - 행간: 제목 1.3, 나머지 1.4. 자간 0. 대문자 강조와 이탤릭은 쓰지 않는다 [2].
@@ -163,7 +160,7 @@ font-variant-numeric: tabular-nums;   /* 눈금·표·금액 */
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ 1-3-2: 동작점(2.0 GHz, 1.20 V)이 실패 구멍 안 — 1.20–1.26 V × 1.9–2.1 GHz │  제목 30/600
+│ 1-3-2: 동작점(2.0 GHz, 1.20 V)이 실패 구멍 안 — 1.20–1.26 V × 1.9–2.1 GHz │  제목 30/700
 │ VDD × 주파수 shmoo · 장치 1-3-2 (WAFER 1, DIE 3,2) · TEMP 85°C        │  부제 20
 │ VDD (V)                                                                │
 │ 1.28 ███████████████████████████████████░░░░  ■ Pass                 │
@@ -243,7 +240,7 @@ font-variant-numeric: tabular-nums;   /* 눈금·표·금액 */
 - **x 눈금**은 정시나 반올림한 시각에만 둔다(1/2/3/6/12시간, 10/15/30분 중 라벨 간격 ≥ 72 px를 만족하는 가장 작은 값). 첫 눈금에만 날짜를 붙인다.
 - 쌓는 순서와 색은 4.1을 따른다(ERROR가 아래, INFO 회색이 위). 레벨 필터를 꺼서 INFO를 숨기는 것도 그대로 반영한다.
 - **장애 구간 자동 검출**: ERROR+FATAL 버킷 값이 `중앙값 + 3×MAD` 이상이고, 그 버킷 중 최댓값의 20% 이상인 연속 구간을 찾는다. 사이에 0이 하나 끼어도 같은 구간으로 묶는다. 최대 2개 구간을 `--band`로 음영 처리하고, 구간 오른쪽에 2줄 주석을 단다:
-  - 1줄(18/600): `{시작}–{끝} 장애 구간`
+  - 1줄(18/700): `{시작}–{끝} 장애 구간`
   - 2줄(18/400): `ERROR {n}건 · {구간 내 최다 패턴 요약 40자}`
   - 패턴 요약은 마스킹 토큰(`<n>`, `<ip>`)을 지우고 공백을 정리한 것이다. 주석이 오른쪽 끝을 넘으면 왼쪽에 둔다. 사건 타임라인은 시작·감지·완화·종료 시각을 시간축에 표시하는 것이 포스트모템 관례다 [22][23]. 여기서는 데이터로 알 수 있는 시작·끝만 그린다.
 - **범례**: 플롯 안 좌상단 한 줄. y 단위 "5분당 건수"는 우상단에 둔다(축 이름을 회전하지 않는다).
@@ -265,11 +262,11 @@ font-variant-numeric: tabular-nums;   /* 눈금·표·금액 */
 │ 9월 지출 7% 증가      │
 │ 2026년 9월 카드A      │
 │ 총 지출               │
-│ 160.5만 원            │  56/600
-│ ▲ 10.5만 원 (+7.0%) 전월 대비 │  18/600 --over-text
+│ 160.5만 원            │  56/700
+│ ▲ 10.5만 원 (+7.0%) 전월 대비 │  18/700 --over-text
 │ ───────────────       │
 │ 거래 수               │
-│ 48건                  │  36/600
+│ 48건                  │  36/700
 │ 출처: 카드A 9월 내역   │
 └──────────────────────┘
 ```
@@ -279,7 +276,7 @@ font-variant-numeric: tabular-nums;   /* 눈금·표·금액 */
 **카테고리별 지출 (M, L 가능)**. 목업: `report-categories-M.png`
 
 - 가로 막대를 큰 순서로 그린다. **예산 초과 = `--over`, 나머지 = `--neutral-bar`**(강조 1색). 예산은 진한 세로 눈금이다.
-- 값 라벨은 막대 끝(또는 예산 눈금 중 더 오른쪽) 뒤 10 px에 둔다. 막대가 230 px보다 길면 막대 안 흰 글자로 쓴다. 초과 항목은 `"{값}  +{초과액} 초과"`(600)로 쓴다.
+- 값 라벨은 막대 끝(또는 예산 눈금 중 더 오른쪽) 뒤 10 px에 둔다. 막대가 230 px보다 길면 막대 안 흰 글자로 쓴다. 초과 항목은 `"{값}  +{초과액} 초과"`(700)로 쓴다.
 - 범례 문장 대신 출처 줄 앞에 `| = 예산`을 쓴다.
 - 자동 제목: 초과가 있으면 `"{카테고리들}이 예산 초과, 합계 {초과합} 넘음"`, 없으면 `"모든 카테고리 예산 이내, 최대는 {1위} {금액}"`. 카테고리는 최대 7개를 그리고 나머지는 "기타"로 접는다.
 
@@ -296,9 +293,8 @@ font-variant-numeric: tabular-nums;   /* 눈금·표·금액 */
    - `CAPTURE_JS`가 화면의 `#plot svg`를 찍는 대신, 메시지 `{type:"capture", nonce, preset:"L|M|S", title:bool}`를 받아 페이지의 `renderSlide(preset, opts)`를 호출한다. 이 함수는 4장 토큰으로 **새 SVG**를 만들고(선택 테두리 등 UI 상태 제외) 캔버스 2x로 PNG를 만든다.
    - 공통 JS 헬퍼(`frame(title, sub, source)`, 눈금 솎기, 직접 라벨, 단위 파서)와 토큰 상수를 여기에 둔다. shmoo와 로그가 공유한다.
    - PNG에 `pHYs` 192 dpi 청크를 삽입한다(캔버스 `toBlob` 결과에 바이트 패치).
-   - 직렬화한 SVG에 서브셋 글꼴 `@font-face`(data: URI)를 넣는다.
    - `captureName()`은 3.1의 파일명 규칙을 따른다.
-2. **글꼴 번들**: `assets/fonts/`(Pretendard OTF + OFL)를 추가하고, `views.font_css(text)` 서브셋 함수(fontTools)를 만든다. `shmoo.render`, `logview.render`, `report.render`에서 호출한다. 의존성 추가는 별도로 승인받는다.
+2. **글꼴**: 완료(2026-10-30). `agent/views.py`의 `FONT`/`MONO`를 모든 템플릿·캡처 SVG·앱 CSS가 쓴다. 번들 없음(4.2).
 3. **`agent/shmoo.py`**:
    - `plot()`(화면용)과 `slidePlot(preset)`(캡처용)을 분리한다.
    - 색을 4.1 토큰으로 바꾸고(`rateColor` 연속 보간 → 6구간), 단위 파서, finding 표식(구멍/천장/벽), spec/op 입력, 자동 제목과 제목 입력칸을 추가한다.
@@ -311,7 +307,7 @@ font-variant-numeric: tabular-nums;   /* 눈금·표·금액 */
    - 리포트 스키마에 선택 필드 `headlines: {section: str}`를 추가한다(없으면 자동 제목).
    - `pHYs`는 Playwright 스크린샷 후 같은 패치 함수로 넣는다.
    - 메모 섹션은 `sections()`의 이미지 목록에서 빼고 텍스트 복사 API로 제공한다.
-6. **`server/static/app.js` / `app.css`**: "현재 화면 복사"를 분할 버튼(`복사 ▾`: L/M/S, 제목 포함)으로 바꾸고 `preset`을 `frameCapture`와 섹션 PNG URL(`?preset=M`)에 넘긴다. 마지막 선택은 `localStorage`에 둔다(try/catch). 앱 CSS의 `IBM Plex Sans KR`(미설치)을 4.2 스택으로 바꾼다.
+6. **`server/static/app.js` / `app.css`**: "현재 화면 복사"를 분할 버튼(`복사 ▾`: L/M/S, 제목 포함)으로 바꾸고 `preset`을 `frameCapture`와 섹션 PNG URL(`?preset=M`)에 넘긴다. 마지막 선택은 `localStorage`에 둔다(try/catch). (앱 CSS 글꼴은 4.2 스택으로 이미 바꿨다.)
 7. **검증**:
    - 프리셋마다 고정 데이터(지금 `design-input`과 같은 로그와 shmoo)로 PNG를 만들고 크기를 확인한다(L = 2360×1080 등).
    - 실제 PowerPoint(Windows 365, Mac)에 붙여넣기와 삽입을 해서 배치 크기와 글꼴을 확인한다.
@@ -333,7 +329,7 @@ font-variant-numeric: tabular-nums;   /* 눈금·표·금액 */
 12. Microsoft, "Edit SVG images in Microsoft 365" (삽입·도형으로 변환). https://support.microsoft.com/en-us/topic/69f29d39-194a-4072-8c35-dbe5e7ea528c
 13. Microsoft Q&A, "Convert SVG image to shape PowerPoint 2025/2026" (버전별 차이 보고). https://learn.microsoft.com/en-us/answers/questions/5693861/convert-svg-image-to-shape-powerpoint-2025-2026
 14. Viridis/perceptual scales 소개 (단조 명도의 순차 척도). https://cran.r-project.org/web/packages/viridis/vignettes/intro-to-viridis.html
-15. Pretendard (OFL 1.1, Inter + Source Han Sans 기반, 9 weight, 동적 서브셋). https://github.com/orioncactus/pretendard
+15. Pretendard (OFL 1.1). 처음 제안한 글꼴. 맑은 고딕 + Arial로 결정되어 쓰지 않음. https://github.com/orioncactus/pretendard
 16. MDN, "SVG as an image" (이미지로 로드한 SVG는 외부 리소스를 불러오지 않음). https://developer.mozilla.org/en-US/docs/Web/SVG/Guides/SVG_as_an_image
 17. Noto CJK (OFL). https://github.com/notofonts/noto-cjk
 18. IBM Plex (Sans KR 포함, OFL). https://github.com/IBM/plex

@@ -7,6 +7,13 @@ A page using CAPTURE_JS defines captureName() -> short file-name part for the cu
 """
 import json
 
+# Owner's choice (DESIGN.md 4.2): Korean = 맑은 고딕, Latin/digits = Arial, as in Korean PowerPoint. Arial first: it
+# has no Hangul, so Hangul falls through to Malgun Gothic. Both are licensed system fonts (not bundled); where they
+# are missing (this Linux capture host) Liberation Sans (Arial-metric compatible) and Noto Sans CJK KR stand in.
+FONT = ('Arial, "Liberation Sans", "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans CJK KR", '
+        'sans-serif')
+MONO = 'Consolas, "Liberation Mono", ui-monospace, monospace'
+
 
 def data_json(obj):
     """JSON safe to inline in <script type=application/json>: no `</script>` breakout."""

@@ -449,7 +449,7 @@ def section_png(pid: str, aid: str, section: str, version: int = None, user=Depe
 # The UI's CSP is part of artifact isolation: frame-src = the renderer only, so an artifact cannot navigate its
 # iframe to another site (a way to send data out that the renderer's own CSP cannot stop).
 UI_CSP = (f"default-src 'self'; frame-src {render.RENDER_ORIGIN}; script-src 'self'; "
-          "style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; "
+          "style-src 'self'; font-src 'none'; img-src 'self' data:; "
           "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
 

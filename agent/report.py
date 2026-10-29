@@ -6,6 +6,8 @@ Each section is self-contained (own heading, fixed width) so a capture of it rea
 """
 import html
 
+from .views import FONT
+
 SECTIONS = {"summary": "요약", "categories": "카테고리별 지출", "top": "큰 거래", "notes": "메모"}
 WIDTH = 720
 MAX_ROWS = 20
@@ -33,15 +35,15 @@ SCHEMA = {
 CSS = f"""
 * {{ box-sizing: border-box; }}
 body {{ margin: 0; padding: 16px; background: #f5f5f4; color: #1c1917;
-       font: 15px/1.5 "Noto Sans KR", "Noto Sans CJK KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }}
+       font: 15px/1.5 {FONT}; }}
 section {{ width: 100%; max-width: {WIDTH}px; background: #fff; border: 1px solid #e2e0dc; border-radius: 8px; padding: 20px 24px;
           margin: 0 0 16px; }}
 svg {{ display: block; }}
-h2 {{ font-size: 16px; font-weight: 600; margin: 0 0 14px; }}
+h2 {{ font-size: 16px; font-weight: 700; margin: 0 0 14px; }}
 h2 .period {{ color: #625c57; font-weight: 400; margin-left: 6px; }}
 .figures {{ display: flex; gap: 40px; }}
 .figure .k {{ color: #625c57; font-size: 13px; }}
-.figure .v {{ font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }}
+.figure .v {{ font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }}
 .figure .v.small {{ font-size: 18px; padding-top: 8px; }}
 .up {{ color: #b45309; }} .down {{ color: #0e7490; }}
 table {{ width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }}

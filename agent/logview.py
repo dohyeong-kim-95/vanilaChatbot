@@ -9,7 +9,7 @@ import html
 import importlib.util
 
 from .skills import DIR
-from .views import CAPTURE_JS, data_json
+from .views import CAPTURE_JS, FONT, MONO, data_json
 
 _spec = importlib.util.spec_from_file_location("logs_core", DIR / "log-triage" / "scripts" / "logs.py")
 core = importlib.util.module_from_spec(_spec)
@@ -27,8 +27,8 @@ def build(path, title=None, bucket=None):
 CSS = """
 * { box-sizing: border-box; }
 body { margin: 0; padding: 16px; background: #f5f5f4; color: #1c1917;
-       font: 14px/1.5 "Noto Sans KR", "Noto Sans CJK KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
-h1 { font-size: 17px; margin: 0 0 4px; font-weight: 600; }
+       font: 14px/1.5 FONT; }
+h1 { font-size: 17px; margin: 0 0 4px; font-weight: 700; }
 .sub { color: #625c57; font-size: 13px; margin-bottom: 12px; }
 .levels { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .chip { display: inline-flex; gap: 6px; align-items: center; border: 1px solid #e2e0dc; background: #fff; border-radius: 14px;
@@ -37,7 +37,7 @@ h1 { font-size: 17px; margin: 0 0 4px; font-weight: 600; }
 .chip.off { opacity: .45; }
 .chip .n { color: #625c57; font-variant-numeric: tabular-nums; }
 .card { background: #fff; border: 1px solid #e2e0dc; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
-.card h2 { font-size: 13px; margin: 0 0 8px; font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
+.card h2 { font-size: 13px; margin: 0 0 8px; font-weight: 700; display: flex; justify-content: space-between; gap: 8px; }
 .card h2 button { font: inherit; font-size: 12px; border: 1px solid #e2e0dc; background: #fff; border-radius: 6px; padding: 1px 8px; cursor: pointer; }
 #plot svg { display: block; width: 100%; height: auto; }
 #plot rect.b { cursor: pointer; }
@@ -46,7 +46,7 @@ td, th { padding: 4px 6px; border-bottom: 1px solid #ecebe8; text-align: left; v
 th { color: #625c57; font-weight: 500; white-space: nowrap; }
 td.num, th.num { text-align: right; white-space: nowrap; }
 td.time { white-space: nowrap; color: #625c57; }
-td.pat { font: 12px/1.45 "IBM Plex Mono", ui-monospace, monospace; word-break: break-all; }
+td.pat { font: 12px/1.45 MONO; word-break: break-all; }
 tr.row { cursor: pointer; } tr.row:hover { background: #f0efed; } tr.on { background: #e6e4e1; }
 .lv { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; color: #fff; }
 .scroll { max-height: 360px; overflow: auto; }
@@ -96,9 +96,9 @@ function plot() {
   const top = Math.ceil(max / step) * step;
   const pw = W - ML - MR, ph = H - MT - MB, bw = pw / n;
   const s = svgEl("svg", { xmlns: "http://www.w3.org/2000/svg", viewBox: `0 0 ${W} ${H}`, width: W, height: H,
-    "font-family": "Noto Sans KR, Noto Sans CJK KR, Apple SD Gothic Neo, Malgun Gothic, sans-serif" });
+    "font-family": FONT });
   s.append(svgEl("rect", { x: 0, y: 0, width: W, height: H, fill: "#ffffff" }));
-  s.append(svgEl("text", { x: 12, y: 24, "font-size": 16, "font-weight": 600, fill: "#1c1917" }, D.title));
+  s.append(svgEl("text", { x: 12, y: 24, "font-size": 16, "font-weight": 700, fill: "#1c1917" }, D.title));
   const what = S.pattern !== null ? `패턴: ${D.patterns[S.pattern].pattern}` : `레벨: ${[...S.on].join(", ") || "없음"}`;
   s.append(svgEl("text", { x: 12, y: 42, "font-size": 13, fill: "#625c57" }, `${what.length > 90 ? what.slice(0, 89) + "…" : what} · ${bsize()} 단위`));
   for (let v = 0; v <= top; v += step) {
@@ -172,10 +172,10 @@ draw();
 
 def render(d):
     return (f'<!doctype html><html lang="ko"><meta charset="utf-8"><title>{html.escape(d["title"])}</title>'
-            f'<style>{CSS}</style><body><h1 id="h"></h1><div class="sub" id="sub"></div>'
+            f'<style>{CSS.replace("MONO", MONO).replace("FONT", FONT)}</style><body><h1 id="h"></h1><div class="sub" id="sub"></div>'
             '<div class="levels" id="levels"></div>'
             '<div class="card"><div id="plot"></div></div>'
             '<div class="card"><h2><span>패턴 (숫자·ID·IP는 가림, 에러 먼저)</span><button id="reset" hidden>선택 해제</button></h2>'
             '<div id="bucket"></div><div class="scroll"><table id="patterns"></table></div></div>'
             f'<script id="data" type="application/json">{data_json(d)}</script>'
-            '<script>' + JS + CAPTURE_JS + '</script></body></html>')
+            '<script>' + f'const FONT = {data_json(FONT)};' + JS + CAPTURE_JS + '</script></body></html>')
