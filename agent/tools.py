@@ -1,18 +1,19 @@
 """Predefined tool registry. Each tool = OpenAI function schema + python impl.
-Tools flagged `approval=True` are outward-facing and need a human yes before running."""
+Tools flagged `approval=True` are outward-facing and need a human yes before running.
+Tools flagged `ask=True` need a human answer (a string), passed to the impl as `answer`."""
 import datetime
 import os
 import json
 
-from . import github, report
+from . import github, report, shmoo
 
 REGISTRY = {}
 
 
-def tool(description, params, required=None, approval=False):
+def tool(description, params, required=None, approval=False, ask=False):
     def deco(fn):
         REGISTRY[fn.__name__] = {
-            "fn": fn, "approval": approval,
+            "fn": fn, "approval": approval, "ask": ask,
             "schema": {"type": "function", "function": {
                 "name": fn.__name__, "description": description,
                 "parameters": {"type": "object", "properties": params,
@@ -118,8 +119,9 @@ def artifact(ctx, command, id, type=None, title=None, content=None, file=None, o
     store = ctx.artifacts
     if command not in ("create", "update", "rewrite"):
         raise ValueError("command must be create, update or rewrite")
-    if type == "report" or (command != "create" and store.versions(id) and store.get(id)["type"] == "report"):
-        raise ValueError("reports are made with show_report")
+    if type in ("report", "shmoo") or (command != "create" and store.versions(id) and
+                                       store.get(id)["type"] in ("report", "shmoo")):
+        raise ValueError("reports are made with show_report, shmoo views with show_shmoo")
     if command != "update":
         if (content is None) == (file is None):
             raise ValueError("give exactly one of content or file")
@@ -157,6 +159,54 @@ def show_report(ctx, id, data):
                       command="rewrite" if store.versions(id) else "create")
     return f"report {meta['id']} saved as version {meta['version']}" + \
         "".join(f"\nWARNING: {w}. Check your numbers and call show_report again if they are wrong." for w in warnings)
+
+
+@tool("Ask the user a question and wait for the answer. Use it when the answer changes what you will do and you "
+      "cannot infer it (e.g. what to focus on in a log you just looked at). Base the options on what you found, "
+      "2-4 concrete ones, the one you recommend first; the user can also type their own answer. Do not ask what "
+      "the user already told you.",
+      {"question": S, "options": {"type": "array", "items": {"type": "object", "properties": {
+          "label": {"type": "string", "description": "short, shown on a button"},
+          "description": {"type": "string", "description": "one line: what you will do if chosen"}},
+          "required": ["label"]}}}, ask=True)
+def ask_user(ctx, question, options, answer):
+    return f"The user answered: {answer}"
+
+
+def check_question(question, options):
+    if not isinstance(question, str) or not question.strip() or len(question) > 500:
+        raise ValueError("question must be a non-empty string (max 500 chars)")
+    if not isinstance(options, list) or not 2 <= len(options) <= 5 or not all(
+            isinstance(o, dict) and isinstance(o.get("label"), str) and o["label"].strip() for o in options):
+        raise ValueError("options must be 2-5 objects with a label")
+
+
+@tool("Show the user an interactive shmoo plot built from a test log in the workspace (one row per device x condition "
+      "x sweep point, with a pass/fail column). You only name the file and its columns; the server reads the log. "
+      "The user can filter conditions, pick a device or see all devices combined, click cells, and copy the current "
+      "view as an image. Returns a summary with pattern findings. Calling it again with the same id makes a new version.",
+      {"id": S, "file": S, "x": {"type": "string", "description": "column for the horizontal axis, e.g. frequency"},
+       "y": {"type": "string", "description": "column for the vertical axis, e.g. voltage"},
+       "result": {"type": "string", "description": "pass/fail column"},
+       "device": {"type": "array", "items": S, "description": "columns that together identify one device/die"},
+       "filters": {"type": "array", "items": S, "description": "condition columns to choose from, e.g. temperature"},
+       "pass_values": {"type": "array", "items": S, "description": "result values meaning pass, if not P/PASS/1/OK"},
+       "title": S}, required=["id", "file", "x", "y", "result", "device"])
+def show_shmoo(ctx, id, file, x, y, result, device, filters=(), pass_values=None, title=None):
+    data, warnings, summary = shmoo.build(ctx.sandbox.path(file), x, y, result, device, filters, pass_values, title)
+    store = ctx.artifacts
+    meta = store.save(id, "shmoo", data["title"], json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+                      command="rewrite" if store.versions(id) else "create")
+    return f"shmoo {meta['id']} saved as version {meta['version']}\n{summary}" + \
+        "".join(f"\nWARNING: {w}" for w in warnings)
+
+
+@tool("Load a skill's instructions (see the Skills list in your instructions). Its files are mounted read-only in "
+      "the sandbox at /skills/<name>/.", {"name": S})
+def use_skill(ctx, name):
+    if name not in ctx.skills:
+        raise ValueError(f"unknown skill {name!r}. Available: {sorted(ctx.skills)}")
+    return f"Skill {name} (files in /skills/{name}/)\n\n" + ctx.skills[name]["body"]
 
 
 @tool("Search all connected tools by keywords (write the query in English) when none of the tools you have fits. "
@@ -202,7 +252,9 @@ def open_pull_request(ctx, branch, title, body):
 
 
 def schemas(names=None):
-    # search_tools needs a ToolRouter, remember a user store, artifact/show_report an artifact store; callers that have them
-    # name them
+    # search_tools needs a ToolRouter, remember a user store, artifact/show_report an artifact store, use_skill skills;
+    # callers that have them name them
     return [t["schema"] for n, t in REGISTRY.items()
-            if (n in names if names is not None else n not in ("search_tools", "remember", "artifact", "show_report"))]
+            if (n in names if names is not None else
+                n not in ("search_tools", "remember", "artifact", "show_report", "show_shmoo", "use_skill",
+                          "ask_user"))]

@@ -16,7 +16,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 MODEL = os.environ.get("GATEWAY_MODEL", "claude-haiku-5-5")
-EFFORT = os.environ.get("GATEWAY_EFFORT", "max")
+EFFORT = os.environ.get("GATEWAY_EFFORT", "max")  # default when a request has no reasoning_effort
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
 API_KEY = os.environ.get("GATEWAY_API_KEY")  # optional bearer check
 BACKEND = os.environ.get("GATEWAY_BACKEND", "cli")  # "cli" (claude -p, emulated tools) | "anthropic" (API key)
 
@@ -57,10 +58,10 @@ def render_prompt(messages):
     return "\n\n".join(system), "\n\n".join(lines)
 
 
-async def call_backend(system, prompt, tools):
+async def call_backend(system, prompt, tools, effort=EFFORT):
     if tools:
         system = system + "\n\n" + TOOL_PROTOCOL + json.dumps([t["function"] for t in tools], ensure_ascii=False)
-    cmd = ["claude", "-p", "--model", MODEL, "--effort", EFFORT, "--tools", "",
+    cmd = ["claude", "-p", "--model", MODEL, "--effort", effort, "--tools", "",
            "--output-format", "json", "--no-session-persistence", "--strict-mcp-config",
            "--setting-sources", "", "--system-prompt", system or "You are a helpful assistant."]
     # Plain-text JSON, not --json-schema: with --json-schema the CLI exposes a tool to the model,
@@ -118,13 +119,17 @@ async def chat(req: Request):
     tools = body.get("tools") or []
     if body.get("tool_choice") == "none":
         tools = []
+    effort = body.get("reasoning_effort") or EFFORT  # OpenAI's field; "minimal" maps to our lowest
+    effort = "low" if effort == "minimal" else effort
+    if effort not in EFFORTS:
+        return JSONResponse({"error": {"message": f"reasoning_effort must be one of {EFFORTS}"}}, status_code=400)
     try:
         if BACKEND == "anthropic":
             from . import anthropic_backend
-            msg, finish, usage = await anthropic_backend.complete(body["messages"], tools)
+            msg, finish, usage = await anthropic_backend.complete(body["messages"], tools, effort=effort)
         else:
             system, prompt = render_prompt(body["messages"])
-            so, usage = await call_backend(system, prompt, tools)
+            so, usage = await call_backend(system, prompt, tools, effort)
             msg, finish = to_message(so)
     except Exception as e:
         return JSONResponse({"error": {"message": str(e), "type": "backend_error"}}, status_code=502)

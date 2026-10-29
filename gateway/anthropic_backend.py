@@ -47,7 +47,7 @@ def to_anthropic(messages):
     return "\n\n".join(system), out
 
 
-async def complete(messages, tools, tool_choice=None):
+async def complete(messages, tools, tool_choice=None, effort=EFFORT):
     """Returns (openai_message, finish_reason, usage)."""
     system, msgs = to_anthropic(messages)
     kw = {}
@@ -64,7 +64,7 @@ async def complete(messages, tools, tool_choice=None):
     # drop_block: agent-side compaction edits history, which invalidates restored thinking blocks
     # ("preserved thinking" check). Instead of a 400, the API drops the stale blocks and reports them.
     async with client.beta.messages.stream(
-            model=MODEL, max_tokens=64000, messages=msgs, output_config={"effort": EFFORT},
+            model=MODEL, max_tokens=64000, messages=msgs, output_config={"effort": effort},
             thinking={"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "drop_block"}},
             betas=["thinking-binding-controls-2026-08-01"],
             cache_control={"type": "ephemeral"}, **kw) as stream:

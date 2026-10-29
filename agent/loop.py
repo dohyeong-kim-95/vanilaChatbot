@@ -27,11 +27,13 @@ class Context:
     git_dir: str = None          # server workspaces: trusted git metadata outside the sandbox (userstore.checkout)
     memory: callable = None      # remember(note) -> persists to the user's memory (after approval)
     artifacts: object = None     # ArtifactStore for the `artifact` tool
+    skills: dict = field(default_factory=dict)  # name -> skill (agent.skills.discover) for `use_skill`
     github_token: str = None
     github_repo: str = None      # "owner/repo"
     remote_url: str = None
     base_branch: str = "main"
     approve: callable = lambda name, args: False   # human-in-the-loop hook; default deny; None = pause the run
+    ask: callable = lambda name, args: None        # answer for ask_user; None = pause the run (server/default)
     decisions: dict = field(default_factory=dict)  # tool_call_id -> bool, decided after an Interrupt
     cancel: threading.Event = field(default_factory=threading.Event)
     read_files: set = field(default_factory=set)
@@ -87,6 +89,13 @@ def run_tool(ctx, name, raw, call_id=None):
                 raise Interrupt(call_id, name, args)
             if not ok:
                 return "ERROR: the user denied this action. Do not retry it; report back instead."
+        if REGISTRY[name].get("ask"):
+            from .tools import check_question
+            check_question(args.get("question"), args.get("options"))  # bad questions go back to the model, not the user
+            ans = ctx.decisions.pop(call_id) if call_id in ctx.decisions else ctx.ask(name, args)
+            if ans is None:
+                raise Interrupt(call_id, name, args)
+            args["answer"] = str(ans)[:2000]
         return truncate(str(REGISTRY[name]["fn"](ctx, **args)))  # cap every tool, not only bash
     except Exception as e:  # errors go back to the model so it can self-correct
         return f"ERROR: {type(e).__name__}: {e}"
@@ -153,8 +162,9 @@ def do_calls(ctx, msgs, step, emit, log, checkpoint):
 
 
 def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, history=None, log=print,
-        emit=lambda ev: None, budget=60_000, checkpoint=lambda msgs, inflight: None):
-    """task=None resumes `history` (after an Interrupt or a restart): pending tool calls run first."""
+        emit=lambda ev: None, budget=60_000, checkpoint=lambda msgs, inflight: None, effort=None):
+    """task=None resumes `history` (after an Interrupt or a restart): pending tool calls run first.
+    effort: sent as OpenAI `reasoning_effort` only when given (some endpoints reject the field)."""
     client = client or OpenAI(base_url=os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8100/v1"),
                               api_key=os.environ.get("LLM_API_KEY", "dummy"))
     model = model or os.environ.get("LLM_MODEL") or client.models.list().data[0].id
@@ -173,7 +183,8 @@ def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, histo
         msgs[:] = compact(msgs, client, model, budget, notes=ctx.notes)
         if ctx.router:  # tools may grow after search_tools; keep the list sorted so the prefix is stable
             tools = sorted(ctx.router.schemas(), key=lambda t: t["function"]["name"])
-        r = client.chat.completions.create(model=model, messages=msgs, tools=tools)
+        r = client.chat.completions.create(model=model, messages=msgs, tools=tools,
+                                           **({"extra_body": {"reasoning_effort": effort}} if effort else {}))
         m = r.choices[0].message
         msgs.append(m.model_dump(exclude_none=True))
         checkpoint(msgs, None)

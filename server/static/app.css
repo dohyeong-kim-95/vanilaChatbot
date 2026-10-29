@@ -66,6 +66,18 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #a5d8e6; outline-
 .approval pre { font: 13px "IBM Plex Mono", monospace; white-space: pre-wrap; margin: 6px 0 10px; }
 .approval .row { gap: 8px; }
 
+.question { align-self: flex-start; border: 1px solid var(--border); background: var(--white); border-radius: 8px;
+  padding: 12px; max-width: 640px; display: flex; flex-direction: column; gap: 10px; }
+.question .q { line-height: 1.5; white-space: pre-wrap; }
+.question .options { display: flex; flex-direction: column; gap: 6px; }
+.question button.option { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; padding: 8px 10px; }
+.question button.option:hover { border-color: var(--primary); }
+.question .label { font-weight: 500; }
+.question .desc { color: var(--muted); font-size: 13px; }
+.question .other { display: flex; gap: 6px; }
+.question .other input { flex: 1; min-width: 0; }
+.question .answered { color: var(--primary); font-weight: 500; }
+
 #composer { display: flex; gap: 8px; padding: 12px 24px 20px; border-top: 1px solid var(--border); background: var(--bg); }
 #composer textarea { flex: 1; resize: vertical; min-height: 44px; }
 #composer button { align-self: flex-end; }

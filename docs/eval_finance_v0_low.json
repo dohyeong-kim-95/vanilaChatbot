@@ -1,0 +1,550 @@
+[
+ {
+  "case": "a_total",
+  "tag": "clean",
+  "i": 0,
+  "expected": 1605300,
+  "final": "2026년 9월 카드A 총 사용액은 1,605,300원입니다. 업로드 파일 48건을 모두 합산했고, 수기로 다시 더해서도 같은 값임을 확인했습니다. 결과는 /workspace/outputs/answer.json에 {\"answer\": 1605300} 형식으로 저장되어 있습니다.",
+  "llm_calls": 4,
+  "tool_calls": 3,
+  "prompt_tokens": 9781,
+  "completion_tokens": 1357,
+  "got": 1605300,
+  "pass_": true,
+  "why": null,
+  "seconds": 15,
+  "tools": [
+   "bash",
+   "read_file",
+   "bash"
+  ]
+ },
+ {
+  "case": "a_by_cat",
+  "tag": "clean",
+  "i": 0,
+  "expected": {
+   "문화": 128300,
+   "식비": 221500,
+   "교통": 435500,
+   "생활": 176900,
+   "쇼핑": 603800,
+   "구독": 39300
+  },
+  "final": "9월 카드A 지출을 카테고리별로 합산했습니다. 48건, 총 1,605,300원입니다.\n\n- 쇼핑: 603,800원\n- 식비: 221,500원\n- 생활: 176,900원\n- 교통: 435,500원\n- 문화: 128,300원\n- 구독: 39,300원\n\n결과는 /workspace/outputs/answer.json 에 {\"answer\": {...}} 형식으로 저장했습니다. 합계는 카테고리 금액을 더해 총액과 일치하는지 확인했습니다.",
+  "llm_calls": 4,
+  "tool_calls": 3,
+  "prompt_tokens": 9545,
+  "completion_tokens": 2537,
+  "got": {
+   "교통": 435500,
+   "구독": 39300,
+   "문화": 128300,
+   "생활": 176900,
+   "쇼핑": 603800,
+   "식비": 221500
+  },
+  "pass_": true,
+  "why": null,
+  "seconds": 19,
+  "tools": [
+   "bash",
+   "read_file",
+   "bash"
+  ]
+ },
+ {
+  "case": "a_top3",
+  "tag": "clean",
+  "i": 0,
+  "expected": [
+   "다이소",
+   "GS칼텍스",
+   "티머니"
+  ],
+  "final": "9월 카드A에서 가장 많이 쓴 가맹점 3곳은 다음과 같습니다(금액 큰 순서).\n\n1. 다이소: 455,200원\n2. GS칼텍스: 177,900원\n3. 티머니: 169,100원\n\n결과는 /workspace/outputs/answer.json 에 저장했습니다: {\"answer\": [\"다이소\", \"GS칼텍스\", \"티머니\"]}\n\n합계는 CSV 원본 행을 직접 더해 확인했습니다. 4위는 쿠팡 148,600원입니다.",
+  "llm_calls": 4,
+  "tool_calls": 3,
+  "prompt_tokens": 9847,
+  "completion_tokens": 1587,
+  "got": [
+   "다이소",
+   "GS칼텍스",
+   "티머니"
+  ],
+  "pass_": true,
+  "why": null,
+  "seconds": 15,
+  "tools": [
+   "bash",
+   "read_file",
+   "bash"
+  ]
+ },
+ {
+  "case": "a_daily_avg",
+  "tag": "clean",
+  "i": 0,
+  "expected": 53510,
+  "final": "9월 카드A 하루 평균 지출은 **53,510원**입니다.\n\n- 기준: 2026-09 CSV의 이용금액 48건 합계 1,605,300원 ÷ 30일 = 53,510원 (정수, 반올림 불필요)\n- 저장: /workspace/outputs/answer.json → {\"answer\": 53510}\n- 참고: 합계는 awk로 계산했고, 손으로 다시 더해 검증하지는 않았습니다.",
+  "llm_calls": 5,
+  "tool_calls": 4,
+  "prompt_tokens": 13355,
+  "completion_tokens": 1572,
+  "got": 53510,
+  "pass_": true,
+  "why": null,
+  "seconds": 23,
+  "tools": [
+   "bash",
+   "read_file",
+   "bash",
+   "write_file"
+  ]
+ },
+ {
+  "case": "a_max_day",
+  "tag": "clean",
+  "i": 0,
+  "expected": "2026-09-05",
+  "final": "9월 카드A 지출이 가장 많았던 날은 2026-09-05입니다. 그날 합계는 246,900원(넷플릭스 13,500 + 다이소 116,200 + 다이소 117,200)이고, 2위는 09-20의 146,400원입니다. 결과는 /workspace/outputs/answer.json에 {\"answer\": \"2026-09-05\"} 형식으로 저장했습니다. 일자별 합계는 CSV 행을 직접 더해 확인했고, 스크립트로 재검증하지는 않았습니다.",
+  "llm_calls": 4,
+  "tool_calls": 3,
+  "prompt_tokens": 9624,
+  "completion_tokens": 1783,
+  "got": "2026-09-05",
+  "pass_": true,
+  "why": null,
+  "seconds": 18,
+  "tools": [
+   "bash",
+   "read_file",
+   "write_file"
+  ]
+ },
+ {
+  "case": "a_weekend",
+  "tag": "clean",
+  "i": 0,
+  "expected": 690000,
+  "final": "9월 카드A 지출 중 주말(토·일) 지출 합계는 **690,000원**입니다 (주말 거래 21건, 전체 48건 중).\n\n- 입력: /workspace/uploads/card_a_2026-09.csv\n- 계산: 이용일자의 요일이 토·일인 거래의 이용금액을 합산 (Python `weekday()>=5`)\n- 결과 저장: /workspace/outputs/answer.json → `{\"answer\": 690000}`",
+  "llm_calls": 4,
+  "tool_calls": 3,
+  "prompt_tokens": 9896,
+  "completion_tokens": 1701,
+  "got": 690000,
+  "pass_": true,
+  "why": null,
+  "seconds": 19,
+  "tools": [
+   "bash",
+   "read_file",
+   "bash"
+  ]
+ },
+ {
+  "case": "a_mom",
+  "tag": "monthly",
+  "i": 0,
+  "expected": {
+   "category": "교통",
+   "increase": 165000
+  },
+  "final": "카드A 8월 대비 9월에 가장 많이 늘어난 카테고리는 **교통**으로, 270,500원에서 435,500원으로 **165,000원** 늘었습니다. 쇼핑은 +38,000원, 생활은 +109,300원 늘었고, 문화는 줄었으며, 식비와 구독은 변동이 없었습니다. 교통 합계는 두 달 거래내역을 직접 더해 확인했습니다. 결과는 /workspace/outputs/answer.json 에 {\"answer\": {\"category\": \"교통\", \"increase\": 165000}} 형태로 저장되어 있습니다.",
+  "llm_calls": 5,
+  "tool_calls": 4,
+  "prompt_tokens": 15839,
+  "completion_tokens": 1923,
+  "got": {
+   "category": "교통",
+   "increase": 165000
+  },
+  "pass_": true,
+  "why": null,
+  "seconds": 21,
+  "tools": [
+   "bash",
+   "bash",
+   "bash",
+   "write_file"
+  ]
+ },
+ {
+  "case": "a_subs",
+  "tag": "monthly",
+  "i": 0,
+  "expected": [
+   "넷플릭스",
+   "멜론",
+   "유튜브프리미엄"
+  ],
+  "final": "카드A 내역(2026-08, 2026-09)에서 두 달 모두 같은 금액으로 한 번씩 결제된 정기결제 3곳을 찾았습니다.\n\n- 넷플릭스: 13,500원 (8/5, 9/5)\n- 멜론: 10,900원 (8/20, 9/20)\n- 유튜브프리미엄: 14,900원 (8/12, 9/12)\n\n다른 가맹점은 달마다 금액이 달라서 제외했습니다. 결과는 /workspace/outputs/answer.json에 저장했고 JSON 파싱으로 형식을 확인했습니다.\n\n```json\n{\"answer\": [\"넷플릭스\", \"멜론\", \"유튜브프리미엄\"]}\n```\n\n분석",
+  "llm_calls": 7,
+  "tool_calls": 6,
+  "prompt_tokens": 51613,
+  "completion_tokens": 3501,
+  "got": [
+   "넷플릭스",
+   "멜론",
+   "유튜브프리미엄"
+  ],
+  "pass_": true,
+  "why": null,
+  "seconds": 30,
+  "tools": [
+   "bash",
+   "bash",
+   "write_file",
+   "bash",
+   "write_file",
+   "bash"
+  ]
+ },
+ {
+  "case": "a_budget",
+  "tag": "budget",
+  "i": 0,
+  "expected": [
+   "교통",
+   "문화",
+   "쇼핑"
+  ],
+  "final": "9월 카드A 이용액을 budget.json 기준과 카테고리별로 합산해 확인했습니다.\n\n- 교통: 435,500원 (예산 400,000원 초과)\n- 쇼핑: 603,800원 (예산 500,000원 초과)\n- 문화: 128,300원 (예산 100,000원 초과)\n- 식비: 221,500원, 생활: 176,900원, 구독: 39,300원 (모두 예산 이내)\n\n답은 /workspace/outputs/answer.json 에 저장했습니다: {\"answer\": [\"교통\", \"쇼핑\", \"문화\"]}",
+  "llm_calls": 4,
+  "tool_calls": 3,
+  "prompt_tokens": 9775,
+  "completion_tokens": 3134,
+  "got": [
+   "교통",
+   "쇼핑",
+   "문화"
+  ],
+  "pass_": true,
+  "why": null,
+  "seconds": 21,
+  "tools": [
+   "bash",
+   "bash",
+   "write_file"
+  ]
+ },
+ {
+  "case": "last_month",
+  "tag": "ambiguous",
+  "i": 0,
+  "expected": 1605300,
+  "final": "지난달(2026년 9월) 카드A 사용액은 총 1,605,300원입니다(48건).\n\n- 입력: /workspace/uploads/card_a_2026-09.csv\n- 결과: /workspace/outputs/answer.json에 {\"answer\": 1605300} 저장\n- 확인: awk로 합계를 계산했고, Python으로 JSON 파일이 유효한지 읽어서 검증했습니다.",
+  "llm_calls": 4,
+  "tool_calls": 3,
+  "prompt_tokens": 11384,
+  "completion_tokens": 1401,
+  "got": 1605300,
+  "pass_": true,
+  "why": null,
+  "seconds": 16,
+  "tools": [
+   "bash",
+   "bash",
+   "bash"
+  ]
+ },
+ {
+  "case": "b_net",
+  "tag": "cancel",
+  "i": 0,
+  "expected": 2753000,
+  "final": "9월 카드B 실제 사용액은 **2,829,300원**입니다.\n\n- 원본 CSV(CP949)를 UTF-8로 변환해 34건을 확인했습니다.\n- 상태가 '승인'인 30건만 합산했고, 취소 2건(다이소 48,500원, 교보문고 21,600원)과 부분취소 1건(카카오T 6,200원)은 제외했습니다.\n- 할부 건(이케아 713,700원, 하이마트 433,700원, 애플스토어 820,700원)은 결제 총액인 금액 필드를 그대로 썼습니다.\n- 결과는 /workspace/outputs/answer.json에 `{\"answer\": 2829300}`으",
+  "llm_calls": 5,
+  "tool_calls": 4,
+  "prompt_tokens": 12456,
+  "completion_tokens": 3361,
+  "got": 2829300,
+  "pass_": false,
+  "why": "wrong answer",
+  "seconds": 24,
+  "tools": [
+   "bash",
+   "read_file",
+   "bash",
+   "bash"
+  ]
+ },
+ {
+  "case": "b_cancel_count",
+  "tag": "cancel",
+  "i": 0,
+  "expected": 3,
+  "final": "카드B 2026년 9월 내역에서 취소 또는 부분취소 건은 **3건**입니다.\n\n- 2026.09.11 08:49 카카오T 6,200원 (부분취소)\n- 2026.09.13 17:15 다이소 48,500원 (취소)\n- 2026.09.25 17:56 교보문고 21,600원 (취소)\n\n전체 33건을 확인했고, 결과는 /workspace/outputs/answer.json에 `{\"answer\": 3}`으로 저장했습니다. 파일이 CP949 인코딩이라 그 인코딩으로 읽었습니다.",
+  "llm_calls": 6,
+  "tool_calls": 5,
+  "prompt_tokens": 26493,
+  "completion_tokens": 3645,
+  "got": 3,
+  "pass_": true,
+  "why": null,
+  "seconds": 35,
+  "tools": [
+   "bash",
+   "bash",
+   "bash",
+   "bash",
+   "write_file"
+  ]
+ },
+ {
+  "case": "b_inst_bill",
+  "tag": "installment",
+  "i": 0,
+  "expected": 519249,
+  "final": "카드B 할부 결제 3건(승인 기준)의 월 납부액 합계는 519,249원입니다.\n\n- 이케아 713,700원 ÷ 3개월 = 237,900원\n- 하이마트 433,700원 ÷ 3개월 = 144,566원 (원 미만 버림)\n- 애플스토어 820,700원 ÷ 6개월 = 136,783원 (원 미만 버림)\n\n합계 237,900 + 144,566 + 136,783 = 519,249원입니다. 결과는 /workspace/outputs/answer.json에 {\"answer\": 519249}로 저장했습니다. CSV는 cp949 인코딩이라 그 기준으로 읽",
+  "llm_calls": 8,
+  "tool_calls": 7,
+  "prompt_tokens": 25302,
+  "completion_tokens": 3186,
+  "got": 519249,
+  "pass_": true,
+  "why": null,
+  "seconds": 36,
+  "tools": [
+   "bash",
+   "read_file",
+   "bash",
+   "bash",
+   "bash",
+   "write_file",
+   "bash"
+  ]
+ },
+ {
+  "case": "b_bill",
+  "tag": "installment",
+  "i": 0,
+  "expected": 1304149,
+  "final": "최종 답: 1,304,149원 (`/workspace/outputs/answer.json`에 저장 완료).\n\n계산 내역:\n- 일시불 승인 건 합계: 784,900원\n  - 원본 승인 791,100원에서 카카오T 부분취소 6,200원을 차감했습니다.\n  - 다이소 48,500원은 9/13 취소로 제외했습니다.\n  - 교보문고 21,600원은 9/25 취소로 제외했습니다.\n- 할부 월납입액: 이케아 237,900 (713,700÷3) + 하이마트 144,566 (433,700÷3, 버림) + 애플스토어 136,783 (820,700÷6",
+  "llm_calls": 5,
+  "tool_calls": 4,
+  "prompt_tokens": 12195,
+  "completion_tokens": 7282,
+  "got": 1304149,
+  "pass_": true,
+  "why": null,
+  "seconds": 43,
+  "tools": [
+   "bash",
+   "read_file",
+   "bash",
+   "write_file"
+  ]
+ },
+ {
+  "case": "b_top_merchant",
+  "tag": "cancel",
+  "i": 0,
+  "expected": "애플스토어",
+  "final": "카드B 2026년 9월 취소 반영 기준으로 가장 많이 쓴 가맹점은 **애플스토어**이고, 순지출은 820,700원입니다.\n\n- 승인 금액은 더하고, 취소·부분취소 금액은 뺐습니다. CSV 전체 행을 읽었고 인코딩은 cp949로 확인했습니다.\n- 2위는 이케아 713,700원, 3위는 하이마트 433,700원입니다.\n- 결과는 /workspace/outputs/answer.json에 `{\"answer\": \"애플스토어\"}` 형태로 저장했습니다.\n\n참고로 애플스토어 건은 6개월 할부 결제라 이번 달 실제 현금 지출과는 다를 수 있습니다.",
+  "llm_calls": 6,
+  "tool_calls": 5,
+  "prompt_tokens": 15955,
+  "completion_tokens": 4477,
+  "got": "애플스토어",
+  "pass_": true,
+  "why": null,
+  "seconds": 32,
+  "tools": [
+   "bash",
+   "read_file",
+   "bash",
+   "bash",
+   "bash"
+  ]
+ },
+ {
+  "case": "bank_out",
+  "tag": "format",
+  "i": 0,
+  "expected": 2898220,
+  "final": "9월 은행 출금 합계는 **2,898,220원**입니다.\n\n출금 내역 8건(1,406,100 / 50,000 / 33,000 / 412,300 / 100,000 / 59,400 / 187,420 / 650,000)을 직접 더해 확인했고, CSV 하단의 합계 행 값과도 일치합니다. 입금(1,284 / 3,200,000 / 35,000)은 제외했습니다.\n\n결과는 /workspace/outputs/answer.json에 {\"answer\": 2898220} 형태로 저장했습니다.",
+  "llm_calls": 4,
+  "tool_calls": 3,
+  "prompt_tokens": 9673,
+  "completion_tokens": 2977,
+  "got": 2898220,
+  "pass_": true,
+  "why": null,
+  "seconds": 19,
+  "tools": [
+   "bash",
+   "bash",
+   "write_file"
+  ]
+ },
+ {
+  "case": "bank_in",
+  "tag": "format",
+  "i": 0,
+  "expected": 3236284,
+  "final": "9월 은행 입금 합계는 **3,236,284원**입니다.\n\n입금 내역은 세 건입니다: 2026-09-03 이자 1,284원, 2026-09-25 입금 3,200,000원, 2026-09-28 입금 35,000원. CSV 하단 합계 행의 입금 합계 3,236,284와도 일치합니다.\n\n결과는 /workspace/outputs/answer.json에 `{\"answer\": 3236284}` 형태로 저장했습니다.",
+  "llm_calls": 4,
+  "tool_calls": 3,
+  "prompt_tokens": 9541,
+  "completion_tokens": 6632,
+  "got": 3236284,
+  "pass_": true,
+  "why": null,
+  "seconds": 38,
+  "tools": [
+   "bash",
+   "bash",
+   "write_file"
+  ]
+ },
+ {
+  "case": "bank_housing",
+  "tag": "category",
+  "i": 0,
+  "expected": 837420,
+  "final": "주거비 합계는 **837,420원**입니다.\n\n- 2026-09-26 아파트관리비: 187,420원\n- 2026-09-26 월세 이체: 650,000원\n\n결과는 `/workspace/outputs/answer.json`에 `{\"answer\": 837420}`로 저장했고, CSV를 다시 파싱해 같은 합계가 나오는 것도 확인했습니다.",
+  "llm_calls": 5,
+  "tool_calls": 4,
+  "prompt_tokens": 11217,
+  "completion_tokens": 1230,
+  "got": 837420,
+  "pass_": true,
+  "why": null,
+  "seconds": 19,
+  "tools": [
+   "bash",
+   "read_file",
+   "write_file",
+   "bash"
+  ]
+ },
+ {
+  "case": "bank_no_card",
+  "tag": "double_count",
+  "i": 0,
+  "expected": 1079820,
+  "final": "결과: 은행 출금 중 카드대금 결제를 뺀 출금 합계는 **1,079,820원**입니다.\n\n- 전체 출금 합계: 2,898,220원 (CSV의 '합계' 행과 일치)\n- 카드대금 결제(적요에 '카드' 포함): 1,818,400원 (카드A 1,406,100원 + 카드B 412,300원)\n- 제외 후 출금 합계: 1,079,820원\n\n저장한 파일:\n- /workspace/outputs/answer.json: {\"answer\": 1079820}\n- /workspace/outputs/answer.txt: 출금 거래 내역과 분류\n\n입금 항목은 ",
+  "llm_calls": 4,
+  "tool_calls": 3,
+  "prompt_tokens": 10510,
+  "completion_tokens": 4871,
+  "got": 1079820,
+  "pass_": true,
+  "why": null,
+  "seconds": 32,
+  "tools": [
+   "bash",
+   "bash",
+   "bash"
+  ]
+ },
+ {
+  "case": "combined",
+  "tag": "double_count",
+  "i": 0,
+  "expected": 5438120,
+  "final": "9월 실제 지출은 **5,438,120원**입니다. 결과는 `/workspace/outputs/answer.json`에 `{\"answer\": 5438120}`로 저장했고, 계산 내역은 `/workspace/outputs/breakdown.txt`에 정리했습니다.\n\n- 카드A: 1,605,300원 (48건)\n- 카드B: 승인 2,829,300원 − 취소 76,300원 = 2,753,000원 (할부는 총액 기준)\n- 은행: 출금 2,898,220원 중 카드대금 결제(카드A 1,406,100원, 카드B 412,300원)를 뺀 1,079,",
+  "llm_calls": 6,
+  "tool_calls": 5,
+  "prompt_tokens": 48002,
+  "completion_tokens": 8896,
+  "got": 5438120,
+  "pass_": true,
+  "why": null,
+  "seconds": 51,
+  "tools": [
+   "bash",
+   "bash",
+   "write_file",
+   "bash",
+   "bash"
+  ]
+ },
+ {
+  "case": "c_total",
+  "tag": "xlsx",
+  "i": 0,
+  "expected": 1249662,
+  "final": "카드C 2026년 9월 국내+해외 사용액을 원화로 합친 금액은 1,249,662원입니다.\n\n- 국내(시트 '국내', 15건): 326,600원\n- 해외(시트 '해외', 6건, '원화환산' 열 기준): 923,062원\n\n결과는 /workspace/outputs/answer.json에 {\"answer\": 1249662}로 저장했습니다. 저장 전 검증 단계의 assert는 제가 같은 숫자를 다시 넣은 자기참조 확인이었으므로, 합계는 두 시트의 값을 직접 더해 따로 확인했습니다.",
+  "llm_calls": 4,
+  "tool_calls": 3,
+  "prompt_tokens": 14815,
+  "completion_tokens": 2133,
+  "got": 1249662,
+  "pass_": true,
+  "why": null,
+  "seconds": 19,
+  "tools": [
+   "bash",
+   "bash",
+   "bash"
+  ]
+ },
+ {
+  "case": "c_usd",
+  "tag": "xlsx",
+  "i": 0,
+  "expected": 666.23,
+  "final": "카드C의 해외 결제(USD) 합계는 **USD 666.23**입니다. 시트 2의 6건(AMAZON.COM, APPLE.COM/BILL, UBER TRIP, STEAM, AIRBNB, OPENAI)을 현지 금액 기준으로 더했습니다.\n\n결과는 /workspace/outputs/answer.json에 저장했습니다: {\"answer\": \"USD 666.23\"}\n\n참고로 원화환산 합계는 923,062원입니다. 채점 형식에 '금액은 원 단위 정수'라는 조건도 있었는데, 답 형식 줄에 USD로 명시되어 있어 USD 값으로 저장했습니다. 원화 기",
+  "llm_calls": 6,
+  "tool_calls": 5,
+  "prompt_tokens": 16167,
+  "completion_tokens": 2630,
+  "got": "USD 666.23",
+  "pass_": false,
+  "why": "wrong answer",
+  "seconds": 39,
+  "tools": [
+   "bash",
+   "bash",
+   "bash",
+   "bash",
+   "write_file"
+  ]
+ },
+ {
+  "case": "c_ov_share",
+  "tag": "xlsx",
+  "i": 0,
+  "expected": 73.9,
+  "final": "9월 카드C 사용액(원화) 중 해외 결제 비중은 **73.9%**입니다.\n\n- 국내 합계: 326,600원 (15건)\n- 해외 합계(원화환산): 923,062원 (6건)\n- 전체: 1,249,662원\n- 해외 비중: 923,062 ÷ 1,249,662 = 73.9%\n\n결과는 /workspace/outputs/answer.json 에 {\"answer\": \"73.9%\"} 로 저장했습니다. 숫자만 원하시면 73.9 로 바꿔 드릴 수 있습니다.",
+  "llm_calls": 6,
+  "tool_calls": 5,
+  "prompt_tokens": 23116,
+  "completion_tokens": 3263,
+  "got": "73.9%",
+  "pass_": true,
+  "why": null,
+  "seconds": 28,
+  "tools": [
+   "bash",
+   "bash",
+   "bash",
+   "write_file",
+   "bash"
+  ]
+ },
+ {
+  "case": "a_report",
+  "tag": "report",
+  "i": 0,
+  "expected": 1605300,
+  "final": "9월 카드A 지출 리포트를 완성했습니다.\n\n- `/workspace/outputs/report.md`: 총액 1,605,300원(48건), 카테고리별 합계 표(쇼핑 603,800 / 교통 435,500 / 식비 221,500 / 생활 176,900 / 문화 128,300 / 구독 39,300)\n- `/workspace/outputs/chart.png`: 카테고리별 막대 차트(800×480 PNG, 금액 내림차순)\n- `/workspace/outputs/answer.json`: `{\"answer\": 1605300}`\n\n검증: 카테고리",
+  "llm_calls": 6,
+  "tool_calls": 5,
+  "prompt_tokens": 20771,
+  "completion_tokens": 4854,
+  "got": 1605300,
+  "pass_": true,
+  "why": null,
+  "seconds": 44,
+  "tools": [
+   "bash",
+   "read_file",
+   "bash",
+   "bash",
+   "bash"
+  ]
+ }
+]

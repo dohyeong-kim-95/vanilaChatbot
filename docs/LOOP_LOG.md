@@ -455,3 +455,81 @@ sandbox 안에서 한 번에 심고, 저장소로 되돌린 뒤 확인했다.
    - update를 쓰도록 유도해 보기. tool 설명 조정 후 측정.
    - 리포트 section 추가: 전월 대비 카테고리, 예산 표.
    - 여러 파일(카드 A·B·은행)을 합친 리포트.
+
+## Loop 15 — Skills (Claude Agent Skills 방식)과 속도 병목 확인
+
+명세 SPEC §4.6. 테스트 `tests/test_l10_skills.py`. eval `tests/eval/finance/run.py --skills`.
+
+### 15.1 구현
+- `skills/{name}/SKILL.md`(frontmatter name, description) + `scripts/`. 시스템 프롬프트에는 이름과 설명만 넣고, 본문은 `use_skill(name)`으로 받는다. 스크립트는 sandbox에 읽기 전용으로 마운트한 `/skills`에서 실행한다.
+- 첫 skill `card-transactions`: `tx.py`(표준 라이브러리. 인코딩, 헤더 위치, 구분자, 합계 행, 금액·날짜 형식, xlsx 시트, 은행 출금/입금, 해외 시트) + 도메인 규칙.
+- 결정적 테스트 4/4: 로더 출력만으로 계산한 10개 답 = eval 정답. 처음 보는 형식(탭 구분, 앞쪽 설명 줄, `₩`, 음수 환불, 2자리 연도, 엑셀 날짜 셀, 소계 행) 인식. sandbox에서 `/skills` 쓰기 실패.
+- 수정 1건: `csv.Sniffer`가 앞쪽 설명 줄 때문에 탭 파일을 쉼표로 판단 → 구분자마다 헤더 인식을 시도해 가장 많이 맞는 쪽 선택.
+
+### 15.2 결과 (CLI backend, Haiku 5.5, 동시 5)
+| 조건 | 정답 | 시간 중앙값 / p90 | 120s 이내 | 출력 토큰 중앙값 | a_report 시간 |
+|---|---|---|---|---|---|
+| effort=max, skill 없음 (k=3, Loop 13) | 72/72 | 205s / 343s | 5/72 | 50k | 710 / 545 / 727s |
+| effort=max, skill (k=3) | 72/72 | 199s / 287s | 3/72 | 48k | 751 / 604 / 565s |
+| effort=low, skill 없음 (k=1) | 22/24 | 23.5s / 39s | 24/24 | 3.1k | 44s |
+| effort=low, skill (k=1) | 23/24 | 21.5s / 40s | 23/24 | 1.9k | 71s |
+
+- skill은 72/72 모두 `use_skill`을 먼저 불렀다. 그런데 effort=max에서는 시간이 거의 그대로다. 출력 토큰 대부분이 thinking이었다.
+- **Loop 13의 가설("파서를 매번 새로 짜서 느리다")은 틀렸다.** 병목은 effort=max의 thinking이다. effort=low는 약 9배 빠르다.
+- low의 실패:
+  - `b_net`: 두 조건 모두 2,829,300(승인 건만 합산). 정답은 2,753,000(취소분을 원거래에서 상계). 질문의 "취소·부분취소는 빼고"는 "취소 행을 제외"로도 읽힌다. 문항이 모호하다(max는 6/6 상계로 해석).
+  - `c_usd`: `"USD 666.23"` 문자열(형식). 값은 맞음.
+- k=1이라 low에서 skill이 정확도에 주는 차이(23 vs 22)는 판단할 수 없다. 출력 토큰은 skill 쪽이 40% 적다.
+
+### 15.3 다음
+- 기본 effort를 작업별로: 숫자 질문은 low, 모호하거나 긴 작업은 높게(SPEC §10 "effort를 작업별로 조정"). low에서 k=3으로 pass^3 측정.
+- b_net 문항을 모호하지 않게 고치거나, 모호함을 확인 질문으로 푸는지 보는 문항으로 분리.
+
+## Loop 16 — 인터랙티브 shmoo 뷰 + "보이는 그대로" 캡처
+
+목표: 로그를 넣으면 인터랙티브 화면이 뜨고, 사용자가 몇 번 클릭해 원하는 화면을 만든 뒤 이미지로 복사해 보고서에 붙인다. 참고: https://en.wikipedia.org/wiki/Shmoo_plot
+명세 SPEC §9.5. 테스트 `tests/test_l11_shmoo.py`. 데이터 `tests/eval/shmoo/gen.py`.
+
+### 16.1 구현
+- 합성 ATE 로그: 장치 24개 × 25/85°C × VDD 1.00–1.30V(16단) × 1600–3200MHz(17단) = 13,056행. 경계 근처 무작위 flip, 고온 retention floor. 심은 결함 3개: 구멍(1-3-2, 85°C), 벽(2-1-3), 천장(2-4-1, 85°C).
+- `skills/shmoo/scripts/shmoo.py`(표준 라이브러리): 열 역할 추측, 격자, 분석(구멍·벽·천장·낮은 통과율), ASCII 출력. 서버의 `show_shmoo`도 같은 코드를 쓴다.
+- `show_shmoo`: 모델은 파일과 열 이름만 보낸다. 페이지는 우리 JS(조건 필터, 장치/전체 합산, 칸 클릭 → 실패 장치, 이상 패턴·장치 표 클릭 → 해당 화면).
+- 캡처: 앱 → iframe `postMessage({type: "capture", nonce})` → 페이지가 현재 SVG를 PNG로 만들어 bytes 응답. 앱은 그 iframe window + nonce + PNG 시그니처만 받는다.
+
+### 16.2 결과
+- 결정적 3/3:
+  - 분석이 심은 결함 3개를 정확히 찾았다(오탐 0, 정상 장치 21개). 모든 장치가 통과하는 최대 주파수·통과율이 정답과 일치했다.
+  - 실제 Chrome에서 85°C → "구멍" → 칸 클릭 → 캡처 PNG(97KB)가 클릭한 상태 그대로 나왔다.
+  - 로그의 장치 이름에 넣은 `<img onerror>`와 제목의 `</script>`는 텍스트로만 나왔다(sink 0).
+- 처음 만든 생성기는 구멍을 경계선 위에 놓아서 "움푹 들어간 경계"가 됐고, 분석이 구멍으로 잡지 않았다. 분석은 정의대로 동작했다(양쪽이 통과로 둘러싸인 실패만 구멍). 구멍을 통과 영역 안쪽으로 옮겼다.
+- LLM ("shmoo 보여주고 이상한 칩 알려줘", k=2):
+
+  | effort | 결과 | 시간 | 출력 토큰 | tool |
+  |---|---|---|---|---|
+  | low | 2/2 (매핑 정확 + 결함 3개 지목) | 17s, 18s | 2.0k, 1.8k | use_skill → bash → show_shmoo |
+  | max | 2/2 | 700s, 436s | 169k, 105k | 위 + 검증 bash 3–5회 |
+
+## Loop 17 — "로그 분석해줘": 훑기 → 질문 → 맞는 뷰
+
+명세 SPEC §9.6. 테스트 `tests/test_l12_triage.py`.
+
+### 17.1 구현
+- `ask_user(question, options)`: 승인과 같은 Interrupt 경로. 이벤트 `question`, 답은 `POST /runs/{id}/approval {answer}`. UI는 선택지 버튼(설명 포함) + 직접 입력.
+- `log-triage` skill: `sniff.py`(종류 판정 + 각 skill 로더로 `fits` 확인) + 파일 종류별 질문 선택지 표.
+- 요청별 effort: 게이트웨이가 OpenAI `reasoning_effort`를 받는다. 서버 기본값 `AGENT_EFFORT=low`, 프로젝트 settings `effort`로 올린다(Loop 15 결과).
+
+### 17.2 결과
+- 결정적 3/3: sniff 판정(shmoo / 카드 / 텍스트 로그), 중단·재개(모델이 `answer`를 직접 넣으면 거부, 선택지 1개는 모델에게 오류), 실제 앱 + Chrome + 가짜 LLM(질문 카드 → 새로고침 후 복원 → 클릭 → 재개, `{approved}`는 422, 다른 사용자 404, 두 번째 답 409).
+- 버그 1건: 질문 이벤트를 만드는 클로저가 `except Interrupt as i`의 `i`를 참조했다. Python은 except 블록이 끝나면 그 이름을 지우므로 서버 스레드가 NameError로 죽었다. 결정적 UI 테스트에서 발견했다.
+- sniff 첫 판정: 따옴표 안 금액(`"70,200원"`)과 앞쪽 설명 줄 때문에 카드·은행 파일을 표로 못 봤다 → csv 파싱 기준 필드 수로 판정하고, 알려진 형식은 각 skill의 로더로 직접 확인.
+- LLM (effort=low, "업로드한 파일 … 로그 분석해줘"만, 첫 번째 선택지를 고름, 파일당 k=1): **3/3**
+  | 파일 | 질문 첫 문장(요약) | 선택지 | 결과 | 시간 |
+  |---|---|---|---|---|
+  | shmoo 로그 | L2610A 로트, MARCH_C, VDD × FREQ, WAFER/DIE, TEMP_C | 이상한 칩 / 조건별 마진 / 특정 칩 / 전체 요약 | shmoo 뷰 + 결함 지목 | 30s |
+  | 카드B | 9월 카드 거래 33건, cp949, 컬럼 목록 | 월간 리포트 / 카테고리·가맹점 / 특정 질문 | 고정 리포트, 순지출 2,753,000원(정답) | 46s |
+  | 앱 로그 | 180줄, INFO/WARN/ERROR 건수, 주요 패턴 2개 | 에러 원인 / 시간대별 추이 / 호스트·키워드 | markdown 분석 artifact | 35s |
+
+### 17.3 다음
+- 텍스트 로그 전용 인터랙티브 뷰(시간대별 건수 × 레벨, 패턴 클릭 → 예시 줄). 지금은 markdown.
+- 다른 사람이 만든 에이전트(Python 패키지) 연결: sandbox 안에서 실행하는 위임 tool, 진행 이벤트·결과물 전달.
+- effort 자동 조정(모호하거나 실패가 반복되면 올림)과 low에서 pass^3 측정.

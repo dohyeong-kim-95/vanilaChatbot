@@ -1,5 +1,6 @@
 """eval v0 (docs/PROBLEM.md): monthly spending questions over card/bank exports. Gateway on :8100.
-python tests/eval/finance/run.py [k] [workers] [case_id ...]   -> docs/eval_finance_v0.json"""
+python tests/eval/finance/run.py [k] [workers] [--skills] [case_id ...]   -> docs/eval_finance_v0[_skills].json
+--skills (Loop 15): skills list in the system prompt, use_skill tool, /skills mounted in the sandbox."""
 import json
 import os
 import shutil
@@ -15,7 +16,8 @@ from openai import OpenAI
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).parent))
-from agent.loop import Context, run  # noqa: E402
+from agent import skills  # noqa: E402
+from agent.loop import SYSTEM, Context, run  # noqa: E402
 from agent.sandbox import Sandbox  # noqa: E402
 from cases import build, match  # noqa: E402
 from tests.eval.run_eval import Meter  # noqa: E402
@@ -24,20 +26,24 @@ CODE = ["bash", "read_file", "write_file", "edit_file"]
 TASK_PREFIX = "업로드한 파일은 /workspace/uploads 에 있어요. 결과물은 /workspace/outputs 에 저장해 주세요.\n\n"
 
 
-def one(case, i, fixtures, tmp):
+def one(case, i, fixtures, tmp, use_skills=False):
     ws = tmp / f"{case['id']}-{i}"
     (ws / "uploads").mkdir(parents=True)
     (ws / "outputs").mkdir()
     for f in case["files"]:
         shutil.copy(fixtures / f, ws / "uploads" / f)
     os.system(f"chown -R 1000:1000 {ws}")
-    sb = Sandbox(ws, readonly=("uploads",))
+    sk = skills.discover() if use_skills else {}
+    sb = Sandbox(ws, readonly=("uploads",), mounts={skills.DIR: skills.MOUNT} if use_skills else None)
     m = Meter(OpenAI(base_url=os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8100/v1"),
                      api_key=os.environ.get("LLM_API_KEY", "dummy")))
     tools, t = [], time.time()
     res = {"case": case["id"], "tag": case["tag"], "i": i, "expected": case["expected"]}
     try:
-        final, _ = run(TASK_PREFIX + case["prompt"], Context(sandbox=sb), tool_names=CODE, client=m, max_steps=30,
+        system = "\n\n".join(filter(None, [SYSTEM, skills.prompt(sk)]))
+        final, _ = run(TASK_PREFIX + case["prompt"], Context(sandbox=sb, skills=sk),
+                       tool_names=CODE + ["use_skill"] * use_skills, client=m, max_steps=30,
+                       history=[{"role": "system", "content": system}],
                        log=lambda l: tools.append(l.split("(")[0].split("] ")[1]))
         res.update(final=(final or "")[:300], llm_calls=m.calls, tool_calls=len(tools),
                    prompt_tokens=m.prompt, completion_tokens=m.completion)
@@ -64,12 +70,12 @@ def one(case, i, fixtures, tmp):
     return res
 
 
-def main(k=3, workers=4, only=()):
+def main(k=3, workers=4, only=(), use_skills=False):
     tmp = Path(tempfile.mkdtemp(prefix="feval-"))
     cases = [c for c in build(tmp / "fixtures") if not only or c["id"] in only]
     jobs = [(c, i) for c in cases for i in range(k)]
     with ThreadPoolExecutor(workers) as ex:
-        res = list(ex.map(lambda j: one(*j, tmp / "fixtures", tmp), jobs))
+        res = list(ex.map(lambda j: one(*j, tmp / "fixtures", tmp, use_skills), jobs))
     print(f"{'case':16} {'tag':12} {'pass':>5} {'pass^k':>6} {'llm':>4} {'tools':>5} {'sec':>4}  failures")
     for c in cases:
         r = [x for x in res if x["case"] == c["id"]]
@@ -83,7 +89,11 @@ def main(k=3, workers=4, only=()):
     n = sum(x["pass_"] for x in res)
     passk = sum(all(x["pass_"] for x in res if x["case"] == c["id"]) for c in cases)
     print(f"pass@1 {n}/{len(res)} = {n / len(res):.0%}   pass^{k} {passk}/{len(cases)}")
-    out = ROOT / "docs" / "eval_finance_v0.json"
+    secs = sorted(x["seconds"] for x in res)
+    print(f"seconds median {statistics.median(secs)}  p90 {secs[int(len(secs) * .9) - 1]}  <=120s "
+          f"{sum(s <= 120 for s in secs)}/{len(secs)}   use_skill called {sum('use_skill' in x['tools'] for x in res)}"
+          f"/{len(res)}")
+    out = ROOT / "docs" / ("eval_finance_v0_skills.json" if use_skills else "eval_finance_v0.json")
     out.write_text(json.dumps(res, indent=1, ensure_ascii=False, default=lambda o: sorted(o) if isinstance(o, set) else str(o)))
     print("->", out)
 
@@ -91,4 +101,4 @@ def main(k=3, workers=4, only=()):
 if __name__ == "__main__":
     args = sys.argv[1:]
     nums = [int(a) for a in args[:2] if a.isdigit()]
-    main(*nums, only=[a for a in args if not a.isdigit()])
+    main(*nums, only=[a for a in args if not a.isdigit() and a != "--skills"], use_skills="--skills" in args)

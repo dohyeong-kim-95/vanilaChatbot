@@ -17,9 +17,10 @@ def truncate(s, limit=MAX_OUT):
 
 
 class Sandbox:
-    def __init__(self, workspace, network="none", egress=None, readonly=(), name=None):
+    def __init__(self, workspace, network="none", egress=None, readonly=(), name=None, mounts=None):
         """egress: an EgressProxy -> internal network whose only way out is that proxy's allowlist.
-        readonly: workspace subdirs mounted read-only (and refused by host-side write tools too)."""
+        readonly: workspace subdirs mounted read-only (and refused by host-side write tools too).
+        mounts: {host dir: container path}, read-only, outside /workspace (e.g. skills)."""
         self.workspace = Path(workspace).resolve()
         self.readonly = [self.workspace / d for d in readonly]
         self.workspace.mkdir(parents=True, exist_ok=True)
@@ -41,7 +42,8 @@ class Sandbox:
             "--pids-limit", "256", "--memory", "1g", "--cpus", "1",
             "--user", "1000:1000", "-e", "HOME=/tmp", "-e", "PYTHONDONTWRITEBYTECODE=1",
             "-v", f"{self.workspace}:/workspace", *[a for d in self.readonly for a in (
-                "-v", f"{d}:/workspace/{d.relative_to(self.workspace)}:ro")], "-w", "/workspace",
+                "-v", f"{d}:/workspace/{d.relative_to(self.workspace)}:ro")],
+            *[a for h, c in (mounts or {}).items() for a in ("-v", f"{Path(h).resolve()}:{c}:ro")], "-w", "/workspace",
             IMAGE, "sleep", "infinity"], check=True, capture_output=True)
 
     def exec(self, command, timeout=60):

@@ -91,6 +91,7 @@
 - backend가 server-side context editing/compaction을 지원하면 그쪽이 우선(history를 일관되게 유지해 줌) [리서치].
 
 ### 2.4 지연·비용
+- effort는 요청마다 OpenAI `reasoning_effort`로 보낸다(게이트웨이가 low–max 검증). 서버 기본값 low(`AGENT_EFFORT`), 프로젝트 settings `effort`로 올린다. 근거: Loop 15–16에서 max는 low보다 약 9–30배 느렸고 정확도는 같았다(k=1–2). [검증]
 - [검증] 지연은 추론 effort가 지배: Haiku effort=max 6–9s/step, low ≈3s/step(CLI). 프롬프트 2k→25k 토큰은 영향 미미.
 - [검증] backend 차이: 같은 L2 스위트가 CLI 에뮬레이션 9분 33초 → 네이티브 API 104초. 운영은 네이티브 tool calling + streaming backend가 전제.
 - 작업 1건(버그 수정+커밋+PR)이 6–10 step → effort=max면 수 분. → **단계별 effort 정책**: 계획/검증은 높게, 단순 tool 반복은 낮게(모델 설정으로 노출).
@@ -159,6 +160,9 @@ for step in range(max_steps):                  # 기본 20, 초과 시 중단 �
 | `request_network_access(domain, reason)` | 서버(egress proxy) | **필수** | 승인되면 allowlist에 도메인 추가 (§5.3) |
 | `mcp__{server}__{tool}` | MCP 서버 | 기본 **필수** | §4.3 |
 | `search_tools(query)` | 서버(ToolRouter) | – | router가 있을 때만 노출, 찾은 tool을 다음 턴부터 사용 가능 (§4.4) |
+| `use_skill(name)` | 서버 | – | skill 본문 반환, 파일은 sandbox `/skills` (§4.6) |
+| `ask_user(question, options)` | 서버 | 답 필요 | 실행을 멈추고 선택지를 보여 줌 (§9.6) |
+| `artifact`, `show_report`, `show_shmoo` | 호스트 | – | 아티팩트·고정 템플릿 뷰 (§9.4, §9.5) |
 | 도메인 tool (예: `current_time`, 사내 API) | 서버 | 선택 | registry 데코레이터로 추가 |
 
 ### 4.2 Registry 규격
@@ -202,6 +206,14 @@ def name(ctx, **args) -> str
 ### 4.5 경로 보안 [검증]
 - 모든 경로는 workspace 기준 resolve 후 workspace 밖이면 거부(`../`, 절대경로, symlink 탈출)
 - 모델이 `/workspace/x`와 `x`를 섞어 쓰므로 **정규화된 절대경로로 상태 추적**
+
+### 4.6 Skills [검증: Loop 15]
+- 형식(Claude Agent Skills와 같음): `skills/{name}/SKILL.md`(frontmatter `name`, `description` + 본문) + `scripts/`. `name`은 폴더 이름과 같은 slug.
+- **단계적 노출**: 시스템 프롬프트에는 이름과 description만 넣는다. 모델이 `use_skill(name)`을 부르면 본문을 tool 결과로 받는다. 스크립트는 sandbox에 **읽기 전용으로 마운트된 `/skills`**에서 실행한다(`Sandbox(mounts=...)`).
+- skill은 서버와 함께 배포되는 **신뢰 코드·지시**다. sandbox, 업로드, 모델 출력에서 skill을 만들거나 고칠 수 없다(마운트 `:ro`, 쓰기 시도 실패 측정).
+- sandbox 이미지에 라이브러리가 없으므로 스크립트는 표준 라이브러리만 쓴다.
+- 첫 skill `card-transactions`: 내보내기 파일 로더 `tx.py`(인코딩, 헤더 위치, 구분자, 합계 행, 금액·날짜 형식, xlsx 시트, 은행 출금/입금, 해외 시트) + 도메인 규칙(취소 상계, 할부, 카드대금 이중계산, 입금 제외).
+- 운영(미검증): 사용자·조직별 skill(신뢰 경계를 다시 정해야 함: 사용자가 쓴 skill은 사용자 지시와 같은 수준), skill 버전 고정, skill별 eval.
 
 ---
 
@@ -382,6 +394,28 @@ users/{u}/projects/{p}/outputs/              결과물
 - **최소 UI**(`server/static`): 사이드바(사용자, 프로젝트, 대화, 아티팩트), 채팅(fetch로 SSE를 받고 승인 버튼 표시), 아티팩트 패널(버전 선택, 코드 보기).
   - 모델·tool 텍스트는 textContent로만 넣는다.
 
+### 9.5 인터랙티브 템플릿 뷰와 "보이는 그대로" 캡처 [검증: Loop 16]
+- 목적: 로그를 넣으면 사용자가 클릭으로 원하는 화면을 만들고, 그 화면을 이미지로 문서에 붙인다.
+- `show_shmoo(id, file, x, y, result, device, filters, pass_values, title)`.
+  - 모델은 **파일과 열 이름만** 보낸다. 서버가 workspace 파일을 직접 읽어 격자 데이터와 이상 패턴(findings)을 만든다.
+  - 파싱·분석은 `skills/shmoo/scripts/shmoo.py`이고 서버와 sandbox가 같은 코드를 쓴다. 그래서 화면과 모델의 답이 같은 숫자를 쓴다.
+  - 크기 제한: 장치 × 조건 × 격자 ≤ 90만 칸(아티팩트 1MB).
+- 페이지(`agent/shmoo.py`)는 우리 JS다. 조건 필터, 장치 하나 또는 전체 합산(통과율), 칸 클릭 → 그 조건에서 실패한 장치, 이상 패턴·장치 표 클릭 → 해당 화면.
+  - 로그에서 온 모든 텍스트는 `textContent`로만 넣는다. 데이터는 `<`를 escape한 JSON이다.
+- 캡처: 앱이 iframe에 `postMessage({type: "capture", nonce})`를 보낸다. 페이지는 현재 SVG를 canvas로 PNG로 만들어 bytes를 돌려준다.
+  - 앱은 그 iframe의 window에서 온, 같은 nonce의, PNG 시그니처가 맞는 20MB 미만 응답만 받는다.
+  - 렌더러 CSP(`connect-src 'none'`)는 그대로다. 서버 캡처(§9.4)와 달리 사용자가 클릭한 상태가 그대로 찍힌다.
+
+### 9.6 사용자에게 묻기와 로그 triage [검증: Loop 17]
+- `ask_user(question, options[{label, description}])`: 실행을 멈추고 선택지를 보여 준 뒤, 고른 답(또는 직접 입력)으로 이어간다.
+  - 승인과 같은 Interrupt 경로를 쓴다. 상태는 `awaiting_approval`, 이벤트는 `question`. 답은 `POST /runs/{id}/approval {answer}`.
+  - 대기 중에는 컨테이너가 없다. 새로고침이나 재접속 시에는 이벤트 로그에서 질문 카드가 다시 나온다.
+  - 승인 tool에는 `{approved}`만, 질문에는 `{answer}`만 받는다(422). compare-and-set으로 두 번 답할 수 없다(409).
+  - 질문 형식 검사(질문 1–500자, 선택지 2–5개)는 사용자에게 보이기 전에 한다. 틀리면 모델에게 오류로 돌려준다. 모델이 `answer` 인자를 직접 넣으면 거부한다.
+- `log-triage` skill: `sniff.py`가 파일마다 종류(표, 텍스트 로그, JSON lines, 스프레드시트)와 맞는 skill(`fits`)을 알려 준다. 판정은 각 skill의 로더로 직접 해 본다.
+  - 흐름: 훑기 → 질문 한 번(첫 문장에서 파일이 무엇인지 구체적인 수치로 말함, 파일 종류에 맞는 선택지) → 맞는 skill과 뷰.
+  - 사용자가 이미 초점을 말했으면 묻지 않는다.
+
 ---
 
 ## 10. 평가
@@ -419,6 +453,11 @@ agent/tool_router.py    tool이 많을 때 hybrid 라우팅 (BM25 top-k + search
 agent/userstore.py      사용자별 저장 공간 (지시사항·설정 병합, 업로드, checkout/commit)
 agent/artifacts.py      아티팩트 저장 (버전 불변, 출처)
 agent/report.py         고정 지출 리포트 템플릿 (데이터 검증, SVG 차트, section 구성)
+agent/shmoo.py          인터랙티브 shmoo 뷰 (데이터 구성, 페이지 템플릿, 캡처 응답)
+agent/skills.py         skill 발견(SKILL.md frontmatter), 프롬프트 목록, `/skills` 마운트 경로
+skills/card-transactions/  첫 skill: 카드·은행 내보내기 로더(tx.py, 표준 라이브러리) + 도메인 규칙
+skills/log-triage/      처음 보는 파일 판정(sniff.py) + "무엇을 볼까요?" 질문 + 맞는 skill로 넘김
+skills/shmoo/           ATE 로그 → shmoo 격자, 이상 패턴(구멍·벽·천장·낮은 통과율), ASCII 출력
 server/app.py           채팅 서버 (durable run, 이벤트 로그, interrupt/resume, 취소, 복구, 아티팩트 API, UI 서빙)
 server/render.py        아티팩트 렌더러 (별도 출처, 서명 URL, CSP, WebRTC 제거)
 server/capture.py       리포트 section PNG 캡처 (headless Chrome)
@@ -436,6 +475,10 @@ tests/experiments/tool_selection.py, tool_catalog.py  Loop 11 전략 비교 실�
 tests/test_l8_userstore.py    Loop 12 (사용자 격리, write-back 경계, 지시사항 우선순위, 메모리 오염, 영속성)
 tests/eval/finance/           Loop 13 (월간 지출 eval v0: 합성 내보내기 6종, 24문항)
 tests/test_l9_artifacts.py    Loop 14 (아티팩트 저장/tool, 서명 URL, 브라우저 격리, 리포트·캡처, 모델 사용 패턴)
+tests/test_l10_skills.py      Loop 15 (skill 발견·tool, 파서 = 정답, 처음 보는 형식, sandbox 읽기 전용 마운트)
+tests/test_l11_shmoo.py       Loop 16 (결함 탐지 = 정답, tool 오류, 실제 Chrome에서 클릭 → 캡처, 로그 속 마크업)
+tests/test_l12_triage.py      Loop 17 (sniff 판정, ask_user 중단/재개, 실제 앱 + Chrome + 가짜 LLM으로 질문 카드, LLM triage)
+tests/eval/shmoo/gen.py       합성 ATE shmoo 로그 (장치 24개 × 온도 2 × VDD 16 × 주파수 17, 결함 3종)
 docs/research/          R1–R6 리서치 노트
 docs/LOOP_LOG.md        루프별 실험 기록
 ```
@@ -455,6 +498,8 @@ EGRESS_CA=/path/to/upstream-ca.pem python tests/test_l5_egress.py   # upstream�
 python tests/test_l6_mcp.py
 python tests/test_l7_tool_router.py
 K=3 python tests/test_l8_userstore.py      # 결정적 3개는 LLM 없이 몇 초
+python tests/test_l10_skills.py           # 결정적, Docker 필요. LLM 비교: python tests/eval/finance/run.py 3 5 --skills
+python tests/test_l11_shmoo.py             # 결정적. LLM: K=1 python tests/test_l11_shmoo.py t_llm_show_and_find
 K=3 python tests/test_l9_artifacts.py      # Playwright + 시스템 Chrome(AGENT_CHROME_CHANNEL, ""=번들 Chromium)
 # UI: AGENT_ROOT=/tmp/agent uvicorn server.app:app --port 8200 & AGENT_ROOT=/tmp/agent uvicorn server.render:app --port 8201 &
 #     → http://127.0.0.1:8200  (렌더러는 http://localhost:8201: 포트뿐 아니라 사이트도 다르게)

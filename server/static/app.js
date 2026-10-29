@@ -159,6 +159,7 @@ function onEvent(rid, ev, seq, status) {
       openArtifact(ev.id, ev.version);
       break;
     case "approval_request": showApproval(rid, ev, seq); break;
+    case "question": showQuestion(rid, ev, seq); break;
     case "warning": case "error": addMsg("error", ev.message); break;
   }
 }
@@ -179,6 +180,42 @@ function showApproval(rid, ev, seq) {
   no.onclick = () => decide(false);
   row.append(yes, no);
   box.append(row);
+  $("messages").append(box);
+  scrollDown();
+}
+
+// ask_user: options as buttons (label + one-line description) and a free-text answer. Model text: textContent only.
+function showQuestion(rid, ev, seq) {
+  const a = ev.arguments || {};
+  const box = el("div", "question");
+  box.append(el("div", "q", String(a.question || "")));
+  const opts = el("div", "options");
+  const answer = async (text) => {
+    for (const b of box.querySelectorAll("button, input")) b.disabled = true;
+    try {
+      await api(`/runs/${rid}/approval`, { method: "POST", body: JSON.stringify({ answer: text }) });
+    } catch (e) {
+      addMsg("error", String(e));
+      for (const b of box.querySelectorAll("button, input")) b.disabled = false;
+      return;
+    }
+    box.replaceChildren(el("div", "q", String(a.question || "")), el("div", "answered", text));
+    follow(rid, seq);
+  };
+  for (const o of Array.isArray(a.options) ? a.options : []) {
+    const b = el("button", "option");
+    b.append(el("span", "label", String(o.label || "")));
+    if (o.description) b.append(el("span", "desc", String(o.description)));
+    b.onclick = () => answer(String(o.label || ""));
+    opts.append(b);
+  }
+  const other = el("form", "other");
+  const input = el("input");
+  input.placeholder = "직접 입력";
+  const go = el("button", null, "보내기");
+  other.append(input, go);
+  other.onsubmit = (e) => { e.preventDefault(); if (input.value.trim()) answer(input.value.trim()); };
+  box.append(opts, other);
   $("messages").append(box);
   scrollDown();
 }
@@ -209,8 +246,9 @@ async function openArtifact(id, version) {
   $("art-code").hidden = true;
   $("frame-wrap").hidden = false;
   $("art-source").textContent = "코드";
-  showFrame(a.view_url);
+  const frame = showFrame(a.view_url);
   showSections(a);
+  showCapture(a, frame);
   markActive();
 }
 
@@ -251,6 +289,63 @@ function showSections(a) {
     g.append(el("span", null, s.title), copy, save);
     bar.append(g);
   }
+}
+
+// Interactive views (shmoo): the user sets up the view inside the frame, then copies what they see. The frame has
+// no network and an opaque origin, so it renders the PNG itself and posts the bytes back; we only accept a reply
+// from that frame's window, to our nonce, that is a PNG.
+function frameCapture(frame) {
+  const nonce = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    const done = (fn, v) => { removeEventListener("message", on); clearTimeout(timer); fn(v); };
+    const on = (e) => {
+      const d = e.data;
+      if (e.source !== frame.contentWindow || !d || d.type !== "capture" || d.nonce !== nonce) return;
+      if (d.error) return done(reject, new Error(d.error));
+      const ok = d.png instanceof ArrayBuffer && d.png.byteLength < 20e6 &&
+        new Uint8Array(d.png, 0, 8).every((b, i) => b === [137, 80, 78, 71, 13, 10, 26, 10][i]);
+      if (!ok) return done(reject, new Error("not a PNG"));
+      done(resolve, { blob: new Blob([d.png], { type: "image/png" }), name: String(d.name || "view").replace(/[^\w.-]+/g, "_").slice(0, 80) });
+    };
+    const timer = setTimeout(() => done(reject, new Error("no answer from the view")), 8000);
+    addEventListener("message", on);
+    frame.contentWindow.postMessage({ type: "capture", nonce }, "*");  // opaque origin: "*" is the only target
+  });
+}
+
+function showCapture(a, frame) {
+  if (!a.capture) return;
+  const bar = $("art-sections");
+  bar.hidden = false;
+  const g = el("div", "sec");
+  const copy = el("button", null, "현재 화면 복사");
+  const save = el("button", null, "저장");
+  copy.onclick = async () => {
+    copy.disabled = true;
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": frameCapture(frame).then((r) => r.blob) })]);
+      copy.textContent = "복사됨";
+    } catch (e) {
+      copy.textContent = "실패";
+      addMsg("error", `이미지 복사 실패: ${e}`);
+    }
+    setTimeout(() => { copy.textContent = "현재 화면 복사"; copy.disabled = false; }, 1500);
+  };
+  save.onclick = async () => {
+    try {
+      const r = await frameCapture(frame);
+      const url = URL.createObjectURL(r.blob);
+      const link = el("a");
+      link.href = url;
+      link.download = `${a.id}-v${a.version}-${r.name}.png`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      addMsg("error", `이미지 저장 실패: ${e}`);
+    }
+  };
+  g.append(el("span", null, "보이는 그대로"), copy, save);
+  bar.append(g);
 }
 
 // ---- wiring ---------------------------------------------------------------------------------------

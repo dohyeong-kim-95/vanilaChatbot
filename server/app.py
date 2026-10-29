@@ -11,7 +11,7 @@ POST /sessions/{id}/documents           {name, text}           (RAG upload)
 POST /sessions/{id}/messages            {content}  -> {run_id}  (409 if a run is active in the project)
 GET  /runs/{id}                         -> {status, ...}
 GET  /runs/{id}/events                  SSE, `id:` = seq; resume with Last-Event-ID (or ?after=)
-POST /runs/{id}/approval                {approved: bool}       (resumes an interrupted run)
+POST /runs/{id}/approval                {approved: bool} | {answer: str}   (resumes an interrupted run; answer for ask_user)
 POST /runs/{id}/cancel
 GET  /projects | /projects/{p}/sessions | /sessions/{id}            lists, chat history (for the UI)
 GET  /projects/{p}/artifacts | /projects/{p}/artifacts/{a}?version=n  -> {..., view_url} (renderer, server/render.py)
@@ -35,12 +35,12 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
-from agent import report
+from agent import report, skills
 from agent.artifacts import ArtifactStore
 from agent.loop import SYSTEM, Context, Interrupt, run
 from agent.rag import DocStore
 from agent.sandbox import Sandbox
-from agent.tools import schemas
+from agent.tools import REGISTRY, schemas
 from agent.userstore import ID_RE, UserStore
 from server import capture, render
 
@@ -57,7 +57,11 @@ LOCK = threading.Lock()
 CANCEL = {}  # process-local
 _read = lambda env: Path(os.environ[env]).read_text() if os.environ.get(env) else ""
 STORE = UserStore(ROOT, org_policy=_read("AGENT_ORG_POLICY"), org_settings=json.loads(_read("AGENT_ORG_SETTINGS") or "{}"))
-TOOLS = [t["function"]["name"] for t in schemas()] + ["remember", "artifact", "show_report"]
+TOOLS = [t["function"]["name"] for t in schemas()] + ["remember", "artifact", "show_report", "show_shmoo", "use_skill", "ask_user"]
+SKILLS = skills.discover()
+# Loop 15: effort=max was ~9x slower than low on the finance eval with the same accuracy (k=1). Default low;
+# a project can raise it with settings {"effort": "high"} (user/project/org layers, §9.3).
+EFFORT = os.environ.get("AGENT_EFFORT", "low")
 STATIC = Path(__file__).parent / "static"
 app = FastAPI()
 
@@ -78,13 +82,14 @@ def drive(rid, task=None, decisions=None):
     user, project, history, notes = q("SELECT user_id, project_id, history, notes FROM sessions WHERE id=?", sid)[0]
     msgs = json.loads(history)
     if task is not None:  # instructions/memory may have changed since the last message; fixed during a run
-        msgs[0] = {"role": "system", "content": SYSTEM + "\n\n" + STORE.instructions(user, project)}
+        msgs[0] = {"role": "system", "content": "\n\n".join(
+            filter(None, [SYSTEM, skills.prompt(SKILLS), STORE.instructions(user, project)]))}
     run_dir = ROOT / "work" / rid
     if not run_dir.exists():  # else: a crashed worker's uncommitted workspace, keep it
         STORE.checkout(user, project, run_dir)
-    sb = Sandbox(run_dir / "ws", readonly=("uploads",), name=rid)
+    sb = Sandbox(run_dir / "ws", readonly=("uploads",), name=rid, mounts={skills.DIR: skills.MOUNT})
     settings = STORE.settings(user, project)
-    ctx = Context(sandbox=sb, docs=DocStore(str(ROOT / f"{sid}.docs.db")), notes=json.loads(notes),
+    ctx = Context(sandbox=sb, skills=SKILLS, docs=DocStore(str(ROOT / f"{sid}.docs.db")), notes=json.loads(notes),
                   git_dir=str(run_dir / "git"), remote_url=settings.get("git_remote"),
                   memory=lambda note: STORE.remember(user, note, f"session {sid}, run {rid}"),
                   artifacts=artifacts(user, project, on_save=lambda meta: emit(rid, {"type": "artifact", **meta}),
@@ -92,7 +97,7 @@ def drive(rid, task=None, decisions=None):
                   approve=lambda name, args: None,  # never block a thread on a human: interrupt instead
                   decisions=decisions or {}, cancel=CANCEL.setdefault(rid, threading.Event()))
     try:
-        finish = _drive(rid, task, ctx, msgs, sid)
+        finish = _drive(rid, task, ctx, msgs, sid, settings.get("effort") or EFFORT)
     finally:
         sb.close()
     try:  # write back before announcing the end, so a client that sees run_finished sees the saved files
@@ -105,7 +110,7 @@ def drive(rid, task=None, decisions=None):
     finish()
 
 
-def _drive(rid, task, ctx, msgs, sid):
+def _drive(rid, task, ctx, msgs, sid, effort):
     """Returns the step that publishes the outcome (run after the workspace is saved)."""
     def checkpoint(m, inflight):
         q("UPDATE sessions SET history=?, notes=? WHERE id=?", json.dumps(m), json.dumps(ctx.notes), sid)
@@ -114,14 +119,14 @@ def _drive(rid, task, ctx, msgs, sid):
     emit(rid, {"type": "run_started", "resumed": task is None})
     try:
         run(task, ctx, tool_names=TOOLS, history=msgs, emit=lambda ev: emit(rid, ev), log=lambda *_: None,
-            checkpoint=checkpoint)
+            checkpoint=checkpoint, effort=effort)
         status = "cancelled" if ctx.cancel.is_set() else "succeeded"
     except Interrupt as i:
         req = {"call_id": i.call_id, "tool": i.name, "arguments": i.arguments}
 
         def finish():
             q("UPDATE runs SET status='awaiting_approval', inflight=NULL, pending=? WHERE id=?", json.dumps(req), rid)
-            emit(rid, {"type": "approval_request", **req})
+            emit(rid, {"type": "question" if REGISTRY[req["tool"]].get("ask") else "approval_request", **req})
             emit(rid, {"type": "run_finished", "outcome": "interrupt"})
         return finish
     except Exception as e:
@@ -215,7 +220,8 @@ class Doc(BaseModel):
 
 
 class Decision(BaseModel):
-    approved: bool
+    approved: bool | None = None  # approval tools
+    answer: str | None = None     # ask_user
 
 
 @app.post("/projects")
@@ -305,10 +311,17 @@ def get_run(rid: str, user=Depends(caller)):
 def approval(rid: str, d: Decision, user=Depends(caller)):
     own_run(rid, user)
     # compare-and-set: a double click / two tabs cannot resume (and run the tool) twice
+    pending = q("SELECT pending FROM runs WHERE id=? AND status='awaiting_approval'", rid)
+    if not pending:
+        raise HTTPException(409, "run is not awaiting approval")
+    ask = REGISTRY[json.loads(pending[0][0])["tool"]].get("ask")
+    value = d.answer.strip()[:2000] if ask and d.answer and d.answer.strip() else None if ask else d.approved
+    if value is None:
+        raise HTTPException(422, "this run waits for an answer" if ask else "this run waits for approved: true/false")
     row = q("UPDATE runs SET status='running' WHERE id=? AND status='awaiting_approval' RETURNING pending", rid)
     if not row:
         raise HTTPException(409, "run is not awaiting approval")
-    start(rid, decisions={json.loads(row[0][0])["call_id"]: d.approved})
+    start(rid, decisions={json.loads(row[0][0])["call_id"]: value})
     return {"ok": True}
 
 
@@ -388,6 +401,7 @@ def get_artifact(pid: str, aid: str, version: int = None, user=Depends(caller)):
     a["versions"] = artifacts(user, pid).versions(aid)
     if a["type"] == "report":
         a["sections"] = [{"id": s, "title": report.SECTIONS[s]} for s in report.sections(json.loads(a["content"]))]
+    a["capture"] = a["type"] == "shmoo"  # the page itself renders its current view to PNG (postMessage)
     a["view_url"] = f"{render.RENDER_ORIGIN}/a/{render.sign(user, pid, aid, a['version'])}"
     return a
 

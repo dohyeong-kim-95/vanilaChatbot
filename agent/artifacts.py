@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .userstore import ID_RE
 
-TYPES = {"html", "markdown", "svg", "mermaid", "code", "report"}  # report: JSON for agent/report.py (show_report)
+TYPES = {"html", "markdown", "svg", "mermaid", "code", "report", "shmoo"}  # report/shmoo: JSON for our templates
 MAX_SIZE = 1024 * 1024
 MAX_VERSIONS = 100
 
