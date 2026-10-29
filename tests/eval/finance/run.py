@@ -71,9 +71,14 @@ def one(case, i, fixtures, tmp, use_skills=False):
         res.update(got=got, pass_=ok, why=why)
         if not ok and os.environ.get("FOLLOWUP"):
             t2 = time.time()
-            run(FOLLOWUP, ctx, history=msgs, **kw)
-            got2, ok2, why2 = _grade(case, ws)
-            res.update(got2=got2, pass2=ok2, why2=why2, seconds2=round(time.time() - t2), effort2=ctx.effort_used)
+            res.update(pass2=False, effort2=None)  # a follow-up that raises still counts as not fixed
+            try:
+                run(FOLLOWUP, ctx, history=msgs, **kw)
+                got2, ok2, why2 = _grade(case, ws)
+                res.update(got2=got2, pass2=ok2, why2=why2)
+            except Exception as e:
+                res.update(why2=f"error: {repr(e)[:200]}")
+            res.update(seconds2=round(time.time() - t2), effort2=ctx.effort_used)
     except Exception as e:
         res.update(pass_=False, why=f"error: {repr(e)[:200]}")
     finally:

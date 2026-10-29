@@ -49,6 +49,7 @@ class Sandbox:
         mounts: {host dir: container path}, read-only, outside /workspace (e.g. skills)."""
         self.workspace = Path(workspace).resolve()
         self.readonly = [self.workspace / d for d in readonly]
+        self._fresh = dict(readonly=readonly, mounts=mounts)
         self.workspace.mkdir(parents=True, exist_ok=True)
         os.chown(self.workspace, 1000, 1000)  # sandbox runs as uid 1000
         self.name = "sbx-" + (name or uuid.uuid4().hex[:10])
@@ -147,6 +148,11 @@ class Sandbox:
             yield
         finally:
             subprocess.run(["docker", "unpause", self.name], capture_output=True)
+
+    def fresh(self):
+        """A new container over the same workspace and mounts, never with network: for code that must not share
+        processes or /tmp with this one (connected agents)."""
+        return Sandbox(self.workspace, **self._fresh)
 
     def close(self):
         subprocess.run(["docker", "rm", "-f", self.name], capture_output=True)

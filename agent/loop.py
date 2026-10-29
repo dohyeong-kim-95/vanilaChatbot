@@ -171,8 +171,13 @@ def do_calls(ctx, msgs, step, emit, log, checkpoint):
 # configured effort and go up to ESCALATE only on signals we can observe: the user correcting the last answer, or a
 # streak of failing tool calls. Never to max (10-30x slower).
 ESCALATE = "high"
-CORRECTION_RE = re.compile(r"틀렸|틀린|틀려|아닌데|아니잖|잘못|다시\s*(확인|계산|해|봐|봐줘)|재확인|맞아\?|wrong|incorrect|not right",
-                           re.I)
+# Phrases that call the previous answer wrong, not new requests that mention errors ("잘못 입력된 거래 찾아줘",
+# "what went wrong", "카드B로 다시 해줘"). Checked against a list both ways in tests/test_l16_effort.py.
+CORRECTION_RE = re.compile(
+    r"틀렸|틀려|틀리(네|는데|잖|다)|틀린\s*(것|거|듯|데)|아닌데|아니잖|(그게|그건|이게|이건)\s*아니|아니(에요|예요|야)"
+    r"|잘못(됐(어|네|다|잖)|된\s*(것|거|듯)|\s*(계산|했|나왔|봤|읽))|다시\s*(한\s*번\s*)?(확인|계산|봐)|재확인|재계산|재검토"
+    r"|맞(아|나|나요|아요|는\s*(거|건)\S*|습니까)\s*\?"
+    r"|\b(is|are|was|that'?s|it'?s|looks|seems|you'?re)\s+(wrong|incorrect|not right)|\bincorrect\b|not right", re.I)
 ERROR_STREAK = 2
 
 
@@ -192,6 +197,17 @@ def _error_streak(msgs):
     return n
 
 
+def _corrects(task, msgs):
+    """The user's newest message calls an earlier answer wrong. task=None (resume after ask_user/approval/restart):
+    the last user message in the history, so an escalated run stays escalated."""
+    if task is None:
+        i = max((i for i, m in enumerate(msgs) if m["role"] == "user"), default=None)
+        if i is None:
+            return False
+        task, msgs = msgs[i]["content"], msgs[:i]
+    return bool(CORRECTION_RE.search(str(task))) and any(m["role"] == "assistant" for m in msgs)
+
+
 def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, history=None, log=print,
         emit=lambda ev: None, budget=60_000, checkpoint=lambda msgs, inflight: None, effort=None):
     """task=None resumes `history` (after an Interrupt or a restart): pending tool calls run first.
@@ -201,7 +217,7 @@ def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, histo
                               api_key=os.environ.get("LLM_API_KEY", "dummy"))
     model = model or os.environ.get("LLM_MODEL") or client.models.list().data[0].id
     msgs = history if history is not None else [{"role": "system", "content": SYSTEM}]
-    if task is not None and _cheap(effort) and CORRECTION_RE.search(task) and any(m["role"] == "assistant" for m in msgs):
+    if _cheap(effort) and _corrects(task, msgs):
         effort = ESCALATE
         emit({"type": "effort", "effort": effort, "reason": "correction"})
     if task is not None:

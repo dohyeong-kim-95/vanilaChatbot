@@ -31,8 +31,12 @@ DONE = {"role": "assistant", "content": "done"}
 
 
 def t_correction_phrases():
-    yes = ["틀렸어요", "그거 아닌데", "다시 확인해줘", "다시 계산해 봐", "잘못 계산한 것 같아", "이거 맞아?", "that's wrong"]
-    no = ["카드A 9월 합계 알려줘", "다시 한번 보여줘 표만", "틀 없이 표로 줘", "좋아요 고마워요"]
+    yes = ["틀렸어요", "그거 아닌데", "다시 확인해줘", "다시 계산해 봐", "잘못 계산한 것 같아", "이거 맞아?", "that's wrong",
+           "다시 한번 확인해 주세요", "합계가 틀리네요", "이거 맞나요?", "그게 아니에요", "재계산해줘", "틀린 것 같아요",
+           "답이 잘못됐어요", "this is incorrect", "맞는 거야?"]
+    no = ["카드A 9월 합계 알려줘", "다시 한번 보여줘 표만", "틀 없이 표로 줘", "좋아요 고마워요",
+          "잘못 입력된 거래 찾아줘", "틀린 bin 개수 세줘", "what went wrong in this log?", "이번엔 카드B로 다시 해줘",
+          "로그에서 뭐가 잘못됐는지 봐줘", "wrong pin 에러가 몇 번 났어?", "맞춤법 검사해줘"]
     assert all(CORRECTION_RE.search(t) for t in yes), [t for t in yes if not CORRECTION_RE.search(t)]
     assert not any(CORRECTION_RE.search(t) for t in no), [t for t in no if CORRECTION_RE.search(t)]
 
@@ -51,6 +55,19 @@ def t_escalates_on_correction_only_after_an_answer():
     c = Scripted([DONE])
     run("틀렸어요", Context(), client=c, model="m", history=list(hist), effort="max", log=lambda *_: None)
     assert c.efforts == ["max"], c.efforts  # never lowered
+
+
+def t_escalation_survives_resume():
+    """ask_user/approval/restart resume with task=None: the correction that started the run still counts."""
+    hist = [{"role": "system", "content": "s"}, {"role": "user", "content": "q"}, {"role": "assistant", "content": "a"},
+            {"role": "user", "content": "합계가 틀리네요"}, call("q1", "current_time", {})]
+    c = Scripted([DONE])
+    run(None, Context(), tool_names=["current_time"], client=c, model="m", history=hist, effort="low", log=lambda *_: None)
+    assert c.efforts == ["high"], c.efforts
+    hist = [{"role": "system", "content": "s"}, {"role": "user", "content": "q"}, call("q1", "current_time", {})]
+    c = Scripted([DONE])
+    run(None, Context(), tool_names=["current_time"], client=c, model="m", history=hist, effort="low", log=lambda *_: None)
+    assert c.efforts == ["low"], c.efforts
 
 
 def t_escalates_on_tool_error_streak():

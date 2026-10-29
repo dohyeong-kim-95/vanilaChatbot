@@ -42,7 +42,7 @@ Axis values are strings normalized like the summary prints them (`1.1`, not `1.1
 ## 4. Reading findings
 | kind | meaning | typical cause to mention |
 |---|---|---|
-| hole | fail cells inside the passing region (pass on both sides in x and in y) | a pattern/timing-specific defect or a noise/resonance window; not a margin limit |
+| hole | a pocket of connected fail cells inside the passing region (pass on both sides in x and in y); separate pockets are separate findings | a pattern/timing-specific defect or a noise/resonance window; not a margin limit |
 | wall | at the highest y the device still fails above an x far below the others | a slow path; more voltage does not help |
 | ceiling | top-y row fails where lower y passes | over-stress at high voltage |
 | low | pass rate far below the median device for the condition | general weakness; check with the plot |

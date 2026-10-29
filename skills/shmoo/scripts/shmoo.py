@@ -175,6 +175,23 @@ def _holes(g, d, combo):
     return out
 
 
+def _pockets(cells):
+    """Split hole cells into separate pockets (8-connected), largest first: two holes are two findings, never one
+    box spanning the passing cells between them."""
+    left, out = set(cells), []
+    while left:
+        stack, comp = [left.pop()], []
+        while stack:
+            i, j = stack.pop()
+            comp.append((i, j))
+            for n in [(i + a, j + b) for a in (-1, 0, 1) for b in (-1, 0, 1)]:
+                if n in left:
+                    left.remove(n)
+                    stack.append(n)
+        out.append(sorted(comp))
+    return sorted(out, key=lambda c: (-len(c), c[0]))
+
+
 def _ceiling(g, d, combo):
     """Columns where the top y values fail although a lower y passes (over-stress, not a margin limit)."""
     cols = []
@@ -193,7 +210,8 @@ def _edge(g, d, combo):
 
 def analyze(g, min_hole=3):
     """Findings per device/condition, strongest first. Kinds:
-    hole     >= min_hole fail cells inside the pass region (a pocket; single cells near the boundary are noise)
+    hole     a pocket of >= min_hole connected fail cells inside the pass region, one finding per pocket
+             (single cells near the boundary are noise)
     ceiling  top-y row fails in >= 3 columns that pass lower (over-stress)
     wall     boundary at the top y rows is far left of the other devices (a slow path not fixed by more voltage)
     low      pass rate far below the other devices for the same condition"""
@@ -214,11 +232,11 @@ def analyze(g, min_hole=3):
         for d in g.devices:
             if rates[d] is None:
                 continue
-            h = _holes(g, d, combo)
-            if len(h) >= min_hole:
-                found.append({"device": d, "condition": cond, "kind": "hole", "cells": len(h),
-                              "x": [g.xs[min(i for i, _ in h)], g.xs[max(i for i, _ in h)]],
-                              "y": [g.ys[min(j for _, j in h)], g.ys[max(j for _, j in h)]]})
+            for h in _pockets(_holes(g, d, combo)):
+                if len(h) >= min_hole:
+                    found.append({"device": d, "condition": cond, "kind": "hole", "cells": len(h),
+                                  "x": [g.xs[min(i for i, _ in h)], g.xs[max(i for i, _ in h)]],
+                                  "y": [g.ys[min(j for _, j in h)], g.ys[max(j for _, j in h)]]})
             ce = _ceiling(g, d, combo)
             if len(ce) >= 3:
                 found.append({"device": d, "condition": cond, "kind": "ceiling", "columns": len(ce),

@@ -162,7 +162,7 @@ function renderSlide(preset, opts = {}) {
     const l2 = `ERROR ${r.count.toLocaleString()}건${r.pattern ? " · " + r.pattern.slice(0, 40) : ""}`;
     const w = Math.max(textW(l1, SZ.label, 700), textW(l2, SZ.label));
     const right = x1 + 12 + w <= gx + gw, ax = right ? x1 + 12 : x0 - 12, anchor = right ? "start" : "end";
-    const ay = Math.max(Y(r.peak) + 10, gy + 60);
+    const ay = Math.min(Math.max(Y(r.peak) + 10, gy + 60), gy + gh - 40);  // its box (ay-22..ay+32) stays above the x ticks
     const l2w = Math.min(textW(l2, SZ.label), gw * 0.6), bx = right ? ax - 4 : ax - Math.max(textW(l1, SZ.label, 700), l2w) - 4;
     svg.append(S_("rect", { x: bx, y: ay - 22, width: Math.max(textW(l1, SZ.label, 700), l2w) + 8, height: 54, fill: "#FFFFFF", "fill-opacity": 0.9 }));
     svg.append(S_("line", { x1: right ? x1 : x0, x2: ax + (right ? -4 : 4), y1: ay - 6, y2: ay - 6, stroke: TOK.ink, "stroke-width": 1.2 }));
@@ -281,7 +281,7 @@ function table() {
   $("reset").hidden = S.pattern === null && S.bucket === null;
 }
 
-function draw() { chips(); $("plot").replaceChildren(plot()); bucketInfo(); table(); titleBox(autoTitle("L")); }
+function draw() { chips(); $("plot").replaceChildren(plot()); bucketInfo(); table(); titleBox(autoTitle("L"), `${S.pattern}|${[...S.on].sort()}`); }
 $("reset").onclick = () => { S.pattern = null; S.bucket = null; draw(); };
 document.getElementById("h").textContent = D.title;
 document.getElementById("sub").textContent = `${D.start} – ${D.end} · ${D.lines.toLocaleString()}건 · 패턴 ${D.patterns.length}개` +

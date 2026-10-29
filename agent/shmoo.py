@@ -290,7 +290,7 @@ function draw() {
   controls();
   $("plot").replaceChildren(plot());
   detail(); findings(); devices();
-  titleBox(autoTitle("L"));
+  titleBox(autoTitle("L"), `${S.device}|${S.combo}`);
 }
 """
 
@@ -339,9 +339,12 @@ function autoTitle(preset) {
     const i = idx(D.x.values, D.op.x), j = idx(D.y.values, D.op.y);
     if (at(ci, di, i, j) === "F") return short ? `${dev}: 동작점 Fail` : `${dev}: 동작점(${AX.fmtU(D.x.values[i])}, ${AY.fmtU(D.y.values[j])})에서 Fail`;
   }
-  const hole = finds("hole", di, ci)[0];
-  if (hole) return short ? `${dev}: 실패 구멍 ${hole.cells}칸` :
-    `${dev}: ${AY.fmt(hole.y[0])}–${AY.fmtU(hole.y[1])} × ${AX.fmt(hole.x[0])}–${AX.fmtU(hole.x[1])}에 실패 구멍 ${hole.cells}칸`;
+  const holes = finds("hole", di, ci), hole = holes[0];  // one finding per separate pocket, largest first
+  if (hole) {
+    const where = `${AY.fmt(hole.y[0])}–${AY.fmtU(hole.y[1])} × ${AX.fmt(hole.x[0])}–${AX.fmtU(hole.x[1])}`;
+    if (holes.length > 1) return short ? `${dev}: 실패 구멍 ${holes.length}곳` : `${dev}: 실패 구멍 ${holes.length}곳 (가장 큰 곳 ${where} ${hole.cells}칸)`;
+    return short ? `${dev}: 실패 구멍 ${hole.cells}칸` : `${dev}: ${where}에 실패 구멍 ${hole.cells}칸`;
+  }
   const sf = specFails(ci, di);
   if (sf) return short ? `${dev}: Spec 안 Fail ${sf}칸` : `${dev}: Spec 영역 안 Fail ${sf}칸`;
   const wall = finds("wall", di, ci)[0];
@@ -404,8 +407,11 @@ function renderSlide(preset, opts = {}) {
   const rowY = (j) => gy + (NY - 1 - j) * ch;
   for (const h of holes) {
     const i0 = D.x.values.indexOf(h.x[0]), i1 = D.x.values.indexOf(h.x[1]), j0 = D.y.values.indexOf(h.y[0]), j1 = D.y.values.indexOf(h.y[1]);
-    svg.append(S_("rect", { x: gx + i0 * cw - 2, y: rowY(j1) - 2, width: (i1 - i0 + 1) * cw + 4, height: (j1 - j0 + 1) * ch + 4,
-                            rx: 3, fill: "none", stroke: TOK.accent, "stroke-width": 3 }));
+    const box = (x, y, w, hh) => svg.append(S_("rect", { x: x - 2, y: y - 2, width: w + 4, height: hh + 4, rx: 3, fill: "none",
+                                                          stroke: TOK.accent, "stroke-width": 3, class: "hole" }));
+    if (h.cells === (i1 - i0 + 1) * (j1 - j0 + 1)) box(gx + i0 * cw, rowY(j1), (i1 - i0 + 1) * cw, (j1 - j0 + 1) * ch);
+    else  // not a rectangle: outline its fail cells so no passing cell is marked
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (at(ci, di, i, j) === "F") box(gx + i * cw, rowY(j), cw, ch);
   }
   for (const c of ceils) {
     const j = D.y.values.indexOf(c.y);

@@ -220,9 +220,9 @@ def name(ctx, **args) -> str
 
 ### 4.7 연결된 에이전트 (다른 팀이 만든 Python 패키지) [검증: Loop 21, mock]
 - 등록: `agents/{name}/agent.json`(`name`, `description`, `entry: "module:function"`, `inputs` JSON Schema, `required`, `timeout` ≤ 600s, `llm_calls` ≤ 20, `approval`) + 코드. 운영자가 레포에 넣은 것만 등록된다. 에이전트마다 tool `agent__{name}`이 생기고, 설명 앞에 `[connected agent: name]`이 붙는다.
-- **신뢰하지 않는 코드**로 다룬다. run의 sandbox 안에서 실행한다(네트워크 없음, `/agents` 읽기 전용 마운트, workspace만). 실행기 `agents/_runner.py`가 패키지를 불러 `run(task, inputs, ctx)`를 부른다.
+- **신뢰하지 않는 코드**로 다룬다. 호출마다 **새 컨테이너**에서 실행하고 끝나면 지운다(`Sandbox.fresh()`: run과 같은 workspace·읽기 전용 마운트, 네트워크 없음). run의 sandbox와 프로세스·`/tmp`를 나누지 않으므로, 한 에이전트가 `/tmp`에 `.pth`를 심어 이후 python을 가로채거나 다른 프로세스의 stdout에 써서 결과를 위조할 수 없다(Loop 23, 재현 후 수정). `python -I`로 실행한다. 실행기 `agents/_runner.py`가 패키지를 불러 `run(task, inputs, ctx)`를 부른다.
 - 프로토콜: stdin/stdout JSON 줄. 에이전트가 보낼 수 있는 것은 `progress`(UI 상태줄에 표시), `llm`(호스트가 우리 게이트웨이로 대신 호출, manifest 한도까지, role/content 메시지만), `result`, `error`뿐이다. 그 밖의 출력은 로그로만 남는다.
-- 호스트가 강제: 시간 제한(컨테이너 안 `timeout` + 호스트 타이머. 클라이언트만 끊으면 컨테이너 안 프로세스가 남는다), 한 줄 256KB, 메시지 2,000개, 결과 20,000자. 결과는 다른 tool 출력과 같은 경로(truncate → redact → spotlight)로 모델에게 간다.
+- 호스트가 강제: 시간 제한(컨테이너 안 `timeout` + 호스트 타이머. 클라이언트만 끊으면 컨테이너 안 프로세스가 남는다), 한 줄 256KB, 메시지 2,000개. stderr는 끝까지 읽고 앞뒤만 보관한다(실패 시 마지막 줄을 보여 줌). 결과는 다른 tool 출력과 같은 경로(truncate → redact → spotlight)로 모델에게 간다.
 - 범위 밖(지금): 에이전트가 실행 중에 사용자에게 묻기(ask_user), 에이전트별 네트워크 허용, 버전 고정과 서명.
 
 ---
@@ -500,6 +500,7 @@ tests/test_l13_logview.py     Loop 18 (집계 = 정답, 원문 미저장, Chrome
 tests/test_l14_review_fixes.py  Loop 19 (독립 리뷰 지적의 회귀: 심볼릭 링크 바꿔치기, 큰 출력, 예전 카드, 질문 전후 파일, sandbox 실패, 동시 업로드)
 tests/test_l15_agents.py      Loop 21 (연결된 에이전트: 결과·진행 이벤트, LLM 중계와 한도, 오동작 에이전트 격리, 모델의 선택)
 tests/test_l16_effort.py      Loop 22 (effort 정책: 정정 문구, 정정 시 상향, 연속 tool 오류 시 상향)
+tests/test_l17_slides.py      Loop 23 (리뷰 회귀: shmoo 구멍 분리, 축 단위 구분자, 입력한 캡처 제목 초기화, 로그 주석 위치)
 tests/eval/logview/gen.py     합성 주문 서비스 로그 (배포 후 새 에러, 15분 장애, 스택 트레이스)
 tests/eval/shmoo/gen.py       합성 ATE shmoo 로그 (장치 24개 × 온도 2 × VDD 16 × 주파수 17, 결함 3종)
 docs/research/          R1–R6 리서치 노트

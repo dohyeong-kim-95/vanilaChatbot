@@ -1,8 +1,8 @@
 """Connected agents (Loop 21): agents other teams wrote as Python packages, used as tools.
 
 agents/{name}/agent.json + code, chosen by the operator (like skills). Each becomes a tool `agent__{name}`. The code is
-NOT trusted: it runs inside the run's sandbox (no network, workspace only, agents dir mounted read-only at /agents)
-through agents/_runner.py, and talks to us over JSON lines on stdin/stdout. What it may ask the host for is narrow:
+NOT trusted: each call runs in its own fresh container over the run's workspace (no network, agents dir mounted
+read-only at /agents; it shares no processes or /tmp with the run's sandbox or other agents) through agents/_runner.py, and talks to us over JSON lines on stdin/stdout. What it may ask the host for is narrow:
 progress messages (shown in the UI) and LLM calls (made by us, counted against the manifest's llm_calls limit).
 Timeouts, line size and message count are enforced here, outside the sandbox.
 """
@@ -13,10 +13,12 @@ import threading
 import time
 from pathlib import Path
 
+from .sandbox import _Cap
+
 DIR = Path(__file__).resolve().parents[1] / "agents"
 MOUNT = "/agents"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
-MAX_TIMEOUT, MAX_LLM, MAX_LINE, MAX_MESSAGES, MAX_RESULT = 600, 20, 256 * 1024, 2000, 20_000
+MAX_TIMEOUT, MAX_LLM, MAX_LINE, MAX_MESSAGES = 600, 20, 256 * 1024, 2000
 
 
 def tool_name(name):
@@ -55,16 +57,25 @@ def run_agent(ctx, name, task, inputs):
     m = ctx.agents.get(name) if ctx.agents else None
     if not m:
         raise ValueError(f"agent {name!r} is not connected")
+    # A fresh container per call: in the run's shared one, an agent could plant code that every later python there
+    # runs (a .pth under /tmp) or write into another process's stdout. -I: no user site, no cwd on sys.path.
+    sb = ctx.sandbox.fresh()
+    try:
+        return _talk(ctx, sb, name, m, task, inputs)
+    finally:
+        sb.close()
+
+
+def _talk(ctx, sb, name, m, task, inputs):
     # `timeout` inside the container: killing the docker exec client alone leaves the agent process running
-    p = subprocess.Popen(["docker", "exec", "-i", ctx.sandbox.name, "timeout", "-k", "2", str(m["timeout"]),
-                          "python", f"{MOUNT}/_runner.py", name],
+    p = subprocess.Popen(["docker", "exec", "-i", sb.name, "timeout", "-k", "2", str(m["timeout"]),
+                          "python", "-I", f"{MOUNT}/_runner.py", name],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     killer = threading.Timer(m["timeout"], p.kill)
     killer.start()
+    errs = _Cap(p.stderr, 4000)  # drained to the end (a full pipe would block the agent), keeping head + tail
+    errs.start()
     log, result, error, llm_used, messages, t0 = [], None, None, 0, 0, time.time()
-    errs = []
-    threading.Thread(target=lambda: errs.extend(p.stderr.read(64 * 1024).decode(errors="replace").splitlines()[-20:]),
-                     daemon=True).start()
     try:
         p.stdin.write((json.dumps({"task": task, "inputs": inputs}, ensure_ascii=False) + "\n").encode())
         p.stdin.flush()
@@ -109,12 +120,13 @@ def run_agent(ctx, name, task, inputs):
         killer.cancel()
         p.kill()
         p.wait()
+        errs.join(5)
     took = time.time() - t0
     if result is not None and error is None:
-        return f"[{name} finished in {took:.0f}s]\n{result[:MAX_RESULT]}"
+        return f"[{name} finished in {took:.0f}s]\n{result}"
     if error is None:
         error = f"timed out after {m['timeout']}s" if took >= m["timeout"] - 0.5 else "ended without a result"
-    tail = "\n".join((log + errs)[-10:])
+    tail = "\n".join((log + errs.text().splitlines())[-10:])
     raise RuntimeError(f"agent {name} failed: {error}" + (f"\n{tail}" if tail else ""))
 
 

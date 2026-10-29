@@ -118,8 +118,8 @@ function legendColumn(svg, x, y, items) {
 // Axis from a column name: "VDD_V" -> VDD (V), "FREQ_MHZ" -> 주파수 (GHz) when every value >= 1000 MHz.
 const AXIS_NAMES = { VDD: "VDD", VCC: "VCC", FREQ: "주파수", FREQUENCY: "주파수", TEMP: "온도", PERIOD: "주기" };
 const UNITS = { V: "V", MV: "mV", MHZ: "MHz", GHZ: "GHz", KHZ: "kHz", HZ: "Hz", NS: "ns", PS: "ps", C: "°C" };
-function axisInfo(name, values) {
-  const m = /^(.*?)[_ ]?(MV|V|GHZ|MHZ|KHZ|HZ|NS|PS|C)$/i.exec(name) || [null, name, ""];
+function axisInfo(name, values) {  // unit only after a separator: VCC is not "VC (°C)"
+  const m = /^(.*?)[_ ](MV|V|GHZ|MHZ|KHZ|HZ|NS|PS|C)$/i.exec(name) || [null, name, ""];
   const base = AXIS_NAMES[m[1].toUpperCase()] || m[1];
   let unit = UNITS[m[2].toUpperCase()] || "", f = 1;
   const nums = values.map(Number);
@@ -175,9 +175,11 @@ window.addEventListener("message", async (e) => {
     parent.postMessage({ type: "capture", nonce: e.data.nonce, error: String(err) }, "*");
   }
 });
-// Editable slide title: prefilled with the automatic one until the user types.
-let customTitle = null;
-function titleBox(auto) {
+// Editable slide title: prefilled with the automatic one until the user types. key = what the slide shows
+// (device, condition, pattern); a typed title is dropped when that changes, so it never labels another figure.
+let customTitle = null, titleKey = null;
+function titleBox(auto, key = "") {
+  if (key !== titleKey) { customTitle = null; titleKey = key; }
   const box = document.getElementById("slide-title");
   if (!box) return;
   if (customTitle === null) box.value = auto;

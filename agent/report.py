@@ -211,31 +211,54 @@ def headline(d, key):
     return f"가장 큰 거래는 {t['merchant']} {man(t['amount'])} 원"
 
 
-def _slide_bars(cats, width):
+def _tw(s, size=SIZES["label"]):
+    """Rough rendered width of s (server-side, no fonts): Hangul/CJK ~1em, other glyphs ~0.56em."""
+    return sum(size * (1.0 if ord(ch) >= 0x1100 else 0.3 if ch == " " else 0.56) for ch in s)
+
+
+def _fit(s, width):
+    while s and _tw(s) > width:
+        s = s[:-2] + "…" if len(s) > 1 else ""
+    return s
+
+
+def _slide_bars(cats, width, height):
+    """Horizontal bars sized to the space left (height) so no row is clipped; label column sized to the names."""
     cats = sorted(cats, key=lambda c: -c["amount"])
     if len(cats) > MAX_BARS:  # fold the tail into one "기타" row
         rest = cats[MAX_BARS - 1:]
         cats = cats[:MAX_BARS - 1] + [{"name": f"기타 {len(rest)}개", "amount": sum(c["amount"] for c in rest)}]
-    e, lab, row, bar = html.escape, 84, 56, 34
+    e = html.escape
+    row = min(56, (height - 16) / len(cats))
+    bar = round(row * 0.6)
+    lab = round(min(max(_tw(c["name"]) for c in cats), width * 0.35)) + 12
     plot = width - lab - 8
     top = max(max(c["amount"] for c in cats), max((c.get("budget", 0) for c in cats), default=0)) or 1
+    def label(c):
+        over = "budget" in c and c["amount"] > c["budget"]
+        return f'{man(c["amount"])} +{man(c["amount"] - c["budget"])} 초과' if over else man(c["amount"])
+
+    def fits(scale):  # each value label goes inside its bar (white) or after it, within the width
+        return all(c["amount"] / top * scale >= _tw(label(c)) + 20 or
+                   max(c["amount"], c.get("budget", 0)) / top * scale + 10 + _tw(label(c)) <= plot for c in cats)
+    scale = next((plot * k / 100 for k in range(90, 10, -2) if fits(plot * k / 100)), plot * 0.1)
     parts = []
     for i, c in enumerate(cats):
-        y = i * row + 8
-        w = max(2, c["amount"] / top * plot * 0.78)  # room after the bar for its value label
+        y = round(i * row + 8)
+        w = max(2, c["amount"] / top * scale)
         over = "budget" in c and c["amount"] > c["budget"]
         parts.append(f'<text x="{lab - 12}" y="{y + bar / 2 + 6}" text-anchor="end" font-size="{SIZES["label"]}" '
-                     f'fill="{T["ink"]}">{e(c["name"])}</text><rect x="{lab}" y="{y}" width="{w:.1f}" height="{bar}" '
+                     f'fill="{T["ink"]}">{e(_fit(c["name"], lab - 12))}</text><rect x="{lab}" y="{y}" width="{w:.1f}" height="{bar}" '
                      f'fill="{T["over"] if over else T["neutral"]}"/>')
-        tick = lab + c["budget"] / top * plot * 0.78 if "budget" in c else None
+        tick = lab + c["budget"] / top * scale if "budget" in c else None
         if tick is not None:
             parts.append(f'<rect x="{tick - 1.25:.1f}" y="{y - 5}" width="2.5" height="{bar + 10}" fill="{T["ink"]}"/>')
-        label = f'{man(c["amount"])} +{man(c["amount"] - c["budget"])} 초과' if over else man(c["amount"])
-        inside = w > 230
+        text = label(c)
+        inside = w >= _tw(text) + 20 and not (tick and tick < lab + 10 + _tw(text) + 4)
         lx = lab + 10 if inside else max(lab + w, tick or 0) + 10
         parts.append(f'<text x="{lx:.1f}" y="{y + bar / 2 + 6}" font-size="{SIZES["label"]}" '
-                     f'font-weight="{700 if over else 400}" fill="{"#FFFFFF" if inside else T["ink"]}">{e(label)}</text>')
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{len(cats) * row + 8}">'
+                     f'font-weight="{700 if over else 400}" fill="{"#FFFFFF" if inside and over else T["ink"]}">{e(text)}</text>')
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{len(cats) * row + 16:.0f}">'
             f'{"".join(parts)}</svg>')
 
 
@@ -262,7 +285,9 @@ def slide(d, key, preset=None, show_title=True):
             figs += f'<hr><div class="k">거래 수</div><div class="kpi2">{d["count"]:,}건</div>'
         body = figs
     elif key == "categories":
-        body = _slide_bars(d["categories"], inner)
+        # space below the title block (2 title lines + subtitle), the 24px gap and the source line
+        title_h = SIZES["title"] * 1.3 * 2 + SIZES["sub"] * 1.4 + 4 if show_title else 0
+        body = _slide_bars(d["categories"], inner, H - pt - pb - title_h - 24 - SIZES["source"] * 1.4 - 2)
     else:
         rows = d["top"][:MAX_TABLE]
         wide = preset == "L"
