@@ -112,13 +112,26 @@
 **글꼴: 한글 = 맑은 고딕, 영문·숫자 = Arial** (2026-10-30 결정). 한국어 PowerPoint(Windows) 기본 조합이라 슬라이드의 다른 텍스트와 어울린다.
 
 ```
-font-family: Arial, "Liberation Sans", "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans CJK KR", sans-serif;
+font-family: Arial, Arimo, "Malgun Gothic", "맑은 고딕", "Noto Sans KR", "Apple SD Gothic Neo", "Noto Sans CJK KR", "Liberation Sans", sans-serif;
 ```
 
-- **Arial을 맨 앞에 둔다.** Arial에는 한글 글리프가 없으므로 한글은 자동으로 다음 글꼴(맑은 고딕)로 그려진다. 숫자·영문은 Arial이다. Arial 숫자는 기본이 고정폭이라 `tabular-nums` 없이도 표 숫자가 정렬된다.
-- 두 글꼴 모두 Microsoft 라이선스 글꼴이라 **번들·인라인하지 않고 시스템 글꼴을 쓴다.** 그래서 글꼴 서브셋(`fonttools`) 의존성이 필요 없다. 이미지로 그린 SVG도 설치된 시스템 글꼴은 쓸 수 있다(막히는 것은 외부 리소스뿐이다 [16]).
-- 사용자 PC가 Windows면 프레임 캡처(shmoo, 로그)가 정확히 Arial + 맑은 고딕이 된다. Mac은 Arial + Apple SD Gothic Neo가 된다(맑은 고딕은 Office를 설치했을 때만 있다).
-- 서버 캡처(리포트 섹션)를 하는 이 Linux 머신에는 둘 다 없다. 대신 **Liberation Sans**(Arial과 글자 폭이 같은 호환 글꼴, 레이아웃 동일)와 **Noto Sans CJK KR**로 그린다. 서버 캡처까지 맑은 고딕으로 맞추려면 라이선스가 있는 머신에 그 글꼴을 설치해야 한다(배포 환경 결정 사항).
+- **Arial을 맨 앞에 둔다.** Arial에는 한글 글리프가 없으므로 한글은 자동으로 다음 한글 글꼴(맑은 고딕)로 그려진다. 숫자·영문은 Arial이다. Arial 숫자는 기본이 고정폭이라 `tabular-nums` 없이도 표 숫자가 정렬된다.
+- 맑은 고딕과 Arial은 Microsoft 라이선스 글꼴이라 **번들하지 않고 시스템 글꼴을 쓴다.**
+- **대체 글꼴은 Arimo + Noto Sans KR** (2026-10-30 결정). 둘 다 OFL이라 어디든 설치·배포할 수 있다.
+  - Arimo: Arial과 글자 폭이 같은 호환 글꼴(Liberation Sans 2.x의 바탕). 레이아웃이 바뀌지 않는다.
+  - Noto Sans KR: 본고딕 계열 한국어 글꼴, 가변 굵기(100–900).
+  - 받는 곳: Google Fonts 공식 저장소 `google/fonts`의 `ofl/arimo/`, `ofl/notosanskr/` (OFL.txt 포함).
+- 환경별 결과:
+
+  | 환경 | 영문·숫자 | 한글 |
+  |---|---|---|
+  | Windows (사용자 PC, 프레임 캡처) | Arial | 맑은 고딕 |
+  | Mac (Office 없음) | Arial | Noto Sans KR이 설치돼 있으면 그것, 아니면 Apple SD Gothic Neo |
+  | 서버 캡처 (리포트 섹션) | Arimo | Noto Sans KR |
+
+- **서버 설치**: 캡처 서버에 두 글꼴을 설치한다. 이 개발 머신은 `~/.local/share/fonts/vanilachatbot/`에 설치하고 `fc-cache -f`를 했다(관리자 권한 불필요). 배포 이미지는 같은 파일을 `/usr/local/share/fonts/`에 넣고 `fc-cache`한다(명령은 SPEC 부록 B).
+- 확인(2026-10-30, 이 머신): Chrome DevTools `CSS.getPlatformFontsForNode`로 리포트 캡처의 실제 글꼴이 Arimo + Noto Sans KR임을 확인했다. Noto Sans KR은 가변 글꼴이라 DevTools에 기본 인스턴스 이름 "Thin"으로 나오지만, 렌더링은 요청한 굵기(400/700)로 된다(캡처 PNG로 확인).
+- 마지막의 Noto Sans CJK KR, Liberation Sans는 두 글꼴이 아직 설치되지 않은 머신을 위한 안전망이다.
 - 굵기는 **400 / 700** 두 개만 쓴다(맑은 고딕은 보통/굵게, Arial은 Regular/Bold).
 - 코드·패턴 표기(화면 전용, 캡처 아님): `Consolas, "Liberation Mono", monospace`.
 - 상수는 `agent/views.py`의 `FONT`, `MONO` 한 곳에 둔다. 템플릿 CSS, 캡처 SVG, 리포트, 앱 CSS가 같은 목록을 쓴다.

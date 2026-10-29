@@ -499,6 +499,10 @@ docs/LOOP_LOG.md        루프별 실험 기록
 pip install -r requirements.txt
 dockerd &                                  # 필요 시
 docker pull python:3.12-slim
+# 캡처용 대체 글꼴 (OFL, DESIGN.md 4.2): Arimo + Noto Sans KR. 리포트 섹션 캡처(headless Chrome)가 이 글꼴로 그린다.
+mkdir -p ~/.local/share/fonts/vanilachatbot && cd ~/.local/share/fonts/vanilachatbot && \
+  for f in arimo/Arimo%5Bwght%5D.ttf arimo/OFL.txt notosanskr/NotoSansKR%5Bwght%5D.ttf; do \
+    curl -fLO "https://raw.githubusercontent.com/google/fonts/main/ofl/$f"; done && fc-cache -f && cd -
 uvicorn gateway.app:app --port 8100 &      # CLI backend. GATEWAY_EFFORT=low 로 빠르게
 # 또는 API backend: ANTHROPIC_API_KEY=... GATEWAY_BACKEND=anthropic uvicorn gateway.app:app --port 8100 &
 python tests/test_l1_gateway.py

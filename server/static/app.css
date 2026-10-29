@@ -8,7 +8,7 @@
   --primary: #0e7490;
   --warn: #b45309;
   --danger: #b91c1c;
-  font-family: Arial, "Liberation Sans", "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans CJK KR", sans-serif;
+  font-family: Arial, Arimo, "Malgun Gothic", "맑은 고딕", "Noto Sans KR", "Apple SD Gothic Neo", "Noto Sans CJK KR", "Liberation Sans", sans-serif;
   font-size: 15px;
   color: var(--text);
 }
