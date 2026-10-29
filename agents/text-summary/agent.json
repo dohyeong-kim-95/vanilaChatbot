@@ -1,0 +1,11 @@
+{
+  "name": "text-summary",
+  "description": "텍스트 파일(회의록, 보고서 초안 등)을 지정한 문장 수로 요약한다. 요약은 호스트가 중계하는 LLM 호출로 만든다. (mock: LLM을 쓰는 외부 에이전트를 흉내 냄)",
+  "entry": "summary:run",
+  "inputs": {"file": {"type": "string", "description": "workspace path of a UTF-8 text file"},
+             "sentences": {"type": "integer", "description": "how many sentences (default 3)"}},
+  "required": ["file"],
+  "timeout": 180,
+  "llm_calls": 2,
+  "approval": false
+}

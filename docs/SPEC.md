@@ -217,6 +217,13 @@ def name(ctx, **args) -> str
 - 첫 skill `card-transactions`: 내보내기 파일 로더 `tx.py`(인코딩, 헤더 위치, 구분자, 합계 행, 금액·날짜 형식, xlsx 시트, 은행 출금/입금, 해외 시트) + 도메인 규칙(취소 상계, 할부, 카드대금 이중계산, 입금 제외).
 - 운영(미검증): 사용자·조직별 skill(신뢰 경계를 다시 정해야 함: 사용자가 쓴 skill은 사용자 지시와 같은 수준), skill 버전 고정, skill별 eval.
 
+### 4.7 연결된 에이전트 (다른 팀이 만든 Python 패키지) [검증: Loop 21, mock]
+- 등록: `agents/{name}/agent.json`(`name`, `description`, `entry: "module:function"`, `inputs` JSON Schema, `required`, `timeout` ≤ 600s, `llm_calls` ≤ 20, `approval`) + 코드. 운영자가 레포에 넣은 것만 등록된다. 에이전트마다 tool `agent__{name}`이 생기고, 설명 앞에 `[connected agent: name]`이 붙는다.
+- **신뢰하지 않는 코드**로 다룬다. run의 sandbox 안에서 실행한다(네트워크 없음, `/agents` 읽기 전용 마운트, workspace만). 실행기 `agents/_runner.py`가 패키지를 불러 `run(task, inputs, ctx)`를 부른다.
+- 프로토콜: stdin/stdout JSON 줄. 에이전트가 보낼 수 있는 것은 `progress`(UI 상태줄에 표시), `llm`(호스트가 우리 게이트웨이로 대신 호출, manifest 한도까지, role/content 메시지만), `result`, `error`뿐이다. 그 밖의 출력은 로그로만 남는다.
+- 호스트가 강제: 시간 제한(컨테이너 안 `timeout` + 호스트 타이머. 클라이언트만 끊으면 컨테이너 안 프로세스가 남는다), 한 줄 256KB, 메시지 2,000개, 결과 20,000자. 결과는 다른 tool 출력과 같은 경로(truncate → redact → spotlight)로 모델에게 간다.
+- 범위 밖(지금): 에이전트가 실행 중에 사용자에게 묻기(ask_user), 에이전트별 네트워크 허용, 버전 고정과 서명.
+
 ---
 
 ## 5. Sandbox
@@ -462,8 +469,10 @@ agent/report.py         고정 지출 리포트 템플릿 (데이터 검증, SVG
 agent/shmoo.py          인터랙티브 shmoo 뷰 (데이터 구성, 페이지 템플릿)
 agent/logview.py        인터랙티브 텍스트 로그 뷰 (레벨 × 시간, 패턴 표)
 agent/views.py          템플릿 뷰 공용: 데이터 inline, 캡처 프로토콜
+agent/delegate.py       연결된 에이전트: 발견, tool 등록, sandbox 안 실행과 JSON 줄 프로토콜 감독
 agent/skills.py         skill 발견(SKILL.md frontmatter), 프롬프트 목록, `/skills` 마운트 경로
 skills/card-transactions/  첫 skill: 카드·은행 내보내기 로더(tx.py, 표준 라이브러리) + 도메인 규칙
+agents/                 연결된 에이전트(mock 2개: wafer-yield, text-summary) + sandbox 안 실행기 _runner.py
 skills/log-triage/      처음 보는 파일 판정(sniff.py) + "무엇을 볼까요?" 질문 + 맞는 skill로 넘김
 skills/shmoo/           ATE 로그 → shmoo 격자, 이상 패턴(구멍·벽·천장·낮은 통과율), ASCII 출력
 server/app.py           채팅 서버 (durable run, 이벤트 로그, interrupt/resume, 취소, 복구, 아티팩트 API, UI 서빙)
@@ -488,6 +497,7 @@ tests/test_l11_shmoo.py       Loop 16 (결함 탐지 = 정답, tool 오류, 실�
 tests/test_l12_triage.py      Loop 17 (sniff 판정, ask_user 중단/재개, 실제 앱 + Chrome + 가짜 LLM으로 질문 카드, LLM triage)
 tests/test_l13_logview.py     Loop 18 (집계 = 정답, 원문 미저장, Chrome에서 패턴·막대 클릭 → 캡처)
 tests/test_l14_review_fixes.py  Loop 19 (독립 리뷰 지적의 회귀: 심볼릭 링크 바꿔치기, 큰 출력, 예전 카드, 질문 전후 파일, sandbox 실패, 동시 업로드)
+tests/test_l15_agents.py      Loop 21 (연결된 에이전트: 결과·진행 이벤트, LLM 중계와 한도, 오동작 에이전트 격리, 모델의 선택)
 tests/eval/logview/gen.py     합성 주문 서비스 로그 (배포 후 새 에러, 15분 장애, 스택 트레이스)
 tests/eval/shmoo/gen.py       합성 ATE shmoo 로그 (장치 24개 × 온도 2 × VDD 16 × 주파수 17, 결함 3종)
 docs/research/          R1–R6 리서치 노트

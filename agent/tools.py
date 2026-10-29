@@ -7,20 +7,22 @@ import json
 import tempfile
 from pathlib import Path
 
-from . import github, logview, report, shmoo
+from . import delegate, github, logview, report, shmoo
 from .artifacts import MAX_SIZE as ARTIFACT_MAX
 
 REGISTRY = {}
 
 
+def _schema(name, description, params, required):
+    return {"type": "function", "function": {"name": name, "description": description,
+                                             "parameters": {"type": "object", "properties": params, "required": required}}}
+
+
 def tool(description, params, required=None, approval=False, ask=False):
     def deco(fn):
-        REGISTRY[fn.__name__] = {
-            "fn": fn, "approval": approval, "ask": ask,
-            "schema": {"type": "function", "function": {
-                "name": fn.__name__, "description": description,
-                "parameters": {"type": "object", "properties": params,
-                               "required": required if required is not None else list(params)}}}}
+        REGISTRY[fn.__name__] = {"fn": fn, "approval": approval, "ask": ask,
+                                 "schema": _schema(fn.__name__, description, params,
+                                                   required if required is not None else list(params))}
         return fn
     return deco
 
@@ -291,8 +293,12 @@ def open_pull_request(ctx, branch, title, body):
 
 def schemas(names=None):
     # search_tools needs a ToolRouter, remember a user store, artifact/show_* an artifact store, use_skill skills,
-    # request_network_access an egress proxy; callers that have them name them
+    # request_network_access an egress proxy, agent__* connected agents (ctx.agents); callers that have them name them
     return [t["schema"] for n, t in REGISTRY.items()
             if (n in names if names is not None else
                 n not in ("search_tools", "remember", "artifact", "show_report", "show_shmoo", "show_logview",
-                          "use_skill", "ask_user", "request_network_access"))]
+                          "use_skill", "ask_user", "request_network_access") and not n.startswith("agent__"))]
+
+
+# Connected agents (agent/delegate.py): one tool per agents/{name}/agent.json, run inside the sandbox.
+delegate.register(delegate.discover(), REGISTRY, _schema)

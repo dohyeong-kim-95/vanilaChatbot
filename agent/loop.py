@@ -28,6 +28,9 @@ class Context:
     memory: callable = None      # remember(note) -> persists to the user's memory (after approval)
     artifacts: object = None     # ArtifactStore for the `artifact` tool
     skills: dict = field(default_factory=dict)  # name -> skill (agent.skills.discover) for `use_skill`
+    agents: dict = field(default_factory=dict)  # name -> manifest (agent.delegate.discover) for agent__* tools
+    emit: callable = lambda ev: None             # set by run(): tools that report progress (connected agents)
+    llm: callable = None                         # set by run(): messages -> text, for connected agents' LLM calls
     github_token: str = None
     github_repo: str = None      # "owner/repo"
     remote_url: str = None
@@ -179,6 +182,9 @@ def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, histo
         if ctx.router:
             ctx.router.start(task)
     tools = schemas(tool_names)
+    ctx.emit = emit
+    ctx.llm = lambda m: client.chat.completions.create(
+        model=model, messages=m, **({"extra_body": {"reasoning_effort": effort}} if effort else {})).choices[0].message.content
     for step in range(max_steps):
         do_calls(ctx, msgs, step, emit, log, checkpoint)
         if ctx.cancel.is_set():

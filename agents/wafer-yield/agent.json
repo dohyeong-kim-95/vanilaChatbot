@@ -1,0 +1,11 @@
+{
+  "name": "wafer-yield",
+  "description": "웨이퍼 테스트 bin 결과(CSV: wafer, die x/y, bin)로 웨이퍼별 수율과 주요 fail bin을 계산하고 outputs/yield.md 리포트를 쓴다. (mock: 팀 B가 만든 수율 에이전트를 흉내 냄)",
+  "entry": "wafer_yield:run",
+  "inputs": {"file": {"type": "string", "description": "workspace path of the bin CSV, e.g. uploads/bins.csv"},
+             "pass_bins": {"type": "array", "items": {"type": "integer"}, "description": "bins that mean pass (default [1])"}},
+  "required": ["file"],
+  "timeout": 120,
+  "llm_calls": 0,
+  "approval": false
+}

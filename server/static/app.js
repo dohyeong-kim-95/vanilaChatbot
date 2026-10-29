@@ -168,6 +168,9 @@ function onEvent(rid, ev, seq, status) {
       status.textContent = name;
       break;
     }
+    case "agent_progress":
+      status.textContent = `${ev.agent}: ${ev.message}`;
+      break;
     case "artifact":
       addArtifactRef(ev.id, ev.version, ev.title);
       loadArtifacts();

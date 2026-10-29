@@ -35,7 +35,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
-from agent import report, skills
+from agent import delegate, report, skills
 from agent.artifacts import ArtifactStore
 from agent.loop import SYSTEM, Context, Interrupt, run
 from agent.rag import DocStore
@@ -58,6 +58,8 @@ CANCEL = {}  # process-local
 _read = lambda env: Path(os.environ[env]).read_text() if os.environ.get(env) else ""
 STORE = UserStore(ROOT, org_policy=_read("AGENT_ORG_POLICY"), org_settings=json.loads(_read("AGENT_ORG_SETTINGS") or "{}"))
 TOOLS = [t["function"]["name"] for t in schemas()] + ["remember", "artifact", "show_report", "show_shmoo", "show_logview", "use_skill", "ask_user"]
+AGENTS = delegate.discover()
+TOOLS += [delegate.tool_name(n) for n in AGENTS]
 SKILLS = skills.discover()
 # Loop 15: effort=max was ~9x slower than low on the finance eval with the same accuracy (k=1). Default low;
 # a project can raise it with settings {"effort": "high"} (user/project/org layers, §9.3).
@@ -99,9 +101,9 @@ def _work(rid, task, decisions):
     run_dir = ROOT / "work" / rid
     if not run_dir.exists():  # else: a crashed worker's uncommitted workspace, keep it
         STORE.checkout(user, project, run_dir)
-    sb = Sandbox(run_dir / "ws", readonly=("uploads",), name=rid, mounts={skills.DIR: skills.MOUNT})
+    sb = Sandbox(run_dir / "ws", readonly=("uploads",), name=rid, mounts={skills.DIR: skills.MOUNT, delegate.DIR: delegate.MOUNT})
     settings = STORE.settings(user, project)
-    ctx = Context(sandbox=sb, skills=SKILLS, docs=DocStore(str(ROOT / f"{sid}.docs.db")), notes=json.loads(notes),
+    ctx = Context(sandbox=sb, skills=SKILLS, agents=AGENTS, docs=DocStore(str(ROOT / f"{sid}.docs.db")), notes=json.loads(notes),
                   git_dir=str(run_dir / "git"), remote_url=settings.get("git_remote"),
                   memory=lambda note: STORE.remember(user, note, f"session {sid}, run {rid}"),
                   artifacts=artifacts(user, project, on_save=lambda meta: emit(rid, {"type": "artifact", **meta}),
