@@ -65,6 +65,14 @@ def t_tool_and_errors():
     }
     for k, v in errors.items():
         assert v.startswith("ERROR"), (k, v)
+    # optional spec window / operating point: stored when well-formed, refused otherwise
+    ok = call(id="sp", file="uploads/shmoo_L2610A.csv", **MAP, spec={"x": [2400, 1600], "y": [1.14, 1.26]},
+              op={"x": 2000, "y": 1.2})
+    d = json.loads(ctx.artifacts.get("sp")["content"])
+    assert ok.startswith("shmoo sp") and d["spec"] == {"x": [1600, 2400], "y": [1.14, 1.26]} and d["op"] == {"x": 2000, "y": 1.2}
+    assert d["source"] == "shmoo_L2610A.csv" and d["result"] == "RESULT"
+    for bad in ({"spec": {"x": [1, "a"], "y": [1, 2]}}, {"spec": {"x": [1, 2]}}, {"op": {"x": 1}}, {"op": {"x": True, "y": 1}}):
+        assert call(id="sp", file="uploads/shmoo_L2610A.csv", **MAP, **bad).startswith("ERROR"), bad
     # result values the default pass/fail sets don't know -> skipped with a warning
     odd = TMP / "odd.csv"
     odd.write_text("DUT,V,F,R\n1,1.0,100,GOOD\n1,1.0,200,BAD\n1,1.1,100,GOOD\n1,1.1,200,GOOD\n")
@@ -121,9 +129,17 @@ def t_browser_interact_capture():
         sub = frame.evaluate("() => document.querySelectorAll('#plot svg text')[1].textContent")
         assert "1-3-2" in sub and "TEMP_C=85" in sub, sub
         detail = frame.inner_text("#detail")
-        n = page.evaluate("""async () => { const f = document.querySelector("#frame-wrap iframe");
-                                           const r = await frameCapture(f); return [r.blob.size, r.name]; }""")
-        assert n[0] > 5000 and n[1] == "1-3-2_85", n
+        assert "1-3-2" in frame.input_value("#slide-title") and "실패 구멍" in frame.input_value("#slide-title")
+        shots = page.evaluate("""async () => { const f = document.querySelector("#frame-wrap iframe"), out = [];
+            for (const o of [{}, { preset: "M" }, { preset: "S", title: false }]) {
+              const r = await frameCapture(f, o), b = new Uint8Array(await r.blob.arrayBuffer());
+              const v = new DataView(b.buffer);
+              out.push([r.name, v.getUint32(16), v.getUint32(20), String.fromCharCode(...b.slice(37, 41)), v.getUint32(41)]);
+            }
+            return out; }""")
+        n = shots[0]
+        assert n[0].startswith("shmoo_1-3-2_85_L_") and n[0].endswith(".png"), n
+        assert [s[1:] for s in shots] == [[2360, 1080, "pHYs", 7559], [1152, 1080, "pHYs", 7559], [752, 1080, "pHYs", 7559]], shots
         png = page.evaluate("""async () => { const r = await frameCapture(document.querySelector("#frame-wrap iframe"));
                                              return Array.from(new Uint8Array(await r.blob.arrayBuffer())); }""")
         (TMP / "capture-hole.png").write_bytes(bytes(png))
@@ -151,7 +167,7 @@ def t_browser_interact_capture():
         time.sleep(1)
         assert not [h for h in hits if not h.startswith("udp/")], hits
         assert not errs, errs
-        print(f"    detail: {detail!r}\n    capture {n[0]} bytes -> {TMP / 'capture-hole.png'}\n    ui -> {TMP / 'ui-shmoo.png'}")
+        print(f"    detail: {detail!r}\n    slides L/M/S: {[s[1:3] for s in shots]} -> {TMP / 'capture-hole.png'}\n    ui -> {TMP / 'ui-shmoo.png'}")
     finally:
         b.close(); pw.stop(); l9.kill(ps); srv.shutdown(); stop.set()
 

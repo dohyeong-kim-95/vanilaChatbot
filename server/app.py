@@ -15,7 +15,7 @@ POST /runs/{id}/approval                {approved: bool} | {answer: str}   (resu
 POST /runs/{id}/cancel
 GET  /projects | /projects/{p}/sessions | /sessions/{id}            lists, chat history (for the UI)
 GET  /projects/{p}/artifacts | /projects/{p}/artifacts/{a}?version=n  -> {..., view_url} (renderer, server/render.py)
-GET  /projects/{p}/artifacts/{a}/sections/{s}.png?version=n           a report section as an image (server/capture.py)
+GET  /projects/{p}/artifacts/{a}/sections/{s}.png?version=n&preset=L|M|S&title=0|1   a report section as a slide image (server/capture.py)
 GET  /                                  minimal web UI (server/static)
 
 Everything a run needs (history, notes, status, in-flight tool) is in SQLite and checkpointed after every
@@ -425,23 +425,25 @@ def get_artifact(pid: str, aid: str, version: int = None, user=Depends(caller)):
         raise HTTPException(404, "no such artifact")
     a["versions"] = artifacts(user, pid).versions(aid)
     if a["type"] == "report":
-        a["sections"] = [{"id": s, "title": report.SECTIONS[s]} for s in report.sections(json.loads(a["content"]))]
+        a["sections"] = [{"id": s, "title": report.SECTIONS[s], "kind": "image" if s in report.SLIDE_SECTIONS else "text",
+                          "preset": report.SLIDE_SECTIONS.get(s)} for s in report.sections(json.loads(a["content"]))]
     a["capture"] = a["type"] in ("shmoo", "logview")  # the page itself renders its current view to PNG (postMessage)
     a["view_url"] = f"{render.RENDER_ORIGIN}/a/{render.sign(user, pid, aid, a['version'])}"
     return a
 
 
 @app.get("/projects/{pid}/artifacts/{aid}/sections/{section}.png")
-def section_png(pid: str, aid: str, section: str, version: int = None, user=Depends(caller)):
-    """One section of a report as an image (or section=all), for pasting into a document."""
+def section_png(pid: str, aid: str, section: str, version: int = None, preset: str = None, title: int = 1,
+                user=Depends(caller)):
+    """One section of a report as a slide image (or section=all: the whole page), for pasting into a deck."""
     try:
         a = artifacts(user, own_project(pid, user)).get(aid, version)
         if a["type"] != "report":
             raise KeyError(aid)
-        img = capture.png(json.loads(a["content"]), section)
+        img = capture.png(json.loads(a["content"]), section, preset, bool(title))
     except (KeyError, ValueError):
         raise HTTPException(404, "no such report section")
-    name = f"{aid}-v{a['version']}-{section}.png"
+    name = f"report_{aid}_v{a['version']}_{section}_{preset or report.SLIDE_SECTIONS.get(section, 'all')}.png"
     return Response(img, media_type="image/png", headers={"Content-Disposition": f'inline; filename="{name}"',
                                                            "Cache-Control": "no-store"})
 

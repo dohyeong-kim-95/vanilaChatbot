@@ -202,10 +202,17 @@ def check_question(question, options):
        "device": {"type": "array", "items": S, "description": "columns that together identify one device/die"},
        "filters": {"type": "array", "items": S, "description": "condition columns to choose from, e.g. temperature"},
        "pass_values": {"type": "array", "items": S, "description": "result values meaning pass, if not P/PASS/1/OK"},
+       "spec": {"type": "object", "description": "spec window to draw, only if the user gave one, in the log's own "
+                "units: {\"x\": [low, high], \"y\": [low, high]}",
+                "properties": {"x": {"type": "array", "items": {"type": "number"}},
+                               "y": {"type": "array", "items": {"type": "number"}}}},
+       "op": {"type": "object", "description": "operating point to mark, only if the user gave one: {\"x\": v, \"y\": v}",
+              "properties": {"x": {"type": "number"}, "y": {"type": "number"}}},
        "title": S}, required=["id", "file", "x", "y", "result", "device"])
-def show_shmoo(ctx, id, file, x, y, result, device, filters=(), pass_values=None, title=None):
+def show_shmoo(ctx, id, file, x, y, result, device, filters=(), pass_values=None, title=None, spec=None, op=None):
     with _host_copy(ctx, file) as p:
-        data, warnings, summary = shmoo.build(p, x, y, result, device, filters, pass_values, title)
+        data, warnings, summary = shmoo.build(p, x, y, result, device, filters, pass_values, title, spec, op,
+                                              source=Path(file).name)
     store = ctx.artifacts
     meta = store.save(id, "shmoo", data["title"], json.dumps(data, ensure_ascii=False, separators=(",", ":")),
                       command="rewrite" if store.versions(id) else "create")
@@ -223,7 +230,7 @@ def show_shmoo(ctx, id, file, x, y, result, device, filters=(), pass_values=None
       required=["id", "file"])
 def show_logview(ctx, id, file, title=None, bucket_seconds=None):
     with _host_copy(ctx, file) as p:
-        data, summary = logview.build(p, title or f"로그: {Path(file).name}", bucket_seconds)
+        data, summary = logview.build(p, title or f"로그: {Path(file).name}", bucket_seconds, source=Path(file).name)
     store = ctx.artifacts
     meta = store.save(id, "logview", data["title"], json.dumps(data, ensure_ascii=False, separators=(",", ":")),
                       command="rewrite" if store.versions(id) else "create")

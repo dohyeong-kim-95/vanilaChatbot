@@ -102,11 +102,12 @@ def t_browser_interact_capture():
         frame.locator("#patterns tr.row", has_text="timeout after").click()
         sub = frame.evaluate("() => document.querySelectorAll('#plot svg text')[1].textContent")
         assert sub.startswith("패턴: [order-svc] timeout after"), sub
-        bars = frame.evaluate("() => [...document.querySelectorAll('#plot svg rect')].filter(r => r.getAttribute('fill') === '#c2410c' && r.getAttribute('pointer-events') === 'none').length")  # bars, not the legend
+        bars = frame.evaluate("() => [...document.querySelectorAll('#plot svg rect')].filter(r => r.getAttribute('fill') === '#B42318' && r.getAttribute('pointer-events') === 'none').length")  # bars, not the legend
         assert bars == 3, f"the 15-minute incident spans 3 five-minute bars, got {bars}"
         png = page.evaluate("""async () => { const r = await frameCapture(document.querySelector("#frame-wrap iframe"));
                                              return [r.name, Array.from(new Uint8Array(await r.blob.arrayBuffer()))]; }""")
-        assert png[0].startswith("pattern") and bytes(png[1][:8]) == b"\x89PNG\r\n\x1a\n", png[0]
+        assert png[0].startswith("log_order_pattern0_L_") and bytes(png[1][:8]) == b"\x89PNG\r\n\x1a\n", png[0]
+        assert (int.from_bytes(bytes(png[1][16:20]), "big"), bytes(png[1][37:41])) == (2360, b"pHYs")
         (TMP / "capture-pattern.png").write_bytes(bytes(png[1]))
         # bucket click: table re-sorts by that bucket's counts
         frame.locator("#reset").click()

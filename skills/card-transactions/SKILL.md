@@ -43,4 +43,6 @@ has none), `foreign_amount` + `currency` (foreign sheets; `amount` is then the �
 - Give the number(s) and one line on how (files, rules applied: e.g. "취소 2건, 부분취소 1건 반영").
 - Round only at the end. KRW as integers.
 - Monthly report for the user to view: call `show_report` with numbers taken from your script output (if that
-  tool is available). For a file report, write markdown to `/workspace/outputs/`.
+  tool is available). Optional `headlines` ({summary, categories, top}) override the automatic slide titles; only
+  set them when the user's point differs from the default (e.g. 증가율, 예산 초과). For a file report, write markdown
+  to `/workspace/outputs/`.

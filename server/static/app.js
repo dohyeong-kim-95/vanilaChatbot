@@ -267,49 +267,92 @@ async function openArtifact(id, version) {
   markActive();
 }
 
-// Reports: each section as an image (copy to clipboard or save), for pasting into a document.
+// Slide images (docs/DESIGN.md): size preset (auto = the view's default; L full width / M half / S third of a 16:9
+// slide) and whether the title is drawn. Remembered per browser.
+function slideOptions() {
+  const box = el("div", "sec");
+  const size = el("select");
+  size.title = "슬라이드에 넣을 크기";
+  for (const [v, t] of [["auto", "크기 자동"], ["L", "전체 폭 (L)"], ["M", "반쪽 (M)"], ["S", "1/3 (S)"]]) size.append(new Option(t, v));
+  size.value = ["auto", "L", "M", "S"].includes(store("slidePreset")) ? store("slidePreset") : "auto";
+  size.onchange = () => store("slidePreset", size.value);
+  const lab = el("label", "check");
+  const title = el("input");
+  title.type = "checkbox";
+  title.checked = store("slideTitle") !== "0";
+  title.onchange = () => store("slideTitle", title.checked ? "1" : "0");
+  lab.append(title, el("span", null, "제목 포함"));
+  box.append(size, lab);
+  return { box, get: () => ({ preset: size.value, title: title.checked }) };
+}
+
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = el("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function copyButton(label, blobPromise) {  // blobPromise() is called inside the click (Safari needs that)
+  const b = el("button", null, label);
+  b.onclick = async () => {
+    b.disabled = true;
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blobPromise() })]);
+      b.textContent = "복사됨";
+    } catch (e) {
+      b.textContent = "실패";
+      addMsg("error", `이미지 복사 실패: ${e}`);
+    }
+    setTimeout(() => { b.textContent = label; b.disabled = false; }, 1500);
+  };
+  return b;
+}
+
+// Reports: each section as a slide image (server-side capture); notes are text, copied as text.
 function showSections(a) {
   const bar = $("art-sections");
   bar.replaceChildren();
   bar.hidden = !a.sections;
   if (!a.sections) return;
+  const opts = slideOptions();
+  bar.append(opts.box);
   const base = `/projects/${state.project}/artifacts/${a.id}/sections`;
-  const png = async (sec) => (await api(`${base}/${sec}.png?version=${a.version}`)).blob();
-  for (const s of [...a.sections, { id: "all", title: "전체" }]) {
+  const url = (s) => {
+    const o = opts.get();
+    return `${base}/${s.id}.png?version=${a.version}&preset=${o.preset === "auto" ? s.preset || "" : o.preset}&title=${o.title ? 1 : 0}`;
+  };
+  const png = async (s) => (await api(url(s))).blob();
+  for (const s of [...a.sections, { id: "all", title: "전체 화면", kind: "image" }]) {
     const g = el("div", "sec");
-    const copy = el("button", null, "복사");
-    const save = el("button", null, "저장");
-    copy.title = `${s.title} 이미지를 클립보드에 복사`;
-    save.title = `${s.title} 이미지를 PNG로 저장`;
-    copy.onclick = async () => {
-      copy.disabled = true;
-      try {
-        // pass a promise: Safari needs the ClipboardItem created inside the click
-        await navigator.clipboard.write([new ClipboardItem({ "image/png": png(s.id) })]);
-        copy.textContent = "복사됨";
-      } catch (e) {
-        copy.textContent = "실패";
-        addMsg("error", `이미지 복사 실패: ${e}`);
-      }
-      setTimeout(() => { copy.textContent = "복사"; copy.disabled = false; }, 1500);
-    };
-    save.onclick = async () => {
-      const url = URL.createObjectURL(await png(s.id));
-      const link = el("a");
-      link.href = url;
-      link.download = `${a.id}-v${a.version}-${s.id}.png`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    };
-    g.append(el("span", null, s.title), copy, save);
+    g.append(el("span", null, s.title));
+    if (s.kind === "text") {
+      const b = el("button", null, "텍스트 복사");
+      b.onclick = async () => {
+        const notes = (JSON.parse(a.content).notes || []).map((n) => `• ${n}`).join("\n");
+        try { await navigator.clipboard.writeText(notes); b.textContent = "복사됨"; } catch (e) { b.textContent = "실패"; }
+        setTimeout(() => { b.textContent = "텍스트 복사"; }, 1500);
+      };
+      g.append(b);
+    } else {
+      const save = el("button", null, "저장");
+      save.onclick = async () => {
+        const r = await api(url(s));
+        const name = /filename="([^"]+)"/.exec(r.headers.get("content-disposition") || "")?.[1] || `${a.id}-${s.id}.png`;
+        download(await r.blob(), name);
+      };
+      g.append(copyButton("복사", () => png(s)), save);
+    }
     bar.append(g);
   }
 }
 
-// Interactive views (shmoo): the user sets up the view inside the frame, then copies what they see. The frame has
-// no network and an opaque origin, so it renders the PNG itself and posts the bytes back; we only accept a reply
-// from that frame's window, to our nonce, that is a PNG.
-function frameCapture(frame) {
+// Interactive views (shmoo, log): the user sets up the view inside the frame; the frame redraws it as a slide and
+// renders the PNG itself (no network, opaque origin) and posts the bytes back. We only accept a reply from that
+// frame's window, to our nonce, that is a PNG.
+function frameCapture(frame, o = {}) {
   const nonce = crypto.randomUUID();
   return new Promise((resolve, reject) => {
     const done = (fn, v) => { removeEventListener("message", on); clearTimeout(timer); fn(v); };
@@ -320,11 +363,13 @@ function frameCapture(frame) {
       const ok = d.png instanceof ArrayBuffer && d.png.byteLength < 20e6 &&
         new Uint8Array(d.png, 0, 8).every((b, i) => b === [137, 80, 78, 71, 13, 10, 26, 10][i]);
       if (!ok) return done(reject, new Error("not a PNG"));
-      done(resolve, { blob: new Blob([d.png], { type: "image/png" }), name: String(d.name || "view").replace(/[^\w.-]+/g, "_").slice(0, 80) });
+      const name = String(d.name || "view").replace(/[^\w.-]+/g, "_").slice(0, 100);
+      done(resolve, { blob: new Blob([d.png], { type: "image/png" }), name: name.endsWith(".png") ? name : name + ".png" });
     };
     const timer = setTimeout(() => done(reject, new Error("no answer from the view")), 8000);
     addEventListener("message", on);
-    frame.contentWindow.postMessage({ type: "capture", nonce }, "*");  // opaque origin: "*" is the only target
+    // opaque origin: "*" is the only target
+    frame.contentWindow.postMessage({ type: "capture", nonce, preset: o.preset || "auto", title: o.title !== false }, "*");
   });
 }
 
@@ -332,35 +377,19 @@ function showCapture(a, frame) {
   if (!a.capture) return;
   const bar = $("art-sections");
   bar.hidden = false;
+  const opts = slideOptions();
   const g = el("div", "sec");
-  const copy = el("button", null, "현재 화면 복사");
   const save = el("button", null, "저장");
-  copy.onclick = async () => {
-    copy.disabled = true;
-    try {
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": frameCapture(frame).then((r) => r.blob) })]);
-      copy.textContent = "복사됨";
-    } catch (e) {
-      copy.textContent = "실패";
-      addMsg("error", `이미지 복사 실패: ${e}`);
-    }
-    setTimeout(() => { copy.textContent = "현재 화면 복사"; copy.disabled = false; }, 1500);
-  };
   save.onclick = async () => {
     try {
-      const r = await frameCapture(frame);
-      const url = URL.createObjectURL(r.blob);
-      const link = el("a");
-      link.href = url;
-      link.download = `${a.id}-v${a.version}-${r.name}.png`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const r = await frameCapture(frame, opts.get());
+      download(r.blob, r.name);
     } catch (e) {
       addMsg("error", `이미지 저장 실패: ${e}`);
     }
   };
-  g.append(el("span", null, "보이는 그대로"), copy, save);
-  bar.append(g);
+  g.append(copyButton("슬라이드 이미지 복사", () => frameCapture(frame, opts.get()).then((r) => r.blob)), save);
+  bar.append(opts.box, g);
 }
 
 // ---- wiring ---------------------------------------------------------------------------------------

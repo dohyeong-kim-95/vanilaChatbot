@@ -294,15 +294,21 @@ def t_report_and_capture():
         art = a.get("/projects/p3/artifacts/sep?version=1").json()
         assert [s["id"] for s in art["sections"]] == ["summary", "categories", "top", "notes"], art.get("sections")
         assert "script-src" in httpx.get(art["view_url"]).headers["content-security-policy"]
-        sizes = {}
-        for s in ["summary", "categories", "top", "notes", "all"]:
-            r = a.get(f"/projects/p3/artifacts/sep/sections/{s}.png?version=1")
+        assert [(s["kind"], s["preset"]) for s in art["sections"]] == [("image", "S"), ("image", "M"), ("image", "M"),
+                                                                        ("text", None)]
+        sizes, want = {}, {"summary": (752, 1080), "categories": (1152, 1080), "top": (1152, 1080),
+                           "categories&preset=L": (2360, 1080), "summary&preset=M&title=0": (1152, 1080)}
+        for s in [*want, "all"]:
+            r = a.get(f"/projects/p3/artifacts/sep/sections/{s.split('&')[0]}.png?version=1&{'&'.join(s.split('&')[1:])}")
             assert r.status_code == 200 and r.content[:8] == b"\x89PNG\r\n\x1a\n", (s, r.status_code)
             w, h = int.from_bytes(r.content[16:20], "big"), int.from_bytes(r.content[20:24], "big")
             sizes[s] = (w, h)
-            (TMP / f"sep-{s}.png").write_bytes(r.content)
+            if s != "all":  # slide images carry 192 dpi so PowerPoint places them at their logical size
+                assert r.content[37:41] == b"pHYs" and int.from_bytes(r.content[41:45], "big") == 7559, s
+            (TMP / f"sep-{s.replace('&', '_').replace('=', '-')}.png").write_bytes(r.content)
         print("    png sizes (2x):", sizes, "->", TMP)
-        assert all(w == 2 * report.WIDTH for s, (w, h) in sizes.items() if s != "all")
+        assert all(sizes[k] == v for k, v in want.items()), sizes
+        assert a.get("/projects/p3/artifacts/sep/sections/notes.png").status_code == 404  # notes are copied as text
         assert a.get("/projects/p3/artifacts/sep/sections/evil.png").status_code == 404
         assert client("bob").get("/projects/p3/artifacts/sep/sections/summary.png").status_code == 404
         t0 = time.time()

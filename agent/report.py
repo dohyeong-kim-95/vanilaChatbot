@@ -6,7 +6,7 @@ Each section is self-contained (own heading, fixed width) so a capture of it rea
 """
 import html
 
-from .views import FONT
+from .views import FONT, PAD, PRESETS, SIZES, TOKENS
 
 SECTIONS = {"summary": "요약", "categories": "카테고리별 지출", "top": "큰 거래", "notes": "메모"}
 WIDTH = 720
@@ -28,6 +28,9 @@ SCHEMA = {
                                              "amount": {"type": "number"}, "category": {"type": "string"}},
             "required": ["date", "merchant", "amount"]}},
         "notes": {"type": "array", "items": {"type": "string"}, "description": "short findings, optional"},
+        "headlines": {"type": "object", "description": "optional slide titles that state the finding, per section",
+                      "properties": {"summary": {"type": "string"}, "categories": {"type": "string"},
+                                     "top": {"type": "string"}}},
     },
     "required": ["title", "period", "total", "categories"],
 }
@@ -91,6 +94,10 @@ def validate(d):
                    "amount": _num(t.get("amount"), "top.amount"), "category": _str(t.get("category", ""), "top.category", 40)}
                   for t in (d.get("top") or [])[:MAX_ROWS] if isinstance(t, dict)]
     out["notes"] = [_str(n, "notes", 300) for n in (d.get("notes") or [])[:10]]
+    heads = d.get("headlines") or {}
+    if not isinstance(heads, dict) or set(heads) - {"summary", "categories", "top"}:
+        raise ValueError("headlines must be an object with summary / categories / top strings")
+    out["headlines"] = {k: _str(v, f"headlines.{k}", 120) for k, v in heads.items()}
     warnings = []
     s = sum(c["amount"] for c in out["categories"])
     if abs(s - out["total"]) > 0.5:
@@ -161,3 +168,137 @@ def render(d):
     body = "".join(f'<section id="sec-{k}">{out[k]}</section>' for k in sections(d))
     return f'<!doctype html><html lang="ko"><meta charset="utf-8"><title>{e(d["title"])}</title><style>{CSS}</style>' \
            f'<body>{body}</body></html>'
+
+
+# ---- slides (docs/DESIGN.md 5.4): one section on a fixed slide canvas, captured server-side --------------------
+SLIDE_SECTIONS = {"summary": "S", "categories": "M", "top": "M"}  # default preset; notes are copied as text
+MAX_BARS = MAX_TABLE = 7
+T = TOKENS
+
+
+def man(x):
+    """Slide money: 만 원 with one decimal (1,605,300 -> 160.5만); under 10,000 as plain won."""
+    return f"{x / 10000:,.1f}만" if abs(x) >= 10000 else f"{x:,.0f}"
+
+
+def _josa(word, with_final="이", without="가"):
+    c = word[-1:] or " "
+    return with_final if "가" <= c <= "힣" and (ord(c) - 0xAC00) % 28 else without
+
+
+def _month(period):
+    return f"{int(period[5:7])}월" if len(period) >= 7 and period[5:7].isdigit() else period
+
+
+def headline(d, key):
+    if d["headlines"].get(key):
+        return d["headlines"][key]
+    if key == "summary":
+        if d.get("prev_total"):
+            pct = (d["total"] - d["prev_total"]) / d["prev_total"] * 100
+            return f"{_month(d['period'])} 지출 {abs(pct):.0f}% {'증가' if pct > 0 else '감소'}" if round(pct) else \
+                f"{_month(d['period'])} 지출 전월과 비슷"
+        return f"{_month(d['period'])} 지출 {man(d['total'])} 원"
+    if key == "categories":
+        over = [c for c in d["categories"] if "budget" in c and c["amount"] > c["budget"]]
+        if over:
+            names = "·".join(c["name"] for c in sorted(over, key=lambda c: -c["amount"]))
+            excess = sum(c["amount"] - c["budget"] for c in over)
+            return f"{names}{_josa(names)} 예산 초과, 합계 {man(excess)} 원 넘음"
+        top = max(d["categories"], key=lambda c: c["amount"])
+        return f"모든 카테고리 예산 이내, 최대는 {top['name']} {man(top['amount'])} 원"
+    t = d["top"][0]
+    return f"가장 큰 거래는 {t['merchant']} {man(t['amount'])} 원"
+
+
+def _slide_bars(cats, width):
+    cats = sorted(cats, key=lambda c: -c["amount"])
+    if len(cats) > MAX_BARS:  # fold the tail into one "기타" row
+        rest = cats[MAX_BARS - 1:]
+        cats = cats[:MAX_BARS - 1] + [{"name": f"기타 {len(rest)}개", "amount": sum(c["amount"] for c in rest)}]
+    e, lab, row, bar = html.escape, 84, 56, 34
+    plot = width - lab - 8
+    top = max(max(c["amount"] for c in cats), max((c.get("budget", 0) for c in cats), default=0)) or 1
+    parts = []
+    for i, c in enumerate(cats):
+        y = i * row + 8
+        w = max(2, c["amount"] / top * plot * 0.78)  # room after the bar for its value label
+        over = "budget" in c and c["amount"] > c["budget"]
+        parts.append(f'<text x="{lab - 12}" y="{y + bar / 2 + 6}" text-anchor="end" font-size="{SIZES["label"]}" '
+                     f'fill="{T["ink"]}">{e(c["name"])}</text><rect x="{lab}" y="{y}" width="{w:.1f}" height="{bar}" '
+                     f'fill="{T["over"] if over else T["neutral"]}"/>')
+        tick = lab + c["budget"] / top * plot * 0.78 if "budget" in c else None
+        if tick is not None:
+            parts.append(f'<rect x="{tick - 1.25:.1f}" y="{y - 5}" width="2.5" height="{bar + 10}" fill="{T["ink"]}"/>')
+        label = f'{man(c["amount"])} +{man(c["amount"] - c["budget"])} 초과' if over else man(c["amount"])
+        inside = w > 230
+        lx = lab + 10 if inside else max(lab + w, tick or 0) + 10
+        parts.append(f'<text x="{lx:.1f}" y="{y + bar / 2 + 6}" font-size="{SIZES["label"]}" '
+                     f'font-weight="{700 if over else 400}" fill="{"#FFFFFF" if inside else T["ink"]}">{e(label)}</text>')
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{len(cats) * row + 8}">'
+            f'{"".join(parts)}</svg>')
+
+
+def slide(d, key, preset=None, show_title=True):
+    """HTML of one section on a fixed slide canvas (no scripts, all text escaped)."""
+    d, _ = validate(d)
+    if key not in SLIDE_SECTIONS or key not in sections(d):
+        raise KeyError(key)
+    preset = preset if preset in PRESETS else SLIDE_SECTIONS[key]
+    (W, H), (pt, pr, pb, pl), e = PRESETS[preset], PAD[preset], html.escape
+    inner = W - pl - pr
+    sub = {"summary": d["title"], "categories": f"{d['title']} · 카테고리별 지출 (원)",
+           "top": f"{d['title']} · 금액 큰 순"}[key]
+    has_budget = any("budget" in c for c in d["categories"])
+    source = ("| = 예산 · " if key == "categories" and has_budget else "") + f"출처: {d['title']}"
+    if key == "summary":
+        figs = f'<div class="k">총 지출</div><div class="kpi">{e(man(d["total"]))} 원</div>'
+        if d.get("prev_total"):
+            diff = d["total"] - d["prev_total"]
+            up = diff > 0
+            figs += (f'<div class="delta" style="color:{T["overText"] if up else T["ink2"]}">{"▲" if up else "▼"} '
+                     f'{e(man(abs(diff)))} 원 ({diff / d["prev_total"] * 100:+.1f}%) 전월 대비</div>')
+        if "count" in d:
+            figs += f'<hr><div class="k">거래 수</div><div class="kpi2">{d["count"]:,}건</div>'
+        body = figs
+    elif key == "categories":
+        body = _slide_bars(d["categories"], inner)
+    else:
+        rows = d["top"][:MAX_TABLE]
+        wide = preset == "L"
+        head = "<tr><th>날짜</th><th>가맹점</th>" + ("<th>카테고리</th>" if wide else "") + '<th class="num">금액 (원)</th></tr>'
+        body = "<table>" + head + "".join(
+            f'<tr><td>{e(t["date"][5:] if len(t["date"]) >= 10 else t["date"])}</td><td>{e(t["merchant"])}</td>'
+            + (f'<td>{e(t["category"])}</td>' if wide else "") + f'<td class="num">{fmt(t["amount"])}</td></tr>'
+            for t in rows) + "</table>"
+        if len(d["top"]) > MAX_TABLE:
+            body += f'<div class="more">외 {len(d["top"]) - MAX_TABLE}건</div>'
+    title = (f'<h1>{e(headline(d, key))}</h1><div class="sub">{e(sub)}</div>') if show_title else ""
+    css = f"""
+* {{ box-sizing: border-box; margin: 0; }}
+html, body {{ width: {W}px; height: {H}px; background: #FFFFFF; overflow: hidden; }}
+body {{ font: 400 {SIZES["label"]}px/1.4 {FONT}; color: {T["ink"]}; }}
+#slide {{ width: {W}px; height: {H}px; padding: {pt}px {pr}px {pb}px {pl}px; display: flex; flex-direction: column; }}
+h1 {{ font-size: {SIZES["title"]}px; font-weight: 700; line-height: 1.3; max-height: 2.6em; overflow: hidden;
+      word-break: keep-all; }}
+.sub {{ font-size: {SIZES["sub"]}px; color: {T["ink2"]}; margin-top: 4px; white-space: nowrap; overflow: hidden;
+        text-overflow: ellipsis; }}
+.body {{ flex: 1; margin-top: 24px; overflow: hidden; }}
+.src {{ font-size: {SIZES["source"]}px; color: {T["muted"]}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+.k {{ color: {T["ink2"]}; }}
+.kpi {{ font-size: 56px; font-weight: 700; line-height: 1.15; }}
+.kpi2 {{ font-size: 36px; font-weight: 700; }}
+.delta {{ font-weight: 700; margin-top: 4px; }}
+hr {{ border: 0; border-top: 1px solid {T["grid"]}; margin: 20px 0 16px; }}
+table {{ width: 100%; border-collapse: collapse; }}
+th {{ font-size: {SIZES["tick"]}px; font-weight: 400; color: {T["ink2"]}; text-align: left; padding: 0 8px 8px 0;
+      border-bottom: 1px solid {T["axis"]}; }}
+td {{ height: 40px; padding: 0 8px 0 0; border-bottom: 1px solid {T["grid"]}; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; max-width: 0; }}
+td:first-child, th:first-child {{ width: 72px; }}
+.num {{ text-align: right; width: 130px; }}
+.more {{ color: {T["ink2"]}; margin-top: 8px; font-size: {SIZES["tick"]}px; }}
+"""
+    return (f'<!doctype html><html lang="ko"><meta charset="utf-8"><title>{e(d["title"])}</title><style>{css}</style>'
+            f'<body><div id="slide">{title}<div class="body">{body}</div><div class="src">{e(source)}</div></div>'
+            '</body></html>')

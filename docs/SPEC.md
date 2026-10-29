@@ -404,7 +404,7 @@ users/{u}/projects/{p}/outputs/              결과물
   - 크기 제한: 장치 × 조건 × 격자 ≤ 90만 칸(아티팩트 1MB).
 - 페이지(`agent/shmoo.py`)는 우리 JS다. 조건 필터, 장치 하나 또는 전체 합산(통과율), 칸 클릭 → 그 조건에서 실패한 장치, 이상 패턴·장치 표 클릭 → 해당 화면.
   - 로그에서 온 모든 텍스트는 `textContent`로만 넣는다. 데이터는 `<`를 escape한 JSON이다.
-- 캡처: 앱이 iframe에 `postMessage({type: "capture", nonce})`를 보낸다. 페이지는 현재 SVG를 canvas로 PNG로 만들어 bytes를 돌려준다.
+- 캡처: 앱이 iframe에 `postMessage({type: "capture", nonce, preset: "auto"|"L"|"M"|"S", title})`를 보낸다. 페이지는 같은 데이터로 **슬라이드용 SVG를 새로 그려**(DESIGN.md: 고정 캔버스 L 1180×540 / M 576×540 / S 376×540, 결론형 제목, 주석, 선택 상태 제외) 2배 PNG로 만들고 pHYs 192 dpi를 넣어 bytes를 돌려준다. 리포트 섹션은 서버가 같은 규격의 HTML(`report.slide`)을 headless Chrome으로 찍는다(`?preset=&title=`). 메모 섹션은 이미지가 아니라 텍스트로 복사한다.
   - 앱은 그 iframe의 window에서 온, 같은 nonce의, PNG 시그니처가 맞는 20MB 미만 응답만 받는다.
   - 렌더러 CSP(`connect-src 'none'`)는 그대로다. 서버 캡처(§9.4)와 달리 사용자가 클릭한 상태가 그대로 찍힌다.
 

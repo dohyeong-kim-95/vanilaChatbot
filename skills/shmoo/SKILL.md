@@ -22,7 +22,10 @@ the user picks from (temperature, test name, pattern). Device labels are the dev
 
 ## 2. Show it
 Call `show_shmoo` with the file and the same mapping (`x`, `y`, `result`, `device`, `filters`, optional `title`).
-One call; no HTML. The user copies the view they set up with the panel's capture button.
+One call; no HTML. If the user gave a spec window or an operating point, pass them in the log's own units:
+`spec: {"x": [1600, 2400], "y": [1.14, 1.26]}`, `op: {"x": 2000, "y": 1.2}` (drawn as a dashed box and a circle;
+the slide title then says whether the operating point or the spec window fails). Never invent them.
+The user copies the view they set up as a slide image (sizes L/M/S) with the panel's capture button.
 
 ## 3. Answer questions with a short script
 ```python

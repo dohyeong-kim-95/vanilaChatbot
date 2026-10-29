@@ -1,10 +1,11 @@
-"""Section images of a report (Loop 14): headless Chrome screenshots one <section> of the fixed template, so the
-user can paste it into a document. The page is our template (no scripts); JavaScript is off and every network
-request is refused anyway, so a capture never fetches anything."""
+"""Section images of a report: headless Chrome screenshots one section drawn as a slide (agent/report.slide, a fixed
+L/M/S canvas, docs/DESIGN.md), at 2x with a 192 dpi tag so it pastes at its logical size. The page is our template
+(no scripts); JavaScript is off and every network request is refused, so a capture never fetches anything."""
 import os
 from concurrent.futures import ThreadPoolExecutor
 
 from agent import report
+from agent.views import PRESETS, with_dpi
 
 CHANNEL = os.environ.get("AGENT_CHROME_CHANNEL", "chrome")  # "" = Playwright's bundled Chromium
 _worker = ThreadPoolExecutor(1)  # Playwright's sync objects only work on the thread that created them
@@ -20,22 +21,22 @@ def _get_browser():
     return _browser
 
 
-def png(data, section, scale=2):
-    """data: report JSON. section: one of report.sections(data), or "all" for the whole page."""
-    html = report.render(data)
-    if section != "all" and section not in report.sections(report.validate(data)[0]):
-        raise KeyError(section)
-    return _worker.submit(_shot, html, section, scale).result(timeout=60)
+def png(data, section, preset=None, title=True, scale=2):
+    """data: report JSON. section: a slide section (report.SLIDE_SECTIONS) or "all" for the whole screen page.
+    preset: "L" | "M" | "S" (default per section)."""
+    if section == "all":
+        return _worker.submit(_shot, report.render(data), None, scale).result(timeout=60)
+    preset = preset if preset in PRESETS else report.SLIDE_SECTIONS.get(section)
+    html = report.slide(data, section, preset, title)  # KeyError for notes / unknown sections
+    return with_dpi(_worker.submit(_shot, html, PRESETS[preset], scale).result(timeout=60))
 
 
-def _shot(html, section, scale):
-    page = _get_browser().new_page(java_script_enabled=False, device_scale_factor=scale,
-                                   viewport={"width": report.WIDTH + 32, "height": 800})
+def _shot(html, size, scale):
+    w, h = size or (report.WIDTH + 32, 800)
+    page = _get_browser().new_page(java_script_enabled=False, device_scale_factor=scale, viewport={"width": w, "height": h})
     try:
         page.route("**/*", lambda route: route.abort())
         page.set_content(html, wait_until="load")
-        if section == "all":
-            return page.screenshot(full_page=True)
-        return page.locator(f"#sec-{section}").screenshot()
+        return page.screenshot(full_page=size is None)
     finally:
         page.close()
