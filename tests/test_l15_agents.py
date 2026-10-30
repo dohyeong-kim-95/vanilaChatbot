@@ -70,6 +70,10 @@ def run(task, inputs, ctx):
         open("/workspace/outputs/written", "w").write("x")
         os.symlink("/", "/workspace/outputs/root")
         return f"{names} {found}"
+    if task == "many":  # more files and bytes than we copy back
+        for i in range(1500): open(f"/workspace/outputs/f{i:04}.txt", "w").write("x")
+        open("/workspace/outputs/big.bin", "wb").write(b"0" * 60_000_000)
+        return "many done"
     if task == "crash":
         raise ValueError("boom")
     return "?"
@@ -212,23 +216,20 @@ def res_ok(out):
 def t_orphan_agent_containers_removed_on_restart():
     """A server crash mid-call leaves the agent container behind; recreating the run's sandbox removes it."""
     ws = TMP / "ws-orphan"
-    sb = Sandbox(ws, name="l15orphan")
+    made = [Sandbox(ws, name="l15orphan")]
     try:
-        child = sb.fresh(TMP)  # never closed: what a crash leaves
+        sb = made[0]
+        made.append(child := sb.fresh())  # never closed: what a crash leaves
         assert child.name.startswith(sb.name + "-a") and len(_containers(sb)) == 1, _containers(sb)
-        other = Sandbox(ws, name="l15orphan-a1")  # not an agent of this run (exactly -a + 8 hex): kept
-        sb2 = Sandbox(ws, name="l15orphan")  # the restarted server resumes the run
-        try:
-            alive = lambda n: subprocess.run(["docker", "ps", "-aq", "--filter", f"name=^{n}$"],  # noqa: E731
-                                             capture_output=True, text=True).stdout.strip()
-            assert not alive(child.name), "the crashed run's agent container is still there"
-            assert alive(other.name), "another sandbox with a similar name was removed"
-        finally:
-            sb2.close()
-            other.close()
+        made.append(other := Sandbox(ws, name="l15orphan-a1"))  # not an agent of this run (exactly -a + 8 hex): kept
+        made.append(Sandbox(ws, name="l15orphan"))  # the restarted server resumes the run
+        alive = lambda n: subprocess.run(["docker", "ps", "-aq", "--filter", f"name=^{n}$"],  # noqa: E731
+                                         capture_output=True, text=True).stdout.strip()
+        assert not alive(child.name), "the crashed run's agent container is still there"
+        assert alive(other.name), "another sandbox with a similar name was removed"
     finally:
-        child.close()
-        sb.close()
+        for s in made:
+            s.close()
 
 
 def t_agent_cannot_plant_in_workspace():
@@ -257,8 +258,52 @@ def t_outputs_symlink_does_not_reach_host():
         out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="readout")
         assert "secret" not in out, out
         assert sorted(p.name for p in host.iterdir()) == ["secret.txt"], list(host.iterdir())
-        assert not any(p.name.startswith("agent-out-") for p in Path(tempfile.gettempdir()).iterdir()
-                       if p.stat().st_mtime > time.time() - 60), "the agent's temp outputs dir was left behind"
+    finally:
+        sb.close()
+
+
+def t_agent_reads_run_outputs():
+    """The agent sees what the run put in outputs/; its new files come back, its links do not, and the run's
+    files it left alone are not rewritten."""
+    sb, _ = sandbox("ws-readout")
+    try:
+        sb.exec("mkdir -p /workspace/outputs/sub && echo -n clean > /workspace/outputs/clean.csv && "
+                "echo -n deep > /workspace/outputs/sub/d.txt && ln -s / /workspace/outputs/link")
+        before = sb.exec("stat -c %Y /workspace/outputs/clean.csv")
+        time.sleep(1.1)
+        out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="readout")
+        assert out.startswith("[rogue finished") and "['clean.csv', 'sub'] ['clean']" in out and "[note" not in out, out
+        assert (sb.workspace / "outputs" / "written").read_text() == "x"
+        assert not (sb.workspace / "outputs" / "root").exists() and not (sb.workspace / "outputs" / "root").is_symlink()
+        assert sb.exec("stat -c %Y /workspace/outputs/clean.csv") == before, "an untouched file was copied back"
+    finally:
+        sb.close()
+
+
+def t_copy_back_failure_keeps_result():
+    """A file the run's outputs/ cannot take (a directory there by the same name): the agent's answer survives,
+    with a note."""
+    sb, _ = sandbox("ws-conflict")
+    try:
+        sb.exec("mkdir -p /workspace/outputs/written/x")
+        out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="readout")
+        assert out.startswith("[rogue finished") and "[note: copying the agent's outputs/" in out, out
+    finally:
+        sb.close()
+
+
+def t_outputs_copy_is_capped():
+    """1500 files and a 60 MB file: at most MAX_FILES / MAX_OUTPUTS come back, quickly, and the result says so."""
+    sb, _ = sandbox("ws-many")
+    try:
+        t = time.time()
+        out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="many")
+        took = time.time() - t
+        files = [p for p in (sb.workspace / "outputs").rglob("*") if p.is_file()]
+        assert out.startswith("[rogue finished") and "not copied: over the limit" in out, out
+        assert len(files) == delegate.MAX_FILES and sum(p.stat().st_size for p in files) <= delegate.MAX_OUTPUTS
+        assert took < 30, took
+        print(f"    {len(files)} files back in {took:.1f}s")
     finally:
         sb.close()
 
@@ -295,4 +340,5 @@ if __name__ == "__main__":
             except Exception as e:
                 failed += 1
                 print(f"FAIL {name} ({time.time() - t:.0f}s): {type(e).__name__}: {str(e)[:400]}")
+    shutil.rmtree(TMP, ignore_errors=True)
     sys.exit(1 if failed else 0)

@@ -185,29 +185,38 @@ def do_calls(ctx, msgs, step, emit, log, checkpoint):
 # streak of failing tool calls. Never to max (10-30x slower).
 ESCALATE = "high"
 # Phrases that call the previous answer wrong, not new requests that mention errors ("잘못 입력된 거래 찾아줘",
-# "what went wrong", "카드B로 다시 해줘"). A clause that asks for something new (ends in 찾아줘/보여줘…, starts
-# with find/list…) is not a correction. A heuristic: misses cost one cheap run, false hits one slower one.
-# Checked against lists both ways in tests/test_l16_effort.py.
+# "what went wrong", "카드B로 다시 해줘"). The message is split into clauses (at punctuation and after a Korean
+# sentence ending: "틀렸어요 다시 찾아줘" is a correction followed by a request); a clause that asks for something
+# new (ends in 찾아줘/보여줘…, starts with find/list…) or is conditional (if/when/where…) is not a correction.
+# A heuristic: misses cost one cheap run, false hits one slower one. Checked against lists both ways in
+# tests/test_l16_effort.py; docs/TODO.md has the alternative (ask the model).
+_END = r"(?=\s*([.,!?;:]|$|(because|since|again)\b))"  # "that's wrong." but not "this is incorrect usage"
 CORRECTION_RE = re.compile(
-    r"틀렸|틀려|틀리(네|는데|잖|다)|틀린\s*(것|거|듯|데)|아닌데|아니잖|아닌\s*(것|거|듯)|(그게|그건|이게|이건)\s*아니"
-    r"|아니(에요|예요|야)(?!\s*[,.!]?\s*(고마|감사|괜찮|됐어|끝))"
+    r"틀렸|틀려|틀리(네|는데|잖|다)|틀린\s*(것|거|듯|데)|틀림(?!\S)|아닌데|아니잖|아닌\s*(것|거|듯)|(그게|그건|이게|이건)\s*아니"
+    r"|아니(에요|예요|야)(?!\s*[,.!]?\s*(고마|감사|괜찮|됐어|끝))|^\s*(아뇨|아니요)\s*[.!]*\s*$"
     r"|잘못\s*(됐|되었)(어|네|다|잖|습|군)|잘못된\s*(것|거(?!래)|듯)|잘못\s*(계산|나왔|봤|읽)|잘못\s+\S*(했|줬)"
     r"|잘못(했|하셨)(잖|네|어|군)|이상(해|하네|한데|합니다|하잖)|달라(요|\s*$)|다르(네|다|잖|습)|다릅니|다른데\s*\?"
     r"|안\s*맞(아|는데|네|잖|습|지)|확실(해|한가요?|한\s*(거|건)\S*|합니까)\s*\?"
     r"|다시\s*(한\s*번\s*)?(확인|계산|봐)|재(확인|계산|검토)\s*(해|좀|부탁)"
     r"|맞(아|나|나요|아요|는\s*(거|건)\S*|습니까)\s*\?"
-    r"|\b(that'?s|that is|this is|it'?s|it is|you'?re|you are|answer is|result is|total is|numbers? (is|are))\s+"
-    r"(wrong|incorrect|not (right|correct))\b"
+    r"|\b(that'?s|that is|this is|it'?s|it is|you'?re|you are|answer is|result is|total is|sum is|numbers? (is|are))\s+"
+    r"(wrong|incorrect|not (right|correct)|off)" + _END +
     r"|\byou('ve)?\s+got (it|this|that) wrong\b|\bwrong (answer|number|total|result)s?\b|\bare you sure\b"
-    r"|^\s*(wrong|incorrect|nope)\s*[.!]*\s*$|\byou made (a )?mistakes?\b|\bnot what i (asked|meant|wanted)\b"
+    r"|^\s*(wrong|incorrect|nope)\s*[.!]*\s*$|\byou made (a |an )?(mistake|error)s?\b|\bnot what i (asked|meant|wanted)\b"
     r"|\b(numbers?|totals?|results?|sums?|that)\s+(don'?t|do not|doesn'?t|does not)\s+(match|add up)\b", re.I)
 REQUEST_RE = re.compile(
     r"(찾아|보여|지워|세어?|만들어|뽑아|골라|표시해|알려|추가해|넣어|정리해)\s*(줘|주세요|줄래|주실)\S*\s*[.!]?\s*$"
-    r"|^\s*(please\s+)?(find|list|flag|show|count|remove|delete|filter|highlight|extract|add|make)\b", re.I)
+    r"|^\s*(please\s+)?(find|list|flag|show|count|remove|delete|filter|highlight|extract|add|make)\b"
+    r"|\b(if|when|whenever|whether|where|which|unless)\b", re.I)
+# after , . ! ? (not a decimal point), a newline, or a Korean sentence ending (요 어 네 다 데) before the next word
+# (not before a request auxiliary: "세어 줘" stays one clause)
+CLAUSE_RE = re.compile(r"(?<=[,!?])|(?<=\.)(?!\d)|\n|(?<=[가-힣][요어네다데])\s+(?!(?:줘|주세요|줄래|주실|봐|보세요))")
 
 
 def is_correction(text):
-    return any(CORRECTION_RE.search(c) and not REQUEST_RE.search(c) for c in re.split(r"(?<=[,.!?\n])\s+", str(text)))
+    return any(CORRECTION_RE.search(c) and not REQUEST_RE.search(c) for c in CLAUSE_RE.split(str(text)) if c)
+
+
 ERROR_STREAK = 2
 
 

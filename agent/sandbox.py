@@ -10,6 +10,7 @@ from pathlib import Path
 IMAGE = os.environ.get("SANDBOX_IMAGE", "python:3.12-slim")
 CA = os.environ.get("EGRESS_CA")  # CA bundle to trust inside the sandbox, if TLS is re-terminated upstream
 MAX_OUT = 10_000  # chars; head+tail kept beyond this (mini-swe-agent style)
+AGENT_OUTPUTS = "size=128m,nr_inodes=4096,uid=1000,gid=1000,mode=0755"  # counts against the container's memory
 
 
 def truncate(s, limit=MAX_OUT):
@@ -44,11 +45,11 @@ class _Cap(threading.Thread):
 
 
 class Sandbox:
-    def __init__(self, workspace, network="none", egress=None, readonly=(), name=None, mounts=None, outputs=None):
+    def __init__(self, workspace, network="none", egress=None, readonly=(), name=None, mounts=None, agent=False):
         """egress: an EgressProxy -> internal network whose only way out is that proxy's allowlist.
         readonly: workspace subdirs mounted read-only.
         mounts: {host dir: container path}, read-only, outside /workspace (e.g. skills).
-        outputs: a host dir mounted writable at /workspace/outputs, the rest of the workspace read-only (fresh())."""
+        agent: workspace read-only, /workspace/outputs an empty tmpfs (fresh())."""
         self.workspace = Path(workspace).resolve()
         self.readonly = [self.workspace / d for d in readonly]
         self._fresh = dict(readonly=readonly, mounts=mounts)
@@ -73,8 +74,8 @@ class Sandbox:
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--pids-limit", "256", "--memory", "1g", "--cpus", "1",
             "--user", "1000:1000", "-e", "HOME=/tmp", "-e", "PYTHONDONTWRITEBYTECODE=1",
-            "-v", f"{self.workspace}:/workspace" + (":ro" if outputs else ""),
-            *(["-v", f"{Path(outputs).resolve()}:/workspace/outputs"] if outputs else []),
+            "-v", f"{self.workspace}:/workspace" + (":ro" if agent else ""),
+            *(["--tmpfs", f"/workspace/outputs:{AGENT_OUTPUTS}"] if agent else []),
             *[a for d in self.readonly for a in (
                 "-v", f"{d}:/workspace/{d.relative_to(self.workspace)}:ro")],
             *[a for h, c in (mounts or {}).items() for a in ("-v", f"{Path(h).resolve()}:{c}:ro")], "-w", "/workspace",
@@ -156,14 +157,15 @@ class Sandbox:
         finally:
             subprocess.run(["docker", "unpause", self.name], capture_output=True)
 
-    def fresh(self, outputs):
+    def fresh(self):
         """A new container over the same workspace and mounts, never with network: for code that must not share
         processes or /tmp with this one (connected agents). The workspace is read-only (no json.py planted for a
-        later python here to import); `outputs`, a host dir only the caller controls, is its /workspace/outputs.
-        Never this workspace's own outputs/: the run can swap that for a symlink, and a host-side bind mount of
-        it would follow the link to any host directory. Named after this sandbox so a restart removes it."""
+        later python here to import) and its /workspace/outputs is a tmpfs in memory, filled and emptied by the
+        caller through tar streams (delegate.py). Never a bind mount of this workspace's outputs/: the run can
+        swap that for a symlink, and a host-side mount would follow it to any host directory. Nothing of the
+        agent's lands on the host. Named after this sandbox so a restart removes it."""
         self.exec("mkdir -p /workspace/outputs", timeout=10)  # the mountpoint, made inside the container
-        return Sandbox(self.workspace, name=f"{self.name[4:]}-a{uuid.uuid4().hex[:8]}", outputs=outputs, **self._fresh)
+        return Sandbox(self.workspace, name=f"{self.name[4:]}-a{uuid.uuid4().hex[:8]}", agent=True, **self._fresh)
 
     def close(self):
         subprocess.run(["docker", "rm", "-f", self.name], capture_output=True)

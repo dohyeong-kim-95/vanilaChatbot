@@ -40,7 +40,11 @@ def t_correction_phrases():
            # Loop 23.1 verification review
            "합계가 이상해요", "숫자가 달라요", "결과가 다릅니다", "잘못했잖아", "잘못하셨네요", "확실한가요?",
            "That is wrong", "wrong.", "Wrong!", "incorrect", "you made a mistake", "the numbers don't match",
-           "that doesn't add up", "that's not what I asked", "틀렸어요, 다시 찾아줘"]
+           "that doesn't add up", "that's not what I asked", "틀렸어요, 다시 찾아줘",
+           # Loop 23.2 verification review: a correction followed by a request
+           "틀렸어요 다시 찾아줘", "틀렸어요.다시 찾아줘", "합계가 잘못 나왔어 다시 보여줘", "아닌데 카드B 걸로 다시 알려줘",
+           "이거 틀렸네 9월 기준으로 다시 알려줘", "숫자가 틀렸어\n카드A만 다시 보여줘", "합계 틀림", "the sum is off",
+           "you made an error", "아뇨", "That's wrong. Show me the September total"]
     no = ["카드A 9월 합계 알려줘", "다시 한번 보여줘 표만", "틀 없이 표로 줘", "좋아요 고마워요",
           "잘못 입력된 거래 찾아줘", "틀린 bin 개수 세줘", "what went wrong in this log?", "이번엔 카드B로 다시 해줘",
           "로그에서 뭐가 잘못됐는지 봐줘", "wrong pin 에러가 몇 번 났어?", "맞춤법 검사해줘",
@@ -52,7 +56,11 @@ def t_correction_phrases():
           "잘못된 거 찾아줘", "잘못된 것들 다 지워줘", "잘못 송금했던 건 찾아줘", "합계가 안 맞는 행 찾아줘",
           "다시 확인 버튼 만들어줘", "재확인 해야 할 항목 리스트 만들어줘", "flag rows where the total is wrong",
           "find where the result is incorrect", "list the wrong answers in the quiz",
-          "I got it wrong in the input file, use v2 instead"]
+          "I got it wrong in the input file, use v2 instead",
+          # Loop 23.2 verification review
+          "if the numbers don't match, flag them", "what does it mean when the numbers don't match?",
+          "The answer is wrong in question 3 of the quiz; grade it", "this is incorrect usage of the API, find others",
+          "that is not right-aligned", "아뇨, 됐어요", "합계 1.5 기준으로 다시 해줘", "틀린 bin 개수 세어 줘"]
     assert all(is_correction(t) for t in yes), [t for t in yes if not is_correction(t)]
     assert not any(is_correction(t) for t in no), [t for t in no if is_correction(t)]
 
