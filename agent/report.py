@@ -231,37 +231,46 @@ def _slide_bars(cats, width, height):
     e = html.escape
     row = min(56, (height - 16) / len(cats))
     bar = round(row * 0.6)
-    lab = round(min(max(_tw(c["name"]) for c in cats), width * 0.35)) + 12
-    plot = width - lab - 8
     top = max(max(c["amount"] for c in cats), max((c.get("budget", 0) for c in cats), default=0)) or 1
-    def label(c):
-        over = "budget" in c and c["amount"] > c["budget"]
-        return f'{man(c["amount"])} +{man(c["amount"] - c["budget"])} 초과' if over else man(c["amount"])
 
-    def place(c, scale):
+    def label(c, short):  # short: without the "+… 초과" part, for when nothing else fits
+        over = "budget" in c and c["amount"] > c["budget"]
+        return f'{man(c["amount"])} +{man(c["amount"] - c["budget"])} 초과' if over and not short else man(c["amount"])
+
+    def place(c, scale, short):
         """(bar width, budget tick, label inside?, label end), relative to the plot's left edge. The one rule used
-        both to pick the scale and to draw, so a label that fits here is never pushed off the slide."""
+        both to pick the layout and to draw, so a label that fits here is never pushed off the slide."""
         w = max(2, c["amount"] / top * scale)
         tick = c["budget"] / top * scale if "budget" in c else None
-        tw = _tw(label(c))
+        tw = _tw(label(c, short))
         inside = w >= tw + 20 and not (tick is not None and tick < 10 + tw + 4)
         return w, tick, inside, 10 + tw if inside else max(w, tick or 0) + 10 + tw
 
-    scale = next((plot * k / 100 for k in range(90, 4, -2) if all(place(c, plot * k / 100)[3] <= plot for c in cats)),
-                 plot * 0.04)
+    # widest bars that fit; then a narrower name column (names get …); then values without "+… 초과"
+    names = max(_tw(c["name"]) for c in cats)
+    layouts = [(round(min(names, width * f)) + 12, short) for f, short in ((0.35, False), (0.2, False), (0.2, True))]
+    for lab, short in layouts:
+        plot = width - lab - 8
+        scale = next((plot * k / 100 for k in range(90, 4, -2)
+                      if all(place(c, plot * k / 100, short)[3] <= plot for c in cats)), None)
+        if scale:
+            break
+    else:
+        scale = plot * 0.04  # still too wide: labels are clamped to the right edge below
     parts = []
     for i, c in enumerate(cats):
         y = round(i * row + 8)
-        w, tick, inside, _ = place(c, scale)
+        w, tick, inside, end = place(c, scale, short)
+        text = label(c, short)
         over = "budget" in c and c["amount"] > c["budget"]
         parts.append(f'<text x="{lab - 12}" y="{y + bar / 2 + 6}" text-anchor="end" font-size="{SIZES["label"]}" '
                      f'fill="{T["ink"]}">{e(_fit(c["name"], lab - 12))}</text><rect x="{lab}" y="{y}" width="{w:.1f}" height="{bar}" '
                      f'fill="{T["over"] if over else T["neutral"]}"/>')
         if tick is not None:
             parts.append(f'<rect x="{lab + tick - 1.25:.1f}" y="{y - 5}" width="2.5" height="{bar + 10}" fill="{T["ink"]}"/>')
-        lx = lab + 10 if inside else lab + max(w, tick or 0) + 10
+        lx = lab + 10 if inside else lab + max(w, tick or 0) + 10 - max(0, end - plot)
         parts.append(f'<text x="{lx:.1f}" y="{y + bar / 2 + 6}" font-size="{SIZES["label"]}" '
-                     f'font-weight="{700 if over else 400}" fill="{"#FFFFFF" if inside and over else T["ink"]}">{e(label(c))}</text>')
+                     f'font-weight="{700 if over else 400}" fill="{"#FFFFFF" if inside and over else T["ink"]}">{e(text)}</text>')
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{len(cats) * row + 16:.0f}">'
             f'{"".join(parts)}</svg>')
 

@@ -1,6 +1,7 @@
 """Isolated execution: one hardened Docker container per session, workspace bind-mounted."""
 import contextlib
 import os
+import re
 import subprocess
 import threading
 import uuid
@@ -43,22 +44,19 @@ class _Cap(threading.Thread):
 
 
 class Sandbox:
-    def __init__(self, workspace, network="none", egress=None, readonly=(), name=None, mounts=None, writable=None):
+    def __init__(self, workspace, network="none", egress=None, readonly=(), name=None, mounts=None, outputs=None):
         """egress: an EgressProxy -> internal network whose only way out is that proxy's allowlist.
         readonly: workspace subdirs mounted read-only.
-        writable: if given, the whole workspace is read-only except these subdirs.
-        mounts: {host dir: container path}, read-only, outside /workspace (e.g. skills)."""
+        mounts: {host dir: container path}, read-only, outside /workspace (e.g. skills).
+        outputs: a host dir mounted writable at /workspace/outputs, the rest of the workspace read-only (fresh())."""
         self.workspace = Path(workspace).resolve()
         self.readonly = [self.workspace / d for d in readonly]
         self._fresh = dict(readonly=readonly, mounts=mounts)
         self.workspace.mkdir(parents=True, exist_ok=True)
         os.chown(self.workspace, 1000, 1000)  # sandbox runs as uid 1000
-        for d in writable or ():
-            (self.workspace / d).mkdir(exist_ok=True)
-            os.chown(self.workspace / d, 1000, 1000)
         self.name = "sbx-" + (name or uuid.uuid4().hex[:10])
         # orphans of a crashed server: this container and the agent containers made from it (fresh())
-        old = subprocess.run(["docker", "ps", "-aq", "--filter", f"name=^{self.name}(-a[0-9a-f]+)?$"],
+        old = subprocess.run(["docker", "ps", "-aq", "--filter", f"name=^{re.escape(self.name)}(-a[0-9a-f]{{8}})?$"],
                              capture_output=True, text=True).stdout.split()
         subprocess.run(["docker", "rm", "-f", self.name, *old], capture_output=True)
         extra = []
@@ -75,8 +73,8 @@ class Sandbox:
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--pids-limit", "256", "--memory", "1g", "--cpus", "1",
             "--user", "1000:1000", "-e", "HOME=/tmp", "-e", "PYTHONDONTWRITEBYTECODE=1",
-            "-v", f"{self.workspace}:/workspace" + (":ro" if writable is not None else ""),
-            *[a for d in writable or () for a in ("-v", f"{self.workspace / d}:/workspace/{d}")],
+            "-v", f"{self.workspace}:/workspace" + (":ro" if outputs else ""),
+            *(["-v", f"{Path(outputs).resolve()}:/workspace/outputs"] if outputs else []),
             *[a for d in self.readonly for a in (
                 "-v", f"{d}:/workspace/{d.relative_to(self.workspace)}:ro")],
             *[a for h, c in (mounts or {}).items() for a in ("-v", f"{Path(h).resolve()}:{c}:ro")], "-w", "/workspace",
@@ -158,11 +156,14 @@ class Sandbox:
         finally:
             subprocess.run(["docker", "unpause", self.name], capture_output=True)
 
-    def fresh(self, writable=("outputs",)):
-        """A new container over the same workspace and mounts, never with network, workspace read-only except
-        `writable`: for code that must not share processes or /tmp with this one, nor plant files (a json.py) that
-        a later python here would import (connected agents). Named after this one so a restart removes it."""
-        return Sandbox(self.workspace, name=f"{self.name[4:]}-a{uuid.uuid4().hex[:8]}", writable=writable, **self._fresh)
+    def fresh(self, outputs):
+        """A new container over the same workspace and mounts, never with network: for code that must not share
+        processes or /tmp with this one (connected agents). The workspace is read-only (no json.py planted for a
+        later python here to import); `outputs`, a host dir only the caller controls, is its /workspace/outputs.
+        Never this workspace's own outputs/: the run can swap that for a symlink, and a host-side bind mount of
+        it would follow the link to any host directory. Named after this sandbox so a restart removes it."""
+        self.exec("mkdir -p /workspace/outputs", timeout=10)  # the mountpoint, made inside the container
+        return Sandbox(self.workspace, name=f"{self.name[4:]}-a{uuid.uuid4().hex[:8]}", outputs=outputs, **self._fresh)
 
     def close(self):
         subprocess.run(["docker", "rm", "-f", self.name], capture_output=True)

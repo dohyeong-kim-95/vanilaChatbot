@@ -64,6 +64,12 @@ def run(task, inputs, ctx):
             try: open(p, "w").write("print('pwned')\n"); out.append(f"{p} ok")
             except OSError as e: out.append(f"{p} {type(e).__name__}")
         return "; ".join(out)
+    if task == "readout":  # what is in our outputs/, and leave a file and a link to / there
+        names = sorted(os.listdir("/workspace/outputs"))
+        found = [open(f"/workspace/outputs/{n}").read() for n in names if os.path.isfile(f"/workspace/outputs/{n}")]
+        open("/workspace/outputs/written", "w").write("x")
+        os.symlink("/", "/workspace/outputs/root")
+        return f"{names} {found}"
     if task == "crash":
         raise ValueError("boom")
     return "?"
@@ -208,14 +214,20 @@ def t_orphan_agent_containers_removed_on_restart():
     ws = TMP / "ws-orphan"
     sb = Sandbox(ws, name="l15orphan")
     try:
-        child = sb.fresh()  # never closed: what a crash leaves
+        child = sb.fresh(TMP)  # never closed: what a crash leaves
         assert child.name.startswith(sb.name + "-a") and len(_containers(sb)) == 1, _containers(sb)
+        other = Sandbox(ws, name="l15orphan-a1")  # not an agent of this run (exactly -a + 8 hex): kept
         sb2 = Sandbox(ws, name="l15orphan")  # the restarted server resumes the run
         try:
-            assert not _containers(sb2), _containers(sb2)
+            alive = lambda n: subprocess.run(["docker", "ps", "-aq", "--filter", f"name=^{n}$"],  # noqa: E731
+                                             capture_output=True, text=True).stdout.strip()
+            assert not alive(child.name), "the crashed run's agent container is still there"
+            assert alive(other.name), "another sandbox with a similar name was removed"
         finally:
             sb2.close()
+            other.close()
     finally:
+        child.close()
         sb.close()
 
 
@@ -228,6 +240,25 @@ def t_agent_cannot_plant_in_workspace():
         assert "/workspace/json.py PermissionError" in out or "/workspace/json.py OSError" in out, out
         assert "/workspace/outputs/x.txt ok" in out, out
         assert not (sb.workspace / "json.py").exists()
+        assert (sb.workspace / "outputs" / "x.txt").read_text() == "print('pwned')\n"  # copied back to the run
+    finally:
+        sb.close()
+
+
+def t_outputs_symlink_does_not_reach_host():
+    """The run sandbox swaps outputs/ for a symlink to a host dir; the next agent call must not see or write it."""
+    sb, _ = sandbox("ws-symout")
+    host = TMP / "host-secret"
+    host.mkdir()
+    (host / "secret.txt").write_text("secret")
+    subprocess.run(["chown", "-R", "1000:1000", str(host)])
+    try:
+        sb.exec(f"rm -rf /workspace/outputs && ln -s {host} /workspace/outputs")
+        out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="readout")
+        assert "secret" not in out, out
+        assert sorted(p.name for p in host.iterdir()) == ["secret.txt"], list(host.iterdir())
+        assert not any(p.name.startswith("agent-out-") for p in Path(tempfile.gettempdir()).iterdir()
+                       if p.stat().st_mtime > time.time() - 60), "the agent's temp outputs dir was left behind"
     finally:
         sb.close()
 

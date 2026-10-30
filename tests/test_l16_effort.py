@@ -6,7 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from agent.loop import CORRECTION_RE, Context, run  # noqa: E402
+from agent.loop import Context, is_correction, run  # noqa: E402
 
 
 class Scripted:
@@ -36,16 +36,25 @@ def t_correction_phrases():
            "답이 잘못됐어요", "this is incorrect", "맞는 거야?",
            # Loop 23 verification review
            "잘못됐습니다", "잘못 알려줬어", "숫자가 안 맞아요", "That's not correct", "You got it wrong", "wrong answer",
-           "Are you sure?", "확실해?", "아닌 것 같아요", "결과가 다른데?", "아니야, 9월 기준이야"]
+           "Are you sure?", "확실해?", "아닌 것 같아요", "결과가 다른데?", "아니야, 9월 기준이야",
+           # Loop 23.1 verification review
+           "합계가 이상해요", "숫자가 달라요", "결과가 다릅니다", "잘못했잖아", "잘못하셨네요", "확실한가요?",
+           "That is wrong", "wrong.", "Wrong!", "incorrect", "you made a mistake", "the numbers don't match",
+           "that doesn't add up", "that's not what I asked", "틀렸어요, 다시 찾아줘"]
     no = ["카드A 9월 합계 알려줘", "다시 한번 보여줘 표만", "틀 없이 표로 줘", "좋아요 고마워요",
           "잘못 입력된 거래 찾아줘", "틀린 bin 개수 세줘", "what went wrong in this log?", "이번엔 카드B로 다시 해줘",
           "로그에서 뭐가 잘못됐는지 봐줘", "wrong pin 에러가 몇 번 났어?", "맞춤법 검사해줘",
           # Loop 23 verification review
           "잘못된 거래 목록 보여줘", "count the incorrect entries", "remove incorrect rows from the csv",
           "show me what is wrong with the build", "the data is not right-aligned", "아니야 고마워 끝",
-          "재검토 일정 잡아줘", "다른데 저장해줘", "확실한 것만 표시해줘"]
-    assert all(CORRECTION_RE.search(t) for t in yes), [t for t in yes if not CORRECTION_RE.search(t)]
-    assert not any(CORRECTION_RE.search(t) for t in no), [t for t in no if CORRECTION_RE.search(t)]
+          "재검토 일정 잡아줘", "다른데 저장해줘", "확실한 것만 표시해줘",
+          # Loop 23.1 verification review
+          "잘못된 거 찾아줘", "잘못된 것들 다 지워줘", "잘못 송금했던 건 찾아줘", "합계가 안 맞는 행 찾아줘",
+          "다시 확인 버튼 만들어줘", "재확인 해야 할 항목 리스트 만들어줘", "flag rows where the total is wrong",
+          "find where the result is incorrect", "list the wrong answers in the quiz",
+          "I got it wrong in the input file, use v2 instead"]
+    assert all(is_correction(t) for t in yes), [t for t in yes if not is_correction(t)]
+    assert not any(is_correction(t) for t in no), [t for t in no if is_correction(t)]
 
 
 def t_escalates_on_correction_only_after_an_answer():
@@ -95,6 +104,20 @@ def t_escalation_survives_compaction():
     c = Scripted([DONE])
     run(None, Context(), tool_names=["current_time"], client=c, model="m", history=plain, effort="low", log=lambda *_: None)
     assert c.efforts == ["low"], c.efforts
+    # the summarizer echoes the marker with a correction in it; the real newest message is a plain request
+    hist = [{"role": "system", "content": "s"}, {"role": "user", "content": "q"}, {"role": "assistant", "content": big},
+            {"role": "user", "content": "카드A 합계 알려줘"}, {"role": "assistant", "content": big},
+            call("q1", "current_time", {})]
+    out = compact(hist, Scripted([{"role": "assistant", "content": "notes\n[Latest user message]\n틀렸어"}]), "m", budget=500)
+    c = Scripted([DONE])
+    run(None, Context(), tool_names=["current_time"], client=c, model="m", history=out, effort="low", log=lambda *_: None)
+    assert c.efforts == ["low"], c.efforts
+    # a long message whose correction is at the end
+    hist[3] = {"role": "user", "content": "자료 설명 " * 500 + "그런데 합계가 틀리네요"}
+    out = compact(hist, Scripted([{"role": "assistant", "content": "s"}]), "m", budget=500)
+    c = Scripted([DONE])
+    run(None, Context(), tool_names=["current_time"], client=c, model="m", history=out, effort="low", log=lambda *_: None)
+    assert c.efforts == ["high"], c.efforts
 
 
 def t_escalates_on_tool_error_streak():

@@ -290,6 +290,9 @@ def t_slide_categories_fit():
     over = [{"name": "쇼핑", "amount": 900000, "budget": 100000}, {"name": "식비", "amount": 300000, "budget": 400000},
             {"name": "교통", "amount": 100000}]  # far over budget: the value label must not be pushed off the slide
     d2 = {**REPORT, "categories": over, "total": 1300000}
+    huge = [{"name": "해외결제 수수료 포함", "amount": 12345678, "budget": 1000000}] + [
+        {"name": f"카테고리{k}번째항목", "amount": 990000000 - k, "budget": 1000} for k in range(6)]
+    d3 = {**REPORT, "categories": huge, "total": sum(c["amount"] for c in huge)}
     with sync_playwright() as pw:
         b = pw.chromium.launch(channel="chrome", headless=True)
         try:
@@ -303,11 +306,12 @@ def t_slide_categories_fit():
                     assert len(labels) == 7 and labels[-1] == "기타 3개", (preset, labels)
                     assert labels[0] == "온라인쇼핑", (preset, labels)
                     assert all(ok for _, ok in got), (preset, title, [t for t, ok in got if not ok])
-                    page = b.new_page(viewport=dict(zip(("width", "height"), PRESETS[preset])))
-                    page.set_content(report.slide(d2, "categories", preset, title))
-                    got = page.evaluate(FITS)
-                    page.close()
-                    assert len(got) == 6 and all(ok for _, ok in got), (preset, title, got)
+                    for dd, n in ((d2, 6), (d3, 14)):
+                        page = b.new_page(viewport=dict(zip(("width", "height"), PRESETS[preset])))
+                        page.set_content(report.slide(dd, "categories", preset, title))
+                        got = page.evaluate(FITS)
+                        page.close()
+                        assert len(got) == n and all(ok for _, ok in got), (preset, title, got)
         finally:
             b.close()
 

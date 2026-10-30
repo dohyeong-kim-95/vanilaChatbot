@@ -7,8 +7,11 @@ progress messages (shown in the UI) and LLM calls (made by us, counted against t
 Timeouts, line size and message count are enforced here, outside the sandbox.
 """
 import json
+import os
 import re
+import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -18,7 +21,7 @@ from .sandbox import _Cap
 DIR = Path(__file__).resolve().parents[1] / "agents"
 MOUNT = "/agents"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
-MAX_TIMEOUT, MAX_LLM, MAX_LINE, MAX_MESSAGES = 600, 20, 256 * 1024, 2000
+MAX_TIMEOUT, MAX_LLM, MAX_LINE, MAX_MESSAGES, MAX_OUTPUTS = 600, 20, 256 * 1024, 2000, 50 * 1024 * 1024
 
 
 def tool_name(name):
@@ -59,11 +62,31 @@ def run_agent(ctx, name, task, inputs):
         raise ValueError(f"agent {name!r} is not connected")
     # A fresh container per call: in the run's shared one, an agent could plant code that every later python there
     # runs (a .pth under /tmp) or write into another process's stdout. -I: no user site, no cwd on sys.path.
-    sb = ctx.sandbox.fresh()
+    # Its outputs/ is a host temp dir, copied into the run's outputs/ afterwards (Sandbox.fresh says why).
+    out = Path(tempfile.mkdtemp(prefix="agent-out-"))
+    os.chown(out, 1000, 1000)
     try:
-        return _talk(ctx, sb, name, m, task, inputs)
+        sb = ctx.sandbox.fresh(out)
+        try:
+            return _talk(ctx, sb, name, m, task, inputs)
+        finally:
+            sb.close()
+            _copy_back(ctx.sandbox, out)
     finally:
-        sb.close()
+        shutil.rmtree(out, ignore_errors=True)
+
+
+def _copy_back(sb, src):
+    """The agent's files into the run's outputs/, through the run container (so its symlinks resolve there, never
+    on the host). The agent's container is gone by now; symlinks and special files it left are skipped."""
+    total = 0
+    for p in sorted(src.rglob("*")):  # rglob does not descend into symlinked dirs
+        if p.is_symlink() or not p.is_file():
+            continue
+        total += p.stat().st_size
+        if total > MAX_OUTPUTS:
+            raise ValueError(f"agent outputs exceed {MAX_OUTPUTS} bytes")
+        sb.write_bytes(f"outputs/{p.relative_to(src)}", p.read_bytes())
 
 
 def _talk(ctx, sb, name, m, task, inputs):
