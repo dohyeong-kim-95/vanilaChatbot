@@ -60,6 +60,32 @@ def t_shmoo_separate_holes():
             b.close()
 
 
+def t_shmoo_outlines_only_hole_cells():
+    """A U-shaped hole with a lone fail cell (dropped as noise) in its bounding box: only the hole's cells are outlined."""
+    from playwright.sync_api import sync_playwright
+    u = {(2, j) for j in range(2, 7)} | {(6, j) for j in range(2, 7)} | {(i, 2) for i in range(3, 6)}  # 13 cells
+    path = TMP / "u_hole.csv"
+    with open(path, "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["DIE", "FREQ_MHZ", "VCC", "RESULT"])
+        for i in range(10):
+            for j in range(10):
+                fail = (i, j) in u or (i, j) == (4, 5) or i + j > 15
+                w.writerow(["D1", 1000 + 100 * i, f"{0.9 + 0.05 * j:.2f}", "FAIL" if fail else "PASS"])
+    d, _, _ = shmoo.build(path, x="FREQ_MHZ", y="VCC", result="RESULT", device=["DIE"])
+    holes = [f for f in d["findings"] if f["kind"] == "hole"]
+    assert [h["cells"] for h in holes] == [13], holes  # (4, 5) alone is noise, not part of it
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(channel="chrome", headless=True)
+        try:
+            page = b.new_page()
+            page.set_content(shmoo.render(d))
+            n = page.evaluate("() => { S.device = 0; draw(); return renderSlide('L').querySelectorAll('rect.hole').length; }")
+            assert n == holes[0]["cells"], (n, holes)
+        finally:
+            b.close()
+
+
 def t_axis_unit_needs_separator():
     from playwright.sync_api import sync_playwright
     with sync_playwright() as pw:
@@ -67,9 +93,9 @@ def t_axis_unit_needs_separator():
         try:
             page = b.new_page()
             shmoo_page(page)
-            labels = page.evaluate("""() => ["VCC", "VDD_V", "TEMP_C", "FREQ_MHZ", "TCK NS", "VDDC", "SPEC"].map(
+            labels = page.evaluate("""() => ["VCC", "VDD_V", "TEMP_C", "FREQ_MHZ", "TCK NS", "VDDC", "SPEC", "FREQ-MHZ"].map(
                 (n) => axisInfo(n, ["1"]).label)""")
-            assert labels == ["VCC", "VDD (V)", "온도 (°C)", "주파수 (MHz)", "TCK (ns)", "VDDC", "SPEC"], labels
+            assert labels == ["VCC", "VDD (V)", "온도 (°C)", "주파수 (MHz)", "TCK (ns)", "VDDC", "SPEC", "주파수 (MHz)"], labels
         finally:
             b.close()
 

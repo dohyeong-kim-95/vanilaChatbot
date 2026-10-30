@@ -109,6 +109,17 @@ def est_tokens(msgs):
     return sum(len(json.dumps(m, ensure_ascii=False)) for m in msgs) // 3  # rough; model tokenizers unknown
 
 
+SUMMARY, LATEST = "[Summary of earlier work]\n", "\n[Latest user message]\n"
+
+
+def _user_text(m):
+    """What the user wrote in a user message; for a compaction summary, the user message it carried (or None)."""
+    c = str(m.get("content", ""))
+    if c.startswith(SUMMARY):
+        return c.split(LATEST, 1)[1] if LATEST in c else None
+    return c
+
+
 def compact(msgs, client, model, budget, keep_tools=2, notes=()):
     """1) clear oldest tool outputs (except the last `keep_tools`) down to budget/2 — in one batch, so
     history is edited rarely (each edit costs prompt-cache hits and replayed thinking), 2) if still over
@@ -135,8 +146,10 @@ def compact(msgs, client, model, budget, keep_tools=2, notes=()):
          "files read/changed, key facts found (quote exact values), decisions, and what remains. Be concise."},
         {"role": "user", "content": json.dumps(middle, ensure_ascii=False)}])
     saved = "".join(f"\n- {n}" for n in notes)
-    summary = {"role": "user", "content": "[Summary of earlier work]\n" + r.choices[0].message.content
-               + (f"\n[Saved notes]{saved}" if saved else "")}
+    # the newest user message goes in verbatim: a resumed run reads it to keep a correction's effort (_corrects)
+    latest = next((t for m in reversed(middle) if m["role"] == "user" and (t := _user_text(m)) is not None), None)
+    summary = {"role": "user", "content": SUMMARY + r.choices[0].message.content
+               + (f"\n[Saved notes]{saved}" if saved else "") + (LATEST + latest[:2000] if latest else "")}
     return head + [summary, {"role": "assistant", "content": "Understood, continuing."}] + tail
 
 
@@ -174,10 +187,14 @@ ESCALATE = "high"
 # Phrases that call the previous answer wrong, not new requests that mention errors ("잘못 입력된 거래 찾아줘",
 # "what went wrong", "카드B로 다시 해줘"). Checked against a list both ways in tests/test_l16_effort.py.
 CORRECTION_RE = re.compile(
-    r"틀렸|틀려|틀리(네|는데|잖|다)|틀린\s*(것|거|듯|데)|아닌데|아니잖|(그게|그건|이게|이건)\s*아니|아니(에요|예요|야)"
-    r"|잘못(됐(어|네|다|잖)|된\s*(것|거|듯)|\s*(계산|했|나왔|봤|읽))|다시\s*(한\s*번\s*)?(확인|계산|봐)|재확인|재계산|재검토"
+    r"틀렸|틀려|틀리(네|는데|잖|다)|틀린\s*(것|거|듯|데)|아닌데|아니잖|아닌\s*(것|거|듯)|(그게|그건|이게|이건)\s*아니"
+    r"|아니(에요|예요|야)(?!\s*[,.!]?\s*(고마|감사|괜찮|됐어|끝))"
+    r"|잘못\s*(됐|되었)(어|네|다|잖|습|군)|잘못된\s*(것|거(?!래)|듯)|잘못\s*(계산|나왔|봤|읽)|잘못\s+\S*(했|줬)"
+    r"|안\s*맞(아|는데|네|잖|습|지)|다르잖|다른데\s*\?|확실(해|한\s*(거|건)\S*|합니까)\s*\?"
+    r"|다시\s*(한\s*번\s*)?(확인|계산|봐)|재(확인|계산|검토)\s*(해|좀|부탁)"
     r"|맞(아|나|나요|아요|는\s*(거|건)\S*|습니까)\s*\?"
-    r"|\b(is|are|was|that'?s|it'?s|looks|seems|you'?re)\s+(wrong|incorrect|not right)|\bincorrect\b|not right", re.I)
+    r"|\b(that'?s|this is|it'?s|you'?re|answer is|result is|total is|numbers? (is|are))\s+(wrong|incorrect|not (right|correct))\b"
+    r"|\bgot (it|this|that) wrong\b|\bwrong (answer|number|total|result)s?\b|\bare you sure\b", re.I)
 ERROR_STREAK = 2
 
 
@@ -202,9 +219,11 @@ def _corrects(task, msgs):
     the last user message in the history, so an escalated run stays escalated."""
     if task is None:
         i = max((i for i, m in enumerate(msgs) if m["role"] == "user"), default=None)
-        if i is None:
+        if i is None or (task := _user_text(msgs[i])) is None:
             return False
-        task, msgs = msgs[i]["content"], msgs[:i]
+        if str(msgs[i]["content"]).startswith(SUMMARY):  # compacted: earlier answers were summarized with it
+            return bool(CORRECTION_RE.search(task))
+        msgs = msgs[:i]
     return bool(CORRECTION_RE.search(str(task))) and any(m["role"] == "assistant" for m in msgs)
 
 

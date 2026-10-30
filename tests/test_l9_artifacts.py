@@ -270,6 +270,15 @@ REPORT = {"title": "2026년 9월 카드A 지출", "period": "2026-09", "total": 
           "notes": ["쇼핑이 예산을 103,800원 넘었어요."]}
 
 
+FITS = """() => {
+    const body = document.querySelector('.body').getBoundingClientRect();
+    return [...document.querySelectorAll('.body text')].map(t => {
+      const r = t.getBoundingClientRect();
+      return [t.textContent, r.left >= body.left - 1 && r.right <= body.right + 1 && r.bottom <= body.bottom + 1];
+    });
+}"""
+
+
 def t_slide_categories_fit():
     """Every category row and its whole name are drawn inside the slide body, for 7+ categories and long names."""
     from playwright.sync_api import sync_playwright
@@ -278,6 +287,9 @@ def t_slide_categories_fit():
     names = ["온라인쇼핑", "교통", "식비", "생활", "구독", "문화", "의료", "교육", "해외결제 수수료 포함"]
     cats = [{"name": n, "amount": 500000 - i * 40000} for i, n in enumerate(names)]
     d = {**REPORT, "categories": cats, "total": sum(c["amount"] for c in cats)}
+    over = [{"name": "쇼핑", "amount": 900000, "budget": 100000}, {"name": "식비", "amount": 300000, "budget": 400000},
+            {"name": "교통", "amount": 100000}]  # far over budget: the value label must not be pushed off the slide
+    d2 = {**REPORT, "categories": over, "total": 1300000}
     with sync_playwright() as pw:
         b = pw.chromium.launch(channel="chrome", headless=True)
         try:
@@ -285,19 +297,17 @@ def t_slide_categories_fit():
                 for title in (True, False):
                     page = b.new_page(viewport=dict(zip(("width", "height"), PRESETS[preset])))
                     page.set_content(report.slide(d, "categories", preset, title))
-                    got = page.evaluate("""() => {
-                        const body = document.querySelector('.body').getBoundingClientRect();
-                        return [...document.querySelectorAll('.body text')].map(t => {
-                          const r = t.getBoundingClientRect();
-                          return [t.textContent, r.left >= body.left - 1 && r.right <= body.right + 1
-                                  && r.bottom <= body.bottom + 1];
-                        });
-                    }""")
+                    got = page.evaluate(FITS)
                     page.close()
                     labels = [t for t, _ in got][::2]
                     assert len(labels) == 7 and labels[-1] == "기타 3개", (preset, labels)
                     assert labels[0] == "온라인쇼핑", (preset, labels)
                     assert all(ok for _, ok in got), (preset, title, [t for t, ok in got if not ok])
+                    page = b.new_page(viewport=dict(zip(("width", "height"), PRESETS[preset])))
+                    page.set_content(report.slide(d2, "categories", preset, title))
+                    got = page.evaluate(FITS)
+                    page.close()
+                    assert len(got) == 6 and all(ok for _, ok in got), (preset, title, got)
         finally:
             b.close()
 

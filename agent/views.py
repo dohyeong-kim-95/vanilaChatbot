@@ -119,7 +119,7 @@ function legendColumn(svg, x, y, items) {
 const AXIS_NAMES = { VDD: "VDD", VCC: "VCC", FREQ: "주파수", FREQUENCY: "주파수", TEMP: "온도", PERIOD: "주기" };
 const UNITS = { V: "V", MV: "mV", MHZ: "MHz", GHZ: "GHz", KHZ: "kHz", HZ: "Hz", NS: "ns", PS: "ps", C: "°C" };
 function axisInfo(name, values) {  // unit only after a separator: VCC is not "VC (°C)"
-  const m = /^(.*?)[_ ](MV|V|GHZ|MHZ|KHZ|HZ|NS|PS|C)$/i.exec(name) || [null, name, ""];
+  const m = /^(.*?)[_ -](MV|V|GHZ|MHZ|KHZ|HZ|NS|PS|C)$/i.exec(name) || [null, name, ""];
   const base = AXIS_NAMES[m[1].toUpperCase()] || m[1];
   let unit = UNITS[m[2].toUpperCase()] || "", f = 1;
   const nums = values.map(Number);

@@ -72,6 +72,7 @@ def one(case, i, fixtures, tmp, use_skills=False):
         if not ok and os.environ.get("FOLLOWUP"):
             t2 = time.time()
             res.update(pass2=False, effort2=None)  # a follow-up that raises still counts as not fixed
+            ctx.effort_used = None  # so a follow-up that fails before its first model call reports no effort
             try:
                 run(FOLLOWUP, ctx, history=msgs, **kw)
                 got2, ok2, why2 = _grade(case, ws)

@@ -669,3 +669,18 @@ sandbox 안에서 한 번에 심고, 저장소로 되돌린 뒤 확인했다.
 
 - 행동 변화: shmoo `hole` finding이 구멍마다 하나가 된다(같은 장치에 여러 개 가능, 3칸 미만 조각은 제외). 슬라이드 제목도 그에 맞춤.
 
+### 23.1 확인 리뷰(별도 에이전트) 후 추가 수정
+12건 중 9건 수정 확인, 3건 부분 수정. 이번 수정이 만든 버그 1건(M1). 아래를 모두 고쳤고, 새 테스트는 모두 고치기 전 코드에서 실패한다.
+
+| # | 지적 | 수정 | 테스트 |
+|---|---|---|---|
+| M1 | 예산을 크게 넘은 카테고리의 값 라벨이 슬라이드 밖으로 밀림(Loop 23 회귀: 배율을 고르는 규칙과 그리는 규칙이 달랐음) | `place()` 하나로 배율 선택과 그리기를 같이 함 | `t_slide_categories_fit`에 예산 9배 초과 케이스 |
+| S1 | 서버가 죽으면 에이전트 컨테이너가 영구히 남음(이름이 무작위) | `sbx-{run}-a…`로 이름 짓고, run sandbox 생성 시 같은 접두어 컨테이너 삭제 | `t_orphan_agent_containers_removed_on_restart` |
+| S2 | 에이전트가 `/workspace/json.py`를 심으면 run sandbox의 다음 python이 import | 에이전트 컨테이너는 workspace 읽기 전용, `outputs/`만 쓰기 | `t_agent_cannot_plant_in_workspace` |
+| S3 | 정정 문구 오탐·누락 | 리뷰어 목록(정정 11개, 새 요청 9개 추가)으로 패턴 재작성. 영어는 `that's/answer is … wrong/not correct`, `got it wrong`, `are you sure` 형태만 | `t_correction_phrases` |
+| N1 | 직사각형이 아닌 구멍의 상자 안 Fail 칸을 다 표시(잡음 칸 포함) | finding에 구멍 칸 목록(`at`, 뷰 데이터에만) 넣고 그 칸만 표시 | `t_shmoo_outlines_only_hole_cells` |
+| N2 | 압축(compaction)이 정정 메시지를 요약해 버리면 재개 시 low | 요약 끝에 최신 사용자 메시지를 그대로 붙이고, 재개 판단이 그것을 읽음 | `t_escalation_survives_compaction` |
+| N3 | follow-up이 첫 호출 전에 실패하면 첫 턴 effort가 기록됨 | 실행 전에 `effort_used` 초기화 | |
+| N4 | `FREQ-MHZ` 단위 없음 | `-`도 구분자 | `t_axis_unit_needs_separator` |
+| N5 | 컨테이너 수 비교가 다른 컨테이너 때문에 흔들림 | 이 sandbox에서 만든 컨테이너만 비교 | |
+

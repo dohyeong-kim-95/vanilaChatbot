@@ -49,7 +49,7 @@ def build(path, x, y, result, device, filters=(), pass_values=None, title=None, 
             "x": {"name": x, "values": g.xs}, "y": {"name": y, "values": g.ys},
             "device_cols": list(device), "devices": g.devices,
             "filters": [{"name": c, "values": g.filter_values[c]} for c in filters],
-            "combos": [list(c) for c in combos], "grids": grids, "findings": core.analyze(g),
+            "combos": [list(c) for c in combos], "grids": grids, "findings": core.analyze(g, members=True),
             "spec": spec, "op": op, "source": source or "", "result": result}
     warnings = []
     if g.unknown:
@@ -410,8 +410,7 @@ function renderSlide(preset, opts = {}) {
     const box = (x, y, w, hh) => svg.append(S_("rect", { x: x - 2, y: y - 2, width: w + 4, height: hh + 4, rx: 3, fill: "none",
                                                           stroke: TOK.accent, "stroke-width": 3, class: "hole" }));
     if (h.cells === (i1 - i0 + 1) * (j1 - j0 + 1)) box(gx + i0 * cw, rowY(j1), (i1 - i0 + 1) * cw, (j1 - j0 + 1) * ch);
-    else  // not a rectangle: outline its fail cells so no passing cell is marked
-      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) if (at(ci, di, i, j) === "F") box(gx + i * cw, rowY(j), cw, ch);
+    else for (const [i, j] of h.at) box(gx + i * cw, rowY(j), cw, ch);  // not a rectangle: outline only its own cells
   }
   for (const c of ceils) {
     const j = D.y.values.indexOf(c.y);

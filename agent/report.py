@@ -238,26 +238,30 @@ def _slide_bars(cats, width, height):
         over = "budget" in c and c["amount"] > c["budget"]
         return f'{man(c["amount"])} +{man(c["amount"] - c["budget"])} 초과' if over else man(c["amount"])
 
-    def fits(scale):  # each value label goes inside its bar (white) or after it, within the width
-        return all(c["amount"] / top * scale >= _tw(label(c)) + 20 or
-                   max(c["amount"], c.get("budget", 0)) / top * scale + 10 + _tw(label(c)) <= plot for c in cats)
-    scale = next((plot * k / 100 for k in range(90, 10, -2) if fits(plot * k / 100)), plot * 0.1)
+    def place(c, scale):
+        """(bar width, budget tick, label inside?, label end), relative to the plot's left edge. The one rule used
+        both to pick the scale and to draw, so a label that fits here is never pushed off the slide."""
+        w = max(2, c["amount"] / top * scale)
+        tick = c["budget"] / top * scale if "budget" in c else None
+        tw = _tw(label(c))
+        inside = w >= tw + 20 and not (tick is not None and tick < 10 + tw + 4)
+        return w, tick, inside, 10 + tw if inside else max(w, tick or 0) + 10 + tw
+
+    scale = next((plot * k / 100 for k in range(90, 4, -2) if all(place(c, plot * k / 100)[3] <= plot for c in cats)),
+                 plot * 0.04)
     parts = []
     for i, c in enumerate(cats):
         y = round(i * row + 8)
-        w = max(2, c["amount"] / top * scale)
+        w, tick, inside, _ = place(c, scale)
         over = "budget" in c and c["amount"] > c["budget"]
         parts.append(f'<text x="{lab - 12}" y="{y + bar / 2 + 6}" text-anchor="end" font-size="{SIZES["label"]}" '
                      f'fill="{T["ink"]}">{e(_fit(c["name"], lab - 12))}</text><rect x="{lab}" y="{y}" width="{w:.1f}" height="{bar}" '
                      f'fill="{T["over"] if over else T["neutral"]}"/>')
-        tick = lab + c["budget"] / top * scale if "budget" in c else None
         if tick is not None:
-            parts.append(f'<rect x="{tick - 1.25:.1f}" y="{y - 5}" width="2.5" height="{bar + 10}" fill="{T["ink"]}"/>')
-        text = label(c)
-        inside = w >= _tw(text) + 20 and not (tick and tick < lab + 10 + _tw(text) + 4)
-        lx = lab + 10 if inside else max(lab + w, tick or 0) + 10
+            parts.append(f'<rect x="{lab + tick - 1.25:.1f}" y="{y - 5}" width="2.5" height="{bar + 10}" fill="{T["ink"]}"/>')
+        lx = lab + 10 if inside else lab + max(w, tick or 0) + 10
         parts.append(f'<text x="{lx:.1f}" y="{y + bar / 2 + 6}" font-size="{SIZES["label"]}" '
-                     f'font-weight="{700 if over else 400}" fill="{"#FFFFFF" if inside and over else T["ink"]}">{e(text)}</text>')
+                     f'font-weight="{700 if over else 400}" fill="{"#FFFFFF" if inside and over else T["ink"]}">{e(label(c))}</text>')
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{len(cats) * row + 16:.0f}">'
             f'{"".join(parts)}</svg>')
 

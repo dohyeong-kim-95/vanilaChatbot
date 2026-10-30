@@ -43,17 +43,24 @@ class _Cap(threading.Thread):
 
 
 class Sandbox:
-    def __init__(self, workspace, network="none", egress=None, readonly=(), name=None, mounts=None):
+    def __init__(self, workspace, network="none", egress=None, readonly=(), name=None, mounts=None, writable=None):
         """egress: an EgressProxy -> internal network whose only way out is that proxy's allowlist.
         readonly: workspace subdirs mounted read-only.
+        writable: if given, the whole workspace is read-only except these subdirs.
         mounts: {host dir: container path}, read-only, outside /workspace (e.g. skills)."""
         self.workspace = Path(workspace).resolve()
         self.readonly = [self.workspace / d for d in readonly]
         self._fresh = dict(readonly=readonly, mounts=mounts)
         self.workspace.mkdir(parents=True, exist_ok=True)
         os.chown(self.workspace, 1000, 1000)  # sandbox runs as uid 1000
+        for d in writable or ():
+            (self.workspace / d).mkdir(exist_ok=True)
+            os.chown(self.workspace / d, 1000, 1000)
         self.name = "sbx-" + (name or uuid.uuid4().hex[:10])
-        subprocess.run(["docker", "rm", "-f", self.name], capture_output=True)  # orphan of a crashed server
+        # orphans of a crashed server: this container and the agent containers made from it (fresh())
+        old = subprocess.run(["docker", "ps", "-aq", "--filter", f"name=^{self.name}(-a[0-9a-f]+)?$"],
+                             capture_output=True, text=True).stdout.split()
+        subprocess.run(["docker", "rm", "-f", self.name, *old], capture_output=True)
         extra = []
         if egress:
             from .egress import NETWORK
@@ -68,7 +75,9 @@ class Sandbox:
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--pids-limit", "256", "--memory", "1g", "--cpus", "1",
             "--user", "1000:1000", "-e", "HOME=/tmp", "-e", "PYTHONDONTWRITEBYTECODE=1",
-            "-v", f"{self.workspace}:/workspace", *[a for d in self.readonly for a in (
+            "-v", f"{self.workspace}:/workspace" + (":ro" if writable is not None else ""),
+            *[a for d in writable or () for a in ("-v", f"{self.workspace / d}:/workspace/{d}")],
+            *[a for d in self.readonly for a in (
                 "-v", f"{d}:/workspace/{d.relative_to(self.workspace)}:ro")],
             *[a for h, c in (mounts or {}).items() for a in ("-v", f"{Path(h).resolve()}:{c}:ro")], "-w", "/workspace",
             IMAGE, "sleep", "infinity"], check=True, capture_output=True)
@@ -149,10 +158,11 @@ class Sandbox:
         finally:
             subprocess.run(["docker", "unpause", self.name], capture_output=True)
 
-    def fresh(self):
-        """A new container over the same workspace and mounts, never with network: for code that must not share
-        processes or /tmp with this one (connected agents)."""
-        return Sandbox(self.workspace, **self._fresh)
+    def fresh(self, writable=("outputs",)):
+        """A new container over the same workspace and mounts, never with network, workspace read-only except
+        `writable`: for code that must not share processes or /tmp with this one, nor plant files (a json.py) that
+        a later python here would import (connected agents). Named after this one so a restart removes it."""
+        return Sandbox(self.workspace, name=f"{self.name[4:]}-a{uuid.uuid4().hex[:8]}", writable=writable, **self._fresh)
 
     def close(self):
         subprocess.run(["docker", "rm", "-f", self.name], capture_output=True)

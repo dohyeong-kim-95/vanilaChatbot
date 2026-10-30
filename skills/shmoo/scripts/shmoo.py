@@ -208,10 +208,10 @@ def _edge(g, d, combo):
             for j in range(len(g.ys))]
 
 
-def analyze(g, min_hole=3):
+def analyze(g, min_hole=3, members=False):
     """Findings per device/condition, strongest first. Kinds:
     hole     a pocket of >= min_hole connected fail cells inside the pass region, one finding per pocket
-             (single cells near the boundary are noise)
+             (single cells near the boundary are noise); members=True adds its cells as "at": [[x index, y index], ...]
     ceiling  top-y row fails in >= 3 columns that pass lower (over-stress)
     wall     boundary at the top y rows is far left of the other devices (a slow path not fixed by more voltage)
     low      pass rate far below the other devices for the same condition"""
@@ -236,7 +236,8 @@ def analyze(g, min_hole=3):
                 if len(h) >= min_hole:
                     found.append({"device": d, "condition": cond, "kind": "hole", "cells": len(h),
                                   "x": [g.xs[min(i for i, _ in h)], g.xs[max(i for i, _ in h)]],
-                                  "y": [g.ys[min(j for _, j in h)], g.ys[max(j for _, j in h)]]})
+                                  "y": [g.ys[min(j for _, j in h)], g.ys[max(j for _, j in h)]],
+                                  **({"at": [list(c) for c in h]} if members else {})})
             ce = _ceiling(g, d, combo)
             if len(ce) >= 3:
                 found.append({"device": d, "condition": cond, "kind": "ceiling", "columns": len(ce),
