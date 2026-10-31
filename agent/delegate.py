@@ -76,13 +76,14 @@ def run_agent(ctx, name, task, inputs):
                                 MAX_FILES + 1)
         try:
             out, err = _talk(ctx, sb, name, m, task, inputs), None
-        except RuntimeError as e:
-            out, err = None, e
+        except Exception as e:  # whatever went wrong (e.g. emit), the agent's files are still copied back
+            out, err = None, e if isinstance(e, RuntimeError) else \
+                RuntimeError(f"agent {name} failed: {type(e).__name__}: {e}")
         # nothing of the agent's runs on while we copy (a background writer would race the copy)
         with contextlib.suppress(subprocess.TimeoutExpired):
             subprocess.run(["docker", "exec", sb.name, "sh", "-c", "kill -9 -1"], capture_output=True, timeout=30)
         notes += _transfer(sb, ctx.sandbox, lambda rel, digest: seen.get(rel) != digest, "the agent's outputs/",
-                           len(seen) + MAX_FILES + 1)[1]
+                           len(seen) + MAX_FILES + 1, known=seen.__contains__)[1]
     finally:
         sb.close()
     note = "".join(f"\n[note: {n}]" for n in notes)
@@ -134,17 +135,16 @@ if bad:
 
 class _Info(tarfile.TarInfo):
     """Header parsing that cannot be made to hold much in memory: a pax or GNU long-name header is read whole before
-    any check of ours, and sparse maps become one Python object per number. Our tar sends neither sparse files nor
-    names near this size, so such a header is a forged stream: stop."""
+    any check of ours, pax headers pile up (global ones for the whole stream), and sparse maps become one Python
+    object per number. Our tar (format gnu) writes no pax headers, no sparse files and no names near this size, so
+    such a header is a forged stream: stop."""
     MAX_HEADER = 16 * 1024
 
     def _proc_member(self, tf):
-        if self.type == tarfile.GNUTYPE_SPARSE:
-            raise tarfile.HeaderError("sparse member")
-        if self.type in (tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK, tarfile.XHDTYPE,
-                         tarfile.XGLTYPE, tarfile.SOLARIS_XHDTYPE) and \
-                self.size > self.MAX_HEADER:
-            raise tarfile.HeaderError(f"extended header of {self.size} bytes")
+        if self.type in (tarfile.GNUTYPE_SPARSE, tarfile.XHDTYPE, tarfile.XGLTYPE, tarfile.SOLARIS_XHDTYPE):
+            raise tarfile.HeaderError(f"{'sparse' if self.type == tarfile.GNUTYPE_SPARSE else 'pax'} header")
+        if self.type in (tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK) and self.size > self.MAX_HEADER:
+            raise tarfile.HeaderError(f"long-name header of {self.size} bytes")
         return super()._proc_member(tf)
 
     def _proc_gnusparse_00(self, *a):
@@ -166,13 +166,13 @@ class _Capped:
         return b
 
 
-def _transfer(src, dst, keep, what, scan, timeout=120):
+def _transfer(src, dst, keep, what, scan, timeout=120, known=lambda rel: False):
     """Regular files under src's /workspace/outputs into dst's, as tar streams through us: one docker exec each
     side; nothing lands on the host disk but a spool file (> 1 MB, deleted at once). The source lists at most
     `scan` files of at most MAX_OUTPUTS bytes (one more than we take, to know there were more); we pass on
     plain relative names only, at most MAX_FILES / MAX_OUTPUTS in all (then stop), and only those keep(rel, sha256)
-    wants. Returns ({rel: sha256} sent, notes): a bad file,
-    the limit or a failing side becomes a note for the result, never an exception that hides the agent's answer."""
+    wants (known(rel): a file keep() might skip, so read even past the limit). Returns ({rel: sha256} sent, notes):
+    a bad file, the limit or a failing side becomes a note for the result, never an exception that hides the agent's answer."""
     inner = str(max(timeout - 10, 5))
     # the source container can write its own stream (stop our tar, write to its stdout): a header that claims
     # 1 GB would be read into our memory before any member check (_Info refuses that). Never read more than the
@@ -192,6 +192,7 @@ def _transfer(src, dst, keep, what, scan, timeout=120):
         with tarfile.open(fileobj=_Capped(tx.stdout, cap), mode="r|", tarinfo=_Info) as tin, \
                 tarfile.open(fileobj=rx.stdin, mode="w|", format=tarfile.PAX_FORMAT) as tout:
             for mi in tin:
+                tin.members.clear()  # a stream tarfile keeps every header it read; we need only this one
                 if mi.size > MAX_OUTPUTS:  # grew after find looked: stop, never skip over it (that reads it all)
                     notes.append(f"copying {what} stopped at {mi.name}: larger than {MAX_OUTPUTS // 2**20} MB")
                     break
@@ -201,6 +202,9 @@ def _transfer(src, dst, keep, what, scan, timeout=120):
                 rel = "/".join(parts)
                 # over the limit unless keep() skips it: a file the run already has (copy-out) does not count
                 over = len(sent) >= MAX_FILES or total + mi.size > MAX_OUTPUTS
+                if over and not known(rel):
+                    skipped += 1  # stop here: skipping on would still read every later file through us
+                    break
                 with tempfile.SpooledTemporaryFile(1 << 20) as buf:
                     h = hashlib.sha256()
                     for chunk in iter(lambda f=tin.extractfile(mi): f.read(1 << 16), b""):
@@ -268,7 +272,7 @@ def _talk(ctx, sb, name, m, task, inputs):
             except ValueError:
                 kind = None
             if kind == "progress":
-                ctx.emit({"type": "agent_progress", "agent": name, "message": str(msg.get("message", ""))[:300]})
+                ctx.emit({"type": "agent_progress", "agent": name, "message": _utf8(str(msg.get("message", ""))[:300])})
             elif kind == "llm":
                 llm_used += 1
                 if llm_used > m["llm_calls"] or not ctx.llm:

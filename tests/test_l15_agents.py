@@ -93,6 +93,10 @@ def run(task, inputs, ctx):
     if task == "surrogate":
         sys.__stdout__.write('{"type": "result", "content": "bad \\ud800 name"}\n'); sys.__stdout__.flush()
         os._exit(0)
+    if task == "surrogateprog":
+        sys.__stdout__.write('{"type": "progress", "message": "step \\ud800"}\n'); sys.__stdout__.flush()
+        open("/workspace/outputs/after.txt", "w").write("kept")
+        return "progress done"
     if task == "crash":
         raise ValueError("boom")
     return "?"
@@ -363,16 +367,18 @@ while time.time() - t0 < 60:
         if cmd.startswith(b"tar\0--null"):
             os.kill(int(p), 19)  # SIGSTOP our tar, then write our own stream on its stdout
             ti = tarfile.TarInfo("evil.txt")
+            open("/tmp/injected", "w").write("1")  # before: a refused stream is closed on us mid-write
             with open(f"/proc/{p}/fd/1", "wb") as f:
-                if mode == "pax":  # a header that claims 300 MB
-                    ti.pax_headers = {"comment": "x" * 300_000_000}
-                    f.write(ti.tobuf(tarfile.PAX_FORMAT))
+                if mode == "pax":  # a header that claims 300 MB (streamed: building it would not fit here)
+                    ti.type, ti.size = tarfile.XHDTYPE, 300_000_000
+                    f.write(ti.tobuf(tarfile.USTAR_FORMAT))
+                    for _ in range(300):
+                        f.write(b"x" * 1_000_000)
                 elif mode == "sparse":  # a GNU 1.0 sparse map of 100M numbers: one Python int each
                     ti.pax_headers = {"GNU.sparse.major": "1", "GNU.sparse.minor": "0", "GNU.sparse.name": "evil.txt"}
                     f.write(ti.tobuf(tarfile.PAX_FORMAT) + b"100000000\n")
                     for _ in range(300):
                         f.write(b"1\n" * 500_000)
-            open("/tmp/injected", "w").write("1")
             sys.exit()
 """
 
@@ -404,25 +410,67 @@ def t_run_cannot_flood_host_memory():
         print(f"    {mode}: host memory +{grew} MB")
 
 
-def t_odd_file_time_keeps_result():
-    """The run's stream has a file whose time is nan or inf (Python cannot make an int of it): the file and the
-    agent's answer still arrive. The stream is sent as is (a stopped tar's pipe is a race to write into)."""
-    import io
-    import tarfile
-    sb, _ = sandbox("ws-mtime")
+def _crafted(name, data):
+    """The run's outputs/ stream (copy-in) replaced by `data`, sent as is (writing into a stopped tar's pipe is a
+    race). -> (agent's result, host MB grown)"""
+    import resource
+    sb, _ = sandbox(name)
     old = delegate._SEND
     try:
-        for v in ("nan", "inf"):
-            buf, ti = io.BytesIO(), tarfile.TarInfo("t.txt")
-            ti.size, ti.pax_headers = 2, {"mtime": v}
-            with tarfile.open(fileobj=buf, mode="w", format=tarfile.PAX_FORMAT) as t:
-                t.addfile(ti, io.BytesIO(b"hi"))
-            sb.write_bytes("crafted.tar", buf.getvalue())
-            delegate._SEND = "cat /workspace/crafted.tar"
-            out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="readout")
-            assert out.startswith("[rogue finished") and "['t.txt'] ['hi']" in out, (v, out[:300])
+        sb.write_bytes("crafted.tar", data)
+        del data
+        delegate._SEND = "cat /workspace/crafted.tar"
+        before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024
+        out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="readout")
+        return out, resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024 - before
     finally:
         delegate._SEND = old
+        sb.close()
+
+
+def _hdr(name, typ, size):
+    import tarfile
+    t = tarfile.TarInfo(name)
+    t.type, t.size = typ, size
+    return t.tobuf(tarfile.USTAR_FORMAT)
+
+
+def t_odd_file_time_keeps_result():
+    """A pax file time of nan or inf (Python cannot make an int of it): the agent's answer still arrives."""
+    import io
+    import tarfile
+    for v in ("nan", "inf"):
+        buf, ti = io.BytesIO(), tarfile.TarInfo("t.txt")
+        ti.size, ti.pax_headers = 2, {"mtime": v}
+        with tarfile.open(fileobj=buf, mode="w", format=tarfile.PAX_FORMAT) as t:
+            t.addfile(ti, io.BytesIO(b"hi"))
+        out, _ = _crafted(f"ws-mtime-{v}", buf.getvalue())
+        assert out.startswith("[rogue finished"), (v, out[:300])
+
+
+def t_many_small_headers_do_not_flood_host():
+    """40 MB of 16 KB pax headers, global (kept for the whole stream) or per file (kept with every member tarfile
+    has read): our tar writes none, so the first one stops the copy; the host does not grow."""
+    import tarfile
+    for typ in (tarfile.XGLTYPE, tarfile.XHDTYPE):
+        out, k = [], 0
+        while len(out) < 2500:
+            body = b"".join(b"14 k%07d=x\n" % (k + i) for i in range(1140))
+            k += 1140
+            out.append(_hdr("p", typ, len(body)) + body + b"\0" * (-len(body) % 512) + _hdr(f"f{len(out)}", tarfile.REGTYPE, 0))
+        res, grew = _crafted(f"ws-paxflood-{typ.decode()}", b"".join(out))
+        assert res.startswith("[rogue finished") and grew < 40, (typ, grew, res[:300])
+        print(f"    {typ.decode()}: host memory +{grew} MB")
+
+
+def t_bad_progress_keeps_files():
+    """A progress message with "\\ud800" (the server's event write fails on it): the agent's files still come back."""
+    sb, _ = sandbox("ws-progress")
+    try:
+        ctx = Context(sandbox=sb, agents=AGENTS, emit=lambda ev: json.dumps(ev, ensure_ascii=False).encode())
+        out = call(ctx, "rogue", task="surrogateprog")
+        assert out.startswith("[rogue finished") and (sb.workspace / "outputs" / "after.txt").exists(), ascii(out)
+    finally:
         sb.close()
 
 
