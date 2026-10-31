@@ -182,6 +182,14 @@ def t_https_origin_sets_secure_cookie():
         _, r = login("http://127.0.0.1:8303", "alice")
         sc = r.headers["set-cookie"].lower()
         assert r.status_code == 200 and "secure" in sc and sc.startswith("__host-vc_session="), r.headers
+        token = r.cookies["__Host-vc_session"]
+        base = "http://127.0.0.1:8303"
+        assert httpx.get(base + "/me", headers={"Cookie": f"__Host-vc_session={token}"}).status_code == 200
+        assert httpx.get(base + "/me", headers={"Cookie": f"vc_session={token}"}).status_code == 401
+        out = httpx.post(base + "/logout", headers={"Cookie": f"__Host-vc_session={token}"})
+        sc = out.headers["set-cookie"].lower()
+        assert sc.startswith("__host-vc_session=") and "secure" in sc and "max-age=0" in sc, sc
+        assert httpx.get(base + "/me", headers={"Cookie": f"__Host-vc_session={token}"}).status_code == 401
     finally:
         kill(p)
 
@@ -430,6 +438,39 @@ def t_own_change_cannot_undo_the_admin():
             assert auth.login(q, "kim", "admin-reset-pass")
 
 
+def t_password_endpoint_keeps_admin_changes():
+    """The endpoint itself (not just auth.set_password) must not undo a removal made while it was hashing."""
+    data = TMP / "inproc"
+    accounts(data, "mo")
+    env = {"AGENT_ROOT": str(data), "AGENT_APP_ORIGIN": "http://testserver", "AGENT_AUTH": "login"}
+    saved = {k: os.environ.get(k) for k in env}
+    os.environ.update(env)
+    try:
+        from fastapi.testclient import TestClient
+        import server.app as app_mod
+    finally:
+        for k, v in saved.items():
+            os.environ.pop(k) if v is None else os.environ.__setitem__(k, v)
+    c = TestClient(app_mod.app)
+    assert c.post("/login", json={"user": "mo", "password": PW}).status_code == 200
+    orig, done = auth._check, []
+
+    def remove_during(password, h):
+        ok = orig(password, h)
+        if not done:  # the admin removes mo while /password is verifying the old password
+            done.append(1)
+            app_mod.q("DELETE FROM users WHERE id='mo'")
+            app_mod.q("DELETE FROM logins WHERE user_id='mo'")
+        return ok
+    auth._check = remove_during
+    try:
+        r = c.post("/password", json={"old": PW, "new": "brand-new-pass"})
+    finally:
+        auth._check = orig
+    assert r.status_code in (401, 409), r.status_code
+    assert not app_mod.q("SELECT 1 FROM users WHERE id='mo'"), "/password brought back a removed account"
+
+
 def t_password_endpoint_counts_toward_lock():
     main_server()
     c, _ = login(URL, "jon")
@@ -479,6 +520,10 @@ def t_ui_failed_logout_does_not_look_logged_out():
 
 if __name__ == "__main__":
     only, failed = sys.argv[1:], 0
+    for name in only:
+        if not name.startswith("t_") or name not in globals():
+            print("FAIL", name, "no such test")
+            failed += 1
     try:
         for name, fn in list(globals().items()):
             if name.startswith("t_") and (not only or name in only):

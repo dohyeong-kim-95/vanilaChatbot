@@ -58,18 +58,25 @@ def _digest(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def set_password(q, user, password, expect=None):
-    """Create or reset (the CLI), or with `expect` (the hash the user just proved) change it only if nobody else did
-    meanwhile: a user's own change must not bring back a removed account or undo a reset. Returns the new hash,
-    or None if `expect` no longer matches."""
+def set_password(q, user, password, expect=None, how="upsert"):
+    """how: "create" (only a new account), "reset" (only an existing one), "upsert". With `expect` (the hash the
+    user just proved) change it only if nobody else did meanwhile: a user's own change must not bring back a removed
+    account or undo a reset. Returns the new hash, or None if the account was not in the required state."""
     if not ID_RE.match(user):
         raise ValueError("user id: lowercase letters, digits, - and _, at most 64")
     if not MIN_PASSWORD <= len(password) <= MAX_PASSWORD:
         raise ValueError(f"password: {MIN_PASSWORD} to {MAX_PASSWORD} characters")
     pw = _hash(password)
-    if expect is None:
-        q("INSERT INTO users(id, pw) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET pw=excluded.pw", user, pw)
-    elif not q("UPDATE users SET pw=? WHERE id=? AND pw=? RETURNING id", pw, user, expect):
+    if expect is not None:
+        done = q("UPDATE users SET pw=? WHERE id=? AND pw=? RETURNING id", pw, user, expect)
+    elif how == "create":
+        done = q("INSERT INTO users(id, pw) VALUES (?, ?) ON CONFLICT(id) DO NOTHING RETURNING id", user, pw)
+    elif how == "reset":
+        done = q("UPDATE users SET pw=? WHERE id=? RETURNING id", pw, user)
+    else:
+        done = q("INSERT INTO users(id, pw) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET pw=excluded.pw RETURNING id",
+                 user, pw)
+    if not done:
         return None
     q("DELETE FROM logins WHERE user_id=?", user)  # a new password ends every old login
     return pw
@@ -169,10 +176,12 @@ def main(argv):
         pw = getpass.getpass("password: ")
         if pw != getpass.getpass("again: "):
             sys.exit("passwords differ")
-        try:
-            set_password(q, rest[0], pw)
+        try:  # checked again when writing: the account may have changed while the password was typed
+            done = set_password(q, rest[0], pw, how="create" if cmd == "add" else "reset")
         except ValueError as e:
             sys.exit(str(e))
+        if not done:
+            sys.exit(f"{rest[0]}: " + ("was just created by someone else" if cmd == "add" else "was just removed"))
         print("ok")
     elif cmd == "remove" and len(rest) == 1:
         gone = q("DELETE FROM users WHERE id=? RETURNING id", rest[0])  # first: a login racing this one fails

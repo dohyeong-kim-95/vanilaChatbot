@@ -830,3 +830,14 @@ Linux 서버 한 대에 여러 사람이 브라우저로 접속하는 경우를 
 | Nice | 로그아웃 요청이 실패해도 로그인 화면으로 바뀌어, 공용 PC에서 다음 사람이 새로고침하면 이전 사용자로 들어감 | 실패하면 오류만 표시 | `t_ui_failed_logout_does_not_look_logged_out` |
 | Nice | `/password`가 잠금에 세어지는지, `finally` 경로를 지키는 테스트 없음 | 추가 | `t_password_endpoint_counts_toward_lock`, `t_guess_released_on_any_error` |
 | Nice | https에서 형제 서브도메인의 쿠키 심기 | `__Host-` 접두사 | `t_https_origin_sets_secure_cookie` |
+
+### 24.4 네 번째 리뷰 후 정리
+판정: 24.3의 4개 항목 닫힘. **Must·Should 없음**(리뷰 루프 종료). Nice 5개 중 다음을 반영했다. l18은 27개 통과.
+
+| Nice | 반영 |
+|---|---|
+| `/password`의 비교 후 교체를 엔드포인트 수준에서 지키는 테스트 없음 | `t_password_endpoint_keeps_admin_changes`(TestClient, 해시 중 삭제). `expect`를 빼면 실패 확인 |
+| https 쿠키를 읽는 경로·로그아웃 삭제를 지키는 테스트 없음 | `t_https_origin_sets_secure_cookie` 확장. 접두사 없이 읽게 바꾸면 실패 확인 |
+| 없는 테스트 이름을 주면 종료 코드 0 | 실패로 처리 |
+| CLI `add`·`passwd`가 확인 뒤 덮어쓰기 | `add`는 새 계정일 때만, `passwd`는 있는 계정일 때만 씀 |
+| 추적이 꽉 차면 잠기지 않은 실패 횟수가 지워짐 | SPEC 한계에 기록 |
