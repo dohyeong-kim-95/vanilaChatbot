@@ -97,6 +97,10 @@ def run(task, inputs, ctx):
         sys.__stdout__.write('{"type": "progress", "message": "step \\ud800"}\n'); sys.__stdout__.flush()
         open("/workspace/outputs/after.txt", "w").write("kept")
         return "progress done"
+    if task == "hardlink":  # one file, two names
+        open("/workspace/outputs/a.txt", "w").write("same")
+        os.link("/workspace/outputs/a.txt", "/workspace/outputs/b.txt")
+        return "hardlink done"
     if task == "crash":
         raise ValueError("boom")
     return "?"
@@ -559,6 +563,39 @@ def t_lone_surrogate_in_result():
         assert out.startswith("[rogue finished") and "bad ? name" in out, ascii(out)
         out.encode("utf-8")
     finally:
+        sb.close()
+
+
+def t_hard_linked_outputs_arrive():
+    """The agent's file with two names (a hard link): both come back as files."""
+    sb, _ = sandbox("ws-hardlinked")
+    try:
+        out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="hardlink")
+        assert out.startswith("[rogue finished") and "[note" not in out, out
+        assert [(sb.workspace / "outputs" / n).read_text() for n in ("a.txt", "b.txt")] == ["same", "same"]
+    finally:
+        sb.close()
+
+
+def t_timed_out_copy_is_noted():
+    """The sender is cut off by its timeout right after a whole member (the stream looks complete to tarfile):
+    the files that arrived are kept and the cut is noted."""
+    import io
+    import tarfile
+    sb, _ = sandbox("ws-cut")
+    agent = sb.fresh()
+    old = delegate._SEND
+    try:
+        ti, buf = tarfile.TarInfo("first.txt"), io.BytesIO()
+        ti.size = 2
+        buf.write(ti.tobuf(tarfile.GNU_FORMAT) + b"hi".ljust(512, b"\0"))  # no end-of-archive blocks
+        sb.write_bytes("half.tar", buf.getvalue())
+        delegate._SEND = "cat /workspace/half.tar; exec sleep 100"
+        sent, notes = delegate._transfer(sb, agent, lambda rel, digest: True, "test", 10, timeout=15)
+        assert list(sent) == ["first.txt"] and any("timed out" in n for n in notes), (sent, notes)
+    finally:
+        delegate._SEND = old
+        agent.close()
         sb.close()
 
 

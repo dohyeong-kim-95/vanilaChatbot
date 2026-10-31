@@ -97,13 +97,15 @@ def _utf8(t):
     return t.encode("utf-8", "replace").decode("utf-8")
 
 
-# Source side (format gnu: _Info refuses pax headers, whatever the image's tar defaults to): regular files of at most MAX_OUTPUTS bytes (find -size), at most $1 of them, so a huge or sparse file
-# is never read. timeout kills find/tar inside the container (killing the docker exec client does not).
+# Source side: regular files of at most MAX_OUTPUTS bytes (find -size), at most $1 of them, so a huge or sparse file
+# is never read. timeout kills find/tar inside the container (killing the docker exec client does not). Format gnu:
+# _Info refuses pax headers, whatever the image's tar defaults to. --hard-dereference: a second name of a file is
+# sent as a file, not as a link member we would skip.
 _SEND = ('cd /workspace/outputs 2>/dev/null || exec tar -cf - -T /dev/null; '
          'n=$(find . -type f -size +$(($2))c | head -n 1000 | wc -l); '
          '[ "$n" -gt 0 ] && echo "$n file(s) over $(($2 / 1048576)) MB not sent" >&2; '
          'find . -type f -size -$(($2 + 1))c -print0 | head -z -n "$1" | '
-         'tar --null --format=gnu --no-recursion -T - -cf - --warning=no-file-changed')
+         'tar --null --format=gnu --hard-dereference --no-recursion -T - -cf - --warning=no-file-changed')
 # Destination side: Python's "data" filter refuses members that would land outside outputs/ through a link the
 # source container made (outputs/ws -> /workspace), absolute paths and ../; outputs/ itself must not be a link.
 # An existing file is unlinked first: writing into it would go through a hard link the source made
@@ -193,7 +195,7 @@ def _transfer(src, dst, keep, what, scan, timeout=120, known=lambda rel: False):
         c.start()
     killer = threading.Timer(timeout, lambda: (tx.kill(), rx.kill()))
     killer.start()
-    sent, notes, total, skipped = {}, [], 0, 0
+    sent, notes, total, skipped, ended = {}, [], 0, 0, False
     try:
         with tarfile.open(fileobj=_Capped(tx.stdout, cap), mode="r|", tarinfo=_Info) as tin, \
                 tarfile.open(fileobj=rx.stdin, mode="w|", format=tarfile.PAX_FORMAT) as tout:
@@ -227,17 +229,24 @@ def _transfer(src, dst, keep, what, scan, timeout=120, known=lambda rel: False):
                     tout.addfile(mo, buf)
                 sent[rel] = h.hexdigest()
                 total += mi.size
+            else:
+                ended = True
     except Exception as e:  # TarError, OSError, and what a forged header raises (ValueError, RecursionError, ...)
         notes.append(f"copying {what} stopped: {type(e).__name__}: {e}"[:300])
     finally:
         with contextlib.suppress(OSError):
             rx.stdin.close()
+        if ended:  # a stream cut by `timeout` at a block boundary looks complete: its exit code tells
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                tx.wait(5)
         tx.kill()
         rx.wait()
         tx.wait()
         killer.cancel()
         for c in caps:
             c.join(5)
+    if tx.returncode in (124, 137):
+        notes.append(f"copying {what} timed out; files after that point are missing")
     if skipped:
         notes.append(f"some files of {what} not copied: over the limit of {MAX_FILES} files / "
                      f"{MAX_OUTPUTS // 2**20} MB")

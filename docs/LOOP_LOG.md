@@ -765,3 +765,12 @@ sandbox 안에서 한 번에 심고, 저장소로 되돌린 뒤 확인했다.
 | Nice | nan 시각 테스트가 pax 거부로 먼저 막혀 이름과 내용이 다름, 시각 검사는 죽은 코드 | 테스트를 위조 헤더 메모 검사로 바꿈, 검사 제거(gnu 시각은 정수) | `t_forged_headers_are_noted` |
 | Nice | 에이전트 대화 중 예외 경로에 테스트 없음 | 테스트 추가 | `t_agent_error_still_copies_back` |
 | Nice | 감싼 예외의 원인이 사라짐 | `raise ... from err` | |
+
+### 23.9 아홉 번째 확인 리뷰 후 수정
+판정: Must 없음. 23.8 수정 4건 모두 확인(실제 GNU tar 출력으로 줄바꿈·한글·깨진 UTF-8 이름, 3000자 경로, 50MB, 극단 시각 통과). 사용자 결정: Should가 없을 때까지 루프.
+
+| # | 지적 | 수정 | 테스트 |
+|---|---|---|---|
+| Should | 에이전트가 하드 링크로 만든 두 번째 이름(`ln a.txt b.txt`)은 링크 멤버로 와서 메모 없이 빠짐(이전부터) | tar `--hard-dereference` | `t_hard_linked_outputs_arrive`(이전 코드 실패) |
+| Nice | 보내는 쪽이 제한 시간에 블록 경계에서 끊기면 정상 끝처럼 보임 | 스트림이 끝나면 보내는 쪽 종료 코드(124/137)를 확인해 메모 | `t_timed_out_copy_is_noted` |
+| Nice | 주석 줄이 김 | 줄바꿈 | |
