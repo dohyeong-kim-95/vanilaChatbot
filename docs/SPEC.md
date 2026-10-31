@@ -92,7 +92,7 @@
 
 ### 2.4 지연·비용
 - effort는 요청마다 OpenAI `reasoning_effort`로 보낸다(게이트웨이가 low–max 검증). 서버 기본값 low(`AGENT_EFFORT`), 프로젝트 settings `effort`로 올린다. 근거: Loop 15–16에서 max는 low보다 약 9–30배 느렸고 정확도는 같았다(k=1–2). [검증]
-- **effort 자동 조정** [검증: Loop 22]: run은 설정된 effort(기본 low)로 시작하고, 관찰할 수 있는 신호가 있을 때만 그 run을 `high`로 올린다(max는 쓰지 않는다). 신호: (1) 직전 답이 있는 대화에서 사용자가 정정("틀렸", "아닌데", "다시 확인" …, `CORRECTION_RE`), (2) tool 결과가 턴을 넘어 연속 2번 실패. 올라가면 SSE `effort` 이벤트를 보낸다. 낮추지는 않는다.
+- **effort 자동 조정** [검증: Loop 22]: run은 설정된 effort(기본 low)로 시작하고, 관찰할 수 있는 신호가 있을 때만 그 run을 `high`로 올린다(max는 쓰지 않는다). 신호: (1) 직전 답이 있는 대화에서 사용자가 정정. Loop 23.4부터 모델에 "정정인가?"를 low로 한 번 묻는다(`classify_correction`, 이전 사용자 메시지·직전 답 일부·새 메시지). 호출이 실패하거나 답이 yes/no가 아니면 정규식(`is_correction`)으로 판단한다. 실측(`tests/eval/correction`, 186문장 × 3회, Haiku low): 정확도 92%(정규식 84%), 호출 1회 중앙값 2.5초가 후속 메시지의 첫 응답 앞에 더해진다. (2) tool 결과가 턴을 넘어 연속 2번 실패. 올라가면 SSE `effort` 이벤트를 보낸다. 낮추지는 않는다.
 - [검증] 지연은 추론 effort가 지배: Haiku effort=max 6–9s/step, low ≈3s/step(CLI). 프롬프트 2k→25k 토큰은 영향 미미.
 - [검증] backend 차이: 같은 L2 스위트가 CLI 에뮬레이션 9분 33초 → 네이티브 API 104초. 운영은 네이티브 tool calling + streaming backend가 전제.
 - 작업 1건(버그 수정+커밋+PR)이 6–10 step → effort=max면 수 분. → **단계별 effort 정책**: 계획/검증은 높게, 단순 tool 반복은 낮게(모델 설정으로 노출).
@@ -220,7 +220,7 @@ def name(ctx, **args) -> str
 
 ### 4.7 연결된 에이전트 (다른 팀이 만든 Python 패키지) [검증: Loop 21, mock]
 - 등록: `agents/{name}/agent.json`(`name`, `description`, `entry: "module:function"`, `inputs` JSON Schema, `required`, `timeout` ≤ 600s, `llm_calls` ≤ 20, `approval`) + 코드. 운영자가 레포에 넣은 것만 등록된다. 에이전트마다 tool `agent__{name}`이 생기고, 설명 앞에 `[connected agent: name]`이 붙는다.
-- **신뢰하지 않는 코드**로 다룬다. 호출마다 **새 컨테이너**에서 실행하고 끝나면 지운다(`Sandbox.fresh()`: run과 같은 workspace와 읽기 전용 마운트, 네트워크 없음). workspace는 **읽기 전용**이다(에이전트가 `/workspace/json.py`를 심어 run sandbox의 다음 python이 그것을 import하게 만들 수 없다). 에이전트의 `/workspace/outputs`는 컨테이너 안 **메모리 폴더**(tmpfs 128MB, inode 4096)다. 호출 전에 run의 `outputs/`를, 호출 뒤에 에이전트가 새로 만들거나 바꾼 파일을 tar 스트림으로 옮긴다(`delegate._transfer`: 컨테이너마다 `docker exec` 1번, 서버가 중간에서 일반 파일·상대 경로만 골라 새 tar로 다시 씀, 방향마다 최대 1,000개·50MB). 옮기다 실패하거나 상한을 넘은 파일은 에이전트 결과 끝에 `[note: …]`로 적고, 결과는 그대로 돌려준다. run의 `outputs/`를 bind mount하지 않는 이유: run 안의 코드가 그것을 호스트 경로를 가리키는 링크로 바꾸면 Docker가 링크를 따라가 그 호스트 폴더를 에이전트에 쓰기 가능하게 붙인다(Loop 23.1 리뷰에서 재현). 호스트 임시 폴더도 쓰지 않는다(Loop 23.2: 파일마다 exec, 권한을 막으면 안 지워짐, 호스트 디스크 사용). 컨테이너 이름은 run 이름에서 만들어(`sbx-{run}-a…`), 서버가 죽은 뒤 run을 재개하면 남은 에이전트 컨테이너도 지운다. run의 sandbox와 프로세스·`/tmp`를 나누지 않으므로, 한 에이전트가 `/tmp`에 `.pth`를 심어 이후 python을 가로채거나 다른 프로세스의 stdout에 써서 결과를 위조할 수 없다(Loop 23, 재현 후 수정). `python -I`로 실행한다. 실행기 `agents/_runner.py`가 패키지를 불러 `run(task, inputs, ctx)`를 부른다.
+- **신뢰하지 않는 코드**로 다룬다. 호출마다 **새 컨테이너**에서 실행하고 끝나면 지운다(`Sandbox.fresh()`: run과 같은 workspace와 읽기 전용 마운트, 네트워크 없음). workspace는 **읽기 전용**이다(에이전트가 `/workspace/json.py`를 심어 run sandbox의 다음 python이 그것을 import하게 만들 수 없다). 에이전트의 `/workspace/outputs`는 컨테이너 안 **메모리 폴더**(tmpfs 128MB, inode 4096)다. 호출 전에 run의 `outputs/`를, 호출 뒤에 에이전트가 새로 만들거나 바꾼 파일을 tar 스트림으로 옮긴다(`delegate._transfer`: 컨테이너마다 `docker exec` 1번, 서버가 중간에서 일반 파일·상대 경로만 골라 새 tar로 다시 씀, 방향마다 최대 1,000개·50MB). 보내는 쪽 컨테이너가 `find -size`로 50MB 이하 일반 파일만 골라 보내므로 거대한 희소 파일은 읽지 않는다(Loop 23.3 리뷰: 4EB 파일 하나로 서버 스레드가 멈춤). 받는 쪽은 컨테이너 안 python의 tarfile `filter='data'`로 풀어, run이 만든 링크(`outputs/ws → /workspace`)를 따라 `outputs/` 밖에 쓰지 못한다. `outputs`가 링크면 쓰지 않는다. 복사 전에 에이전트 컨테이너의 프로세스를 모두 죽인다. 에이전트가 지운 파일은 run에서 지워지지 않고, 권한은 644로, 빈 폴더는 옮기지 않는다. 옮기다 실패하거나 상한을 넘은 파일은 에이전트 결과 끝에 `[note: …]`로 적고, 결과는 그대로 돌려준다. run의 `outputs/`를 bind mount하지 않는 이유: run 안의 코드가 그것을 호스트 경로를 가리키는 링크로 바꾸면 Docker가 링크를 따라가 그 호스트 폴더를 에이전트에 쓰기 가능하게 붙인다(Loop 23.1 리뷰에서 재현). 호스트 임시 폴더도 쓰지 않는다(Loop 23.2: 파일마다 exec, 권한을 막으면 안 지워짐, 호스트 디스크 사용). 컨테이너 이름은 run 이름에서 만들어(`sbx-{run}-a…`), 서버가 죽은 뒤 run을 재개하면 남은 에이전트 컨테이너도 지운다. run의 sandbox와 프로세스·`/tmp`를 나누지 않으므로, 한 에이전트가 `/tmp`에 `.pth`를 심어 이후 python을 가로채거나 다른 프로세스의 stdout에 써서 결과를 위조할 수 없다(Loop 23, 재현 후 수정). `python -I`로 실행한다. 실행기 `agents/_runner.py`가 패키지를 불러 `run(task, inputs, ctx)`를 부른다.
 - 프로토콜: stdin/stdout JSON 줄. 에이전트가 보낼 수 있는 것은 `progress`(UI 상태줄에 표시), `llm`(호스트가 우리 게이트웨이로 대신 호출, manifest 한도까지, role/content 메시지만), `result`, `error`뿐이다. 그 밖의 출력은 로그로만 남는다.
 - 호스트가 강제: 시간 제한(컨테이너 안 `timeout` + 호스트 타이머. 클라이언트만 끊으면 컨테이너 안 프로세스가 남는다), 한 줄 256KB, 메시지 2,000개. stderr는 끝까지 읽고 앞뒤만 보관한다(실패 시 마지막 줄을 보여 줌). 결과는 다른 tool 출력과 같은 경로(truncate → redact → spotlight)로 모델에게 간다.
 - 남은 한계: 에이전트가 `outputs/`에 남긴 `.py`는 그 폴더에서 실행되는 python에는 import될 수 있다(모델이 `outputs/` 안 스크립트를 실행하는 경우). `PYTHONSAFEPATH`는 모델이 workspace에 만든 보조 모듈 import를 깨뜨려서 쓰지 않았다.
@@ -500,7 +500,8 @@ tests/test_l12_triage.py      Loop 17 (sniff 판정, ask_user 중단/재개, 실
 tests/test_l13_logview.py     Loop 18 (집계 = 정답, 원문 미저장, Chrome에서 패턴·막대 클릭 → 캡처)
 tests/test_l14_review_fixes.py  Loop 19 (독립 리뷰 지적의 회귀: 심볼릭 링크 바꿔치기, 큰 출력, 예전 카드, 질문 전후 파일, sandbox 실패, 동시 업로드)
 tests/test_l15_agents.py      Loop 21 (연결된 에이전트: 결과·진행 이벤트, LLM 중계와 한도, 오동작 에이전트 격리, 모델의 선택)
-tests/test_l16_effort.py      Loop 22 (effort 정책: 정정 문구, 정정 시 상향, 연속 tool 오류 시 상향)
+tests/test_l16_effort.py      Loop 22 (effort 정책: 정정 문구, 정정 시 상향, 연속 tool 오류 시 상향, 모델 분류와 대체 경로)
+tests/eval/correction/run.py  Loop 23.4 (정정 분류기 정확도, 모델 필요)
 tests/test_l17_slides.py      Loop 23 (리뷰 회귀: shmoo 구멍 분리, 축 단위 구분자, 입력한 캡처 제목 초기화, 로그 주석 위치)
 tests/eval/logview/gen.py     합성 주문 서비스 로그 (배포 후 새 에러, 15분 장애, 스택 트레이스)
 tests/eval/shmoo/gen.py       합성 ATE shmoo 로그 (장치 24개 × 온도 2 × VDD 16 × 주파수 17, 결함 3종)

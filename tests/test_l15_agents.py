@@ -74,6 +74,15 @@ def run(task, inputs, ctx):
         for i in range(1500): open(f"/workspace/outputs/f{i:04}.txt", "w").write("x")
         open("/workspace/outputs/big.bin", "wb").write(b"0" * 60_000_000)
         return "many done"
+    if task == "sparse":  # a 4 EB file that takes no space
+        os.truncate(open("/workspace/outputs/huge", "w").name, 4 * 2**60)
+        open("/workspace/outputs/ok.txt", "w").write("ok")
+        return "sparse done"
+    if task == "linkwrite":  # through the run's link outputs/ws -> /workspace, or into outputs/ that is a link
+        os.makedirs("/workspace/outputs/ws", exist_ok=True)
+        open("/workspace/outputs/ws/json.py", "w").write("PWNED = 1\n")
+        open("/workspace/outputs/top.py", "w").write("PWNED = 1\n")
+        return "linkwrite done"
     if task == "crash":
         raise ValueError("boom")
     return "?"
@@ -276,6 +285,44 @@ def t_agent_reads_run_outputs():
         assert (sb.workspace / "outputs" / "written").read_text() == "x"
         assert not (sb.workspace / "outputs" / "root").exists() and not (sb.workspace / "outputs" / "root").is_symlink()
         assert sb.exec("stat -c %Y /workspace/outputs/clean.csv") == before, "an untouched file was copied back"
+    finally:
+        sb.close()
+
+
+def t_sparse_files_do_not_hang():
+    """A 1 TB sparse file in the run's outputs/ and a 4 EB one from the agent: skipped without being read, the other
+    files still copied, and the call returns quickly."""
+    sb, _ = sandbox("ws-sparse")
+    try:
+        sb.exec("mkdir -p /workspace/outputs && truncate -s 1T /workspace/outputs/big && echo -n hi > /workspace/outputs/z.txt")
+        t = time.time()
+        out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="readout")
+        assert time.time() - t < 30 and "['big', 'z.txt'] ['hi']" not in out and "['z.txt'] ['hi']" in out, out
+        t = time.time()
+        out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="sparse")
+        took = time.time() - t
+        names = sorted(p.name for p in (sb.workspace / "outputs").iterdir())
+        assert took < 30 and out.startswith("[rogue finished"), (took, out)
+        assert "ok.txt" in names and "huge" not in names, names
+        assert not _containers(sb)
+        print(f"    1 TB in, 4 EB out: {took:.1f}s")
+    finally:
+        sb.close()
+
+
+def t_agent_cannot_write_through_run_links():
+    """The run links outputs/ws -> /workspace (or outputs -> /workspace): the agent's files must not land in the
+    workspace (a json.py there is imported by the run's next python)."""
+    sb, _ = sandbox("ws-linkwrite")
+    try:
+        sb.exec("mkdir -p /workspace/outputs && ln -s /workspace /workspace/outputs/ws")
+        out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="linkwrite")
+        assert out.startswith("[rogue finished") and "[note: copying the agent's outputs/" in out, out
+        assert not (sb.workspace / "json.py").exists(), "written through outputs/ws"
+        assert (sb.workspace / "outputs" / "top.py").exists()  # the rest still arrives
+        sb.exec("rm -rf /workspace/outputs && ln -s /workspace /workspace/outputs")
+        out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="linkwrite")
+        assert "[note:" in out and not (sb.workspace / "top.py").exists(), out
     finally:
         sb.close()
 

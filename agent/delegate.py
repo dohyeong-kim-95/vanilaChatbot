@@ -66,14 +66,21 @@ def run_agent(ctx, name, task, inputs):
     # A fresh container per call: in the run's shared one, an agent could plant code that every later python there
     # runs (a .pth under /tmp) or write into another process's stdout. -I: no user site, no cwd on sys.path.
     # Its outputs/ is a tmpfs: the run's outputs/ are streamed in before, its new files streamed back after.
-    sb = ctx.sandbox.fresh()
     try:
-        seen, notes = _transfer(ctx.sandbox, sb, lambda rel, digest: True, "the run's outputs/ given to the agent")
+        sb = ctx.sandbox.fresh()
+    except subprocess.CalledProcessError as e:  # e.g. outputs/ is a file: say so without the docker command line
+        raise RuntimeError(f"could not start agent {name}: {e.stderr.decode(errors='replace').strip()[-300:]}") from None
+    try:
+        seen, notes = _transfer(ctx.sandbox, sb, lambda rel, digest: True, "the run's outputs/ given to the agent",
+                                MAX_FILES + 1)
         try:
             out, err = _talk(ctx, sb, name, m, task, inputs), None
         except RuntimeError as e:
             out, err = None, e
-        notes += _transfer(sb, ctx.sandbox, lambda rel, digest: seen.get(rel) != digest, "the agent's outputs/")[1]
+        # nothing of the agent's runs on while we copy (a background writer would race the copy)
+        subprocess.run(["docker", "exec", sb.name, "sh", "-c", "kill -9 -1"], capture_output=True, timeout=30)
+        notes += _transfer(sb, ctx.sandbox, lambda rel, digest: seen.get(rel) != digest, "the agent's outputs/",
+                           len(seen) + MAX_FILES + 1)[1]
     finally:
         sb.close()
     note = "".join(f"\n[note: {n}]" for n in notes)
@@ -82,15 +89,40 @@ def run_agent(ctx, name, task, inputs):
     return out + note
 
 
-def _transfer(src, dst, keep, what, timeout=120):
+# Source side: regular files of at most MAX_OUTPUTS bytes (find -size), at most $1 of them, so a huge or sparse file
+# is never read. timeout kills find/tar inside the container (killing the docker exec client does not).
+_SEND = ('cd /workspace/outputs 2>/dev/null || exec tar -cf - -T /dev/null; '
+         'find . -type f -size -$(($2 + 1))c -print0 | head -z -n "$1" | '
+         'tar --null --no-recursion -T - -cf - --warning=no-file-changed')
+# Destination side: Python's "data" filter refuses members that would land outside outputs/ through a link the
+# source container made (outputs/ws -> /workspace), absolute paths and ../; outputs/ itself must not be a link.
+_RECV = """import os, sys, tarfile
+d = "/workspace/outputs"
+if os.path.islink(d):
+    sys.exit("outputs/ is a symlink; nothing written")
+os.makedirs(d, exist_ok=True)
+bad = []
+with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as t:
+    for m in t:
+        try:
+            t.extract(m, d, filter="data")
+        except Exception as e:
+            bad.append(f"{m.name}: {type(e).__name__}: {e}")
+if bad:
+    sys.exit("; ".join(bad[:3]) + (f"; ... {len(bad)} files not written" if len(bad) > 3 else ""))
+"""
+
+
+def _transfer(src, dst, keep, what, scan, timeout=120):
     """Regular files under src's /workspace/outputs into dst's, as tar streams through us: one docker exec each
-    side; nothing lands on the host disk but a spool file (> 1 MB, deleted at once). Only regular files with plain relative names (no links, devices, ../), at most
-    MAX_FILES / MAX_OUTPUTS, and only those keep(rel, sha256) wants. Returns ({rel: sha256} sent, notes): a bad file,
+    side; nothing lands on the host disk but a spool file (> 1 MB, deleted at once). The source lists at most
+    `scan` files of at most MAX_OUTPUTS bytes (one more than we take, to know there were more); we pass on plain relative names only, at most MAX_FILES /
+    MAX_OUTPUTS in all, and only those keep(rel, sha256) wants. Returns ({rel: sha256} sent, notes): a bad file,
     the limit or a failing side becomes a note for the result, never an exception that hides the agent's answer."""
-    tx = subprocess.Popen(["docker", "exec", src.name, "tar", "-C", "/workspace/outputs", "-cf", "-", "."],
-                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    rx = subprocess.Popen(["docker", "exec", "-i", dst.name, "sh", "-c", "mkdir -p /workspace/outputs && "
-                           "tar -C /workspace/outputs -xf - --no-same-owner --no-same-permissions"],
+    inner = str(max(timeout - 10, 5))
+    tx = subprocess.Popen(["docker", "exec", src.name, "timeout", "-k", "2", inner, "sh", "-c", _SEND, "_", str(scan),
+                           str(MAX_OUTPUTS)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    rx = subprocess.Popen(["docker", "exec", "-i", dst.name, "timeout", "-k", "2", inner, "python", "-I", "-c", _RECV],
                           stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     caps = [_Cap(tx.stderr, 600), _Cap(rx.stderr, 600)]
     for c in caps:
@@ -102,6 +134,9 @@ def _transfer(src, dst, keep, what, timeout=120):
         with tarfile.open(fileobj=tx.stdout, mode="r|") as tin, \
                 tarfile.open(fileobj=rx.stdin, mode="w|", format=tarfile.PAX_FORMAT) as tout:
             for mi in tin:
+                if mi.size > MAX_OUTPUTS:  # grew after find looked: stop, never skip over it (that reads it all)
+                    notes.append(f"copying {what} stopped at {mi.name}: larger than {MAX_OUTPUTS // 2**20} MB")
+                    break
                 parts = [x for x in mi.name.split("/") if x not in ("", ".")]
                 if not mi.isfile() or not parts or ".." in parts or mi.name.startswith("/"):
                     continue
@@ -134,7 +169,7 @@ def _transfer(src, dst, keep, what, timeout=120):
         for c in caps:
             c.join(5)
     if skipped:
-        notes.append(f"{skipped} file(s) of {what} not copied: over the limit of {MAX_FILES} files / "
+        notes.append(f"{skipped}+ file(s) of {what} not copied: over the limit of {MAX_FILES} files / "
                      f"{MAX_OUTPUTS // 2**20} MB")
     errs = [c.text().strip() for c in caps if c.text().strip()]
     if rx.returncode or errs:  # tx is killed after we read it, its code says nothing; its stderr does

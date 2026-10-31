@@ -6,18 +6,25 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from agent.loop import Context, is_correction, run  # noqa: E402
+from agent.loop import CLASSIFY, Context, is_correction, run  # noqa: E402
 
 
 class Scripted:
-    def __init__(self, steps):
-        self.steps, self.efforts = list(steps), []
+    """Scripted model replies. A correction question (CLASSIFY) is answered by judge(new message) -> reply text,
+    by default the regex's verdict, and recorded in .judged instead of .efforts."""
+    def __init__(self, steps, judge=lambda text: "yes" if is_correction(text) else "no"):
+        self.steps, self.efforts, self.judge, self.judged = list(steps), [], judge, []
         self.chat = self.completions = self
 
     def create(self, **kw):
         from openai.types.chat import ChatCompletion
-        self.efforts.append((kw.get("extra_body") or {}).get("reasoning_effort"))
-        msg = self.steps.pop(0)
+        if kw["messages"][0]["content"] == CLASSIFY:
+            text = kw["messages"][1]["content"].split("NEW user message:\n", 1)[1]
+            self.judged.append(text)
+            msg = {"role": "assistant", "content": self.judge(text)}
+        else:
+            self.efforts.append((kw.get("extra_body") or {}).get("reasoning_effort"))
+            msg = self.steps.pop(0)
         return ChatCompletion.model_validate({"id": "x", "object": "chat.completion", "created": 0, "model": "m",
                                               "choices": [{"index": 0, "finish_reason": "stop", "message": msg}]})
 
@@ -126,6 +133,28 @@ def t_escalation_survives_compaction():
     c = Scripted([DONE])
     run(None, Context(), tool_names=["current_time"], client=c, model="m", history=out, effort="low", log=lambda *_: None)
     assert c.efforts == ["high"], c.efforts
+
+
+def t_model_decides_correction():
+    """The model's yes/no decides (phrasings no regex catches); a failed call or an odd reply falls back to the regex;
+    no question without an earlier answer or when the effort is already high."""
+    hist = lambda: [{"role": "system", "content": "s"}, {"role": "user", "content": "q"},  # noqa: E731
+                    {"role": "assistant", "content": "카드A 합계는 1,500원"}]
+    for text, reply, want in (("오답이에요", "yes", "high"), ("3월이 빠졌어요", "Yes.", "high"), ("nope, card B", "네", "high"),
+                              ("틀렸어요", "no", "low"), ("아니에요 괜찮아요", "No", "low"),
+                              ("틀렸어요", "음… 잘 모르겠네요", "high"), ("좋아요 고마워요", "", "low")):
+        c = Scripted([DONE], judge=lambda _t, r=reply: r)
+        run(text, Context(), client=c, model="m", history=hist(), effort="low", log=lambda *_: None)
+        assert c.efforts == [want] and c.judged == [text], (text, reply, c.efforts, c.judged)
+    c = Scripted([DONE], judge=lambda _t: 1 / 0)  # the call fails: regex
+    run("틀렸어요", Context(), client=c, model="m", history=hist(), effort="low", log=lambda *_: None)
+    assert c.efforts == ["high"], c.efforts
+    c = Scripted([DONE])
+    run("오답이에요", Context(), client=c, model="m", history=[], effort="low", log=lambda *_: None)
+    assert c.efforts == ["low"] and not c.judged, c.judged  # nothing answered yet
+    c = Scripted([DONE])
+    run("오답이에요", Context(), client=c, model="m", history=hist(), effort="high", log=lambda *_: None)
+    assert not c.judged, c.judged
 
 
 def t_escalates_on_tool_error_streak():

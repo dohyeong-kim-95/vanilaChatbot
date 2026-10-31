@@ -187,9 +187,9 @@ ESCALATE = "high"
 # Phrases that call the previous answer wrong, not new requests that mention errors ("잘못 입력된 거래 찾아줘",
 # "what went wrong", "카드B로 다시 해줘"). The message is split into clauses (at punctuation and after a Korean
 # sentence ending: "틀렸어요 다시 찾아줘" is a correction followed by a request); a clause that asks for something
-# new (ends in 찾아줘/보여줘…, starts with find/list…) or is conditional (if/when/where…) is not a correction.
+# new (ends in 찾아줘/보여줘…, starts with find/list…) or starts conditional (if/when/where…) is not a correction.
 # A heuristic: misses cost one cheap run, false hits one slower one. Checked against lists both ways in
-# tests/test_l16_effort.py; docs/TODO.md has the alternative (ask the model).
+# tests/test_l16_effort.py. Since Loop 23.4 the model decides (classify_correction); this is its fallback.
 _END = r"(?=\s*([.,!?;:]|$|(because|since|again)\b))"  # "that's wrong." but not "this is incorrect usage"
 CORRECTION_RE = re.compile(
     r"틀렸|틀려|틀리(네|는데|잖|다)|틀린\s*(것|거|듯|데)|틀림(?!\S)|아닌데|아니잖|아닌\s*(것|거|듯)|(그게|그건|이게|이건)\s*아니"
@@ -207,14 +207,16 @@ CORRECTION_RE = re.compile(
 REQUEST_RE = re.compile(
     r"(찾아|보여|지워|세어?|만들어|뽑아|골라|표시해|알려|추가해|넣어|정리해)\s*(줘|주세요|줄래|주실)\S*\s*[.!]?\s*$"
     r"|^\s*(please\s+)?(find|list|flag|show|count|remove|delete|filter|highlight|extract|add|make)\b"
-    r"|\b(if|when|whenever|whether|where|which|unless)\b", re.I)
-# after , . ! ? (not a decimal point), a newline, or a Korean sentence ending (요 어 네 다 데) before the next word
+    r"|^\s*(whether|where|which)\b|\b(if|when|whenever|unless)\b", re.I)
+DECLINE_RE = re.compile(r"^\s*(아니(요|에요|예요|야)|아뇨|no)\W*\s*(괜찮|감사|고마|됐어|됐습|끝|thanks|thank you|i'?m good)", re.I)
+# after , . ! ? (not a decimal point), a newline, or a Korean sentence ending (요 어 아 네 다 데 까, 이야/니야) before the next word
 # (not before a request auxiliary: "세어 줘" stays one clause)
-CLAUSE_RE = re.compile(r"(?<=[,!?])|(?<=\.)(?!\d)|\n|(?<=[가-힣][요어네다데])\s+(?!(?:줘|주세요|줄래|주실|봐|보세요))")
+CLAUSE_RE = re.compile(r"(?<=[,!?])|(?<=\.)(?!\d)|\n|(?:(?<=[가-힣][요어아네다데까])|(?<=[니이]야))\s+(?!(?:줘|주세요|줄래|주실|봐|보세요))")
 
 
 def is_correction(text):
-    return any(CORRECTION_RE.search(c) and not REQUEST_RE.search(c) for c in CLAUSE_RE.split(str(text)) if c)
+    """Regex heuristic: the fallback when the model cannot be asked (classify_correction)."""
+    return not DECLINE_RE.search(str(text)) and any(CORRECTION_RE.search(c) and not REQUEST_RE.search(c) for c in CLAUSE_RE.split(str(text)) if c)
 
 
 ERROR_STREAK = 2
@@ -236,17 +238,57 @@ def _error_streak(msgs):
     return n
 
 
-def _corrects(task, msgs):
+CLASSIFY = """Does the user's NEW message tell the assistant that its PREVIOUS ANSWER is wrong?
+
+Answer yes when the user says or implies the previous answer is wrong, inaccurate, incomplete, or not what they
+asked for: "wrong", "no, I meant X", "that's not what I asked", "are you sure?", "is that right?", "the total
+should be 1,200", "you missed X", "X is missing", "아뇨", "아니요, X요", "틀렸어요", "오답", "빠졌어요",
+"확실해요?", "맞아요?" (doubting the answer). A correction followed by a new instruction is still yes
+("틀렸어요, 다시 찾아줘", "wrong, use card B").
+
+Answer no when the message is a new request or follow-up that does not dispute the answer, even if it contains
+words like wrong/error/잘못/틀린/이상한 that describe the user's DATA or another topic: "find the wrong rows",
+"잘못 입력된 거래 찾아줘", "틀린 철자 표시해줘", "what went wrong in this log?", "which quiz answers are
+wrong?", "flag rows where the total is wrong"; also thanks, praise and polite declines ("아니에요 괜찮아요",
+"no thanks", "좋아요 이제 3월 거 해줘").
+
+Messages may be Korean or English. Reply with one word: yes or no."""
+
+
+def classify_correction(client, model, prev, text, effort="low", asked=""):
+    """The model's yes/no on CLASSIFY (Loop 23.4: four rounds of regex fixes kept missing everyday phrasings such as
+    "오답이에요", "3월이 빠졌어요", "nope, card B"). Falls back to is_correction when the call fails or the reply is
+    not yes/no. One short call per message that follows an answer, at low effort. tests/eval/correction measures it."""
+    try:
+        r = client.chat.completions.create(model=model, messages=[
+            {"role": "system", "content": CLASSIFY},
+            {"role": "user", "content": (f"User's earlier message:\n{asked[-1000:]}\n\n" if asked else "") +
+             f"PREVIOUS ANSWER (excerpt):\n{prev[-1500:]}\n\nNEW user message:\n{text[-2000:]}"}],
+            **({"extra_body": {"reasoning_effort": effort}} if effort else {}))
+        word = re.sub(r"[^a-z가-힣]", "", (r.choices[0].message.content or "").strip().split()[0].lower())
+    except Exception:
+        word = ""
+    if word in ("yes", "예", "네"):
+        return True
+    if word in ("no", "아니오", "아니요"):
+        return False
+    return is_correction(text)
+
+
+def _corrects(task, msgs, judge):
     """The user's newest message calls an earlier answer wrong. task=None (resume after ask_user/approval/restart):
-    the last user message in the history, so an escalated run stays escalated."""
+    the last user message in the history, so an escalated run stays escalated. judge(prev answer, text, earlier
+    user message) -> bool."""
     if task is None:
         i = max((i for i, m in enumerate(msgs) if m["role"] == "user"), default=None)
         if i is None or (task := _user_text(msgs[i])) is None:
             return False
         if str(msgs[i]["content"]).startswith(SUMMARY):  # compacted: earlier answers were summarized with it
-            return is_correction(task)
+            return judge("(earlier answers are summarized; not shown)", task, "")
         msgs = msgs[:i]
-    return is_correction(task) and any(m["role"] == "assistant" for m in msgs)
+    prev = next((str(m.get("content") or "") for m in reversed(msgs) if m["role"] == "assistant"), None)
+    asked = next((_user_text(m) or "" for m in reversed(msgs) if m["role"] == "user"), "")
+    return prev is not None and judge(prev, task, asked)
 
 
 def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, history=None, log=print,
@@ -258,7 +300,7 @@ def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, histo
                               api_key=os.environ.get("LLM_API_KEY", "dummy"))
     model = model or os.environ.get("LLM_MODEL") or client.models.list().data[0].id
     msgs = history if history is not None else [{"role": "system", "content": SYSTEM}]
-    if _cheap(effort) and _corrects(task, msgs):
+    if _cheap(effort) and _corrects(task, msgs, lambda prev, text, asked: classify_correction(client, model, prev, text, effort, asked)):
         effort = ESCALATE
         emit({"type": "effort", "effort": effort, "reason": "correction"})
     if task is not None:
