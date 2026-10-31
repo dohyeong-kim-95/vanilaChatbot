@@ -111,6 +111,13 @@ def est_tokens(msgs):
 
 
 SUMMARY, LATEST = "[Summary of earlier work]\n", "\n[Latest user message]\n"
+# Our verdict on a user message (did it correct the previous answer?), kept on that message in the history so a
+# resume, a restart or a compaction keeps the run's effort without asking the model again. Never sent to the model.
+VERDICT = "x_correction"
+
+
+def _wire(msgs):
+    return [{k: v for k, v in m.items() if k != VERDICT} if VERDICT in m else m for m in msgs]
 
 
 def _user_text(m):
@@ -145,12 +152,15 @@ def compact(msgs, client, model, budget, keep_tools=2, notes=()):
     r = client.chat.completions.create(model=model, messages=[
         {"role": "system", "content": "Summarize this agent transcript for the agent itself: what was done, "
          "files read/changed, key facts found (quote exact values), decisions, and what remains. Be concise."},
-        {"role": "user", "content": json.dumps(middle, ensure_ascii=False)}])
+        {"role": "user", "content": json.dumps(_wire(middle), ensure_ascii=False)}])
     saved = "".join(f"\n- {n}" for n in notes)
     # the newest user message goes in verbatim: a resumed run reads it to keep a correction's effort (_corrects)
-    latest = next((t for m in reversed(middle) if m["role"] == "user" and (t := _user_text(m)) is not None), None)
+    last = next((m for m in reversed(middle) if m["role"] == "user" and _user_text(m) is not None), None)
+    latest = _user_text(last) if last else ""
     summary = {"role": "user", "content": SUMMARY + r.choices[0].message.content
-               + (f"\n[Saved notes]{saved}" if saved else "") + LATEST + (latest or "")[-2000:]}  # always present; the end, where a correction usually is
+               + (f"\n[Saved notes]{saved}" if saved else "") + LATEST + _ends(latest, 2000)}  # always present
+    if last and VERDICT in last:
+        summary[VERDICT] = last[VERDICT]
     return head + [summary, {"role": "assistant", "content": "Understood, continuing."}] + tail
 
 
@@ -264,8 +274,8 @@ def classify_correction(client, model, prev, text, effort="low", asked=""):
     "오답이에요", "3월이 빠졌어요", "nope, card B"). Falls back to is_correction when the call fails or the reply is
     not yes/no. One short call per message that follows an answer, at low effort. tests/eval/correction measures it."""
     key = hashlib.sha256(json.dumps([prev, text, asked]).encode()).hexdigest()
-    if key in _DECIDED:  # the same message again (a resume after approval/ask_user): the same answer
-        return _DECIDED[key]
+    if (yes := _DECIDED.get(key)) is not None:  # the same message again (an old history without VERDICT)
+        return yes
     try:  # a hung gateway must not hold the run: short timeout, no retries, then the regex
         c = client.with_options(timeout=15, max_retries=0) if hasattr(client, "with_options") else client
         r = c.chat.completions.create(model=model, messages=[
@@ -283,7 +293,7 @@ def classify_correction(client, model, prev, text, effort="low", asked=""):
     return yes
 
 
-_DECIDED = {}  # (prev, text, asked) -> verdict, so a resumed run keeps its effort (the model is not deterministic)
+_DECIDED = {}  # (prev, text, asked) -> verdict, for messages judged again (the model is not deterministic)
 
 
 def _ends(t, n):
@@ -293,10 +303,12 @@ def _ends(t, n):
 
 def _corrects(task, msgs, judge):
     """The user's newest message calls an earlier answer wrong. task=None (resume after ask_user/approval/restart):
-    the last user message in the history, so an escalated run stays escalated. judge(prev answer, text, earlier
-    user message) -> bool."""
+    the last user message in the history, so an escalated run stays escalated: the verdict stored on it (VERDICT),
+    else asked again. judge(prev answer, text, earlier user message) -> bool."""
     if task is None:
         i = max((i for i, m in enumerate(msgs) if m["role"] == "user"), default=None)
+        if i is not None and VERDICT in msgs[i]:
+            return bool(msgs[i][VERDICT])
         if i is None or (task := _user_text(msgs[i])) is None:
             return False
         if str(msgs[i]["content"]).startswith(SUMMARY):  # compacted: earlier answers were summarized with it
@@ -317,13 +329,17 @@ def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, histo
                               api_key=os.environ.get("LLM_API_KEY", "dummy"))
     model = model or os.environ.get("LLM_MODEL") or client.models.list().data[0].id
     msgs = history if history is not None else [{"role": "system", "content": SYSTEM}]
-    if _cheap(effort) and _corrects(task, msgs, lambda prev, text, asked: classify_correction(client, model, prev, text, effort, asked)):
-        effort = ESCALATE
-        emit({"type": "effort", "effort": effort, "reason": "correction"})
+    corrected = None
+    if _cheap(effort):
+        corrected = _corrects(task, msgs, lambda prev, text, asked: classify_correction(client, model, prev, text,
+                                                                                        effort, asked))
+        if corrected:
+            effort = ESCALATE
+            emit({"type": "effort", "effort": effort, "reason": "correction"})
     if task is not None:
         for tc in pending_calls(msgs):  # a previous run failed mid-call: every tool_use needs its result first
             msgs.append({"role": "tool", "tool_call_id": tc["id"], "content": "ERROR: not run; the previous run failed."})
-        msgs.append({"role": "user", "content": task})
+        msgs.append({"role": "user", "content": task, **({VERDICT: corrected} if corrected is not None else {})})
         checkpoint(msgs, None)
         if ctx.router:
             ctx.router.start(task)
@@ -342,7 +358,7 @@ def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, histo
         msgs[:] = compact(msgs, client, model, budget, notes=ctx.notes)
         if ctx.router:  # tools may grow after search_tools; keep the list sorted so the prefix is stable
             tools = sorted(ctx.router.schemas(), key=lambda t: t["function"]["name"])
-        r = client.chat.completions.create(model=model, messages=msgs, tools=tools,
+        r = client.chat.completions.create(model=model, messages=_wire(msgs), tools=tools,
                                            **({"extra_body": {"reasoning_effort": effort}} if effort else {}))
         ctx.effort_used = effort
         m = r.choices[0].message

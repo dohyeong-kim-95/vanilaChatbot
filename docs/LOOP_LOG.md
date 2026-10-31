@@ -732,3 +732,16 @@ sandbox 안에서 한 번에 심고, 저장소로 되돌린 뒤 확인했다.
 | Should | 재개할 때마다 다시 물어서, 같은 메시지인데 effort가 바뀔 수 있음 | 같은 메시지 판정을 프로세스 안에서 기억 | `t_classifier_context_and_resume` |
 | Nice | 50MB 초과 파일을 알리지 않음, 직전 답 대신 tool 호출 턴을 넘김, "아니요 괜찮아요. 근데 틀렸어요"를 거절로만 봄, `kill` 시간 초과가 결과를 가림, 빈 스트림이면 traceback | 보내지 않은 수를 메모, tool 호출 턴 건너뜀, 거절 뒤 문장은 따로 판단, 예외 처리, 짧은 메시지 | `t_sparse_files_do_not_hang` |
 
+### 23.6 여섯 번째 확인 리뷰 후 수정
+판정: Must 없음(루프 종료 조건 충족). Should 3, Nice 5 중 아래를 고쳤고, 새 테스트는 고치기 전 코드에서 실패한다.
+
+| # | 지적 | 수정 | 테스트 |
+|---|---|---|---|
+| Should | 돌려받을 때 run에서 받아 그대로 둔 파일까지 50MB에 세서, 에이전트가 새로 만든 파일이 빠짐(20MB×2 + 새 40MB·6바이트 → 둘 다 빠짐) | 상한 검사를 keep() 뒤로, 읽기 상한은 50MB×3 | `t_new_files_not_dropped_for_unchanged_ones` |
+| Should | 압축·서버 재시작 뒤 재개하면 정정 판정을 다시 물어 effort가 low로 돌아갈 수 있음 | 판정을 사용자 메시지에 `x_correction`으로 저장(모델에는 안 보냄), 압축 요약이 물려받음, 압축은 앞뒤 2,000자 | `t_verdict_kept_in_history` |
+| Should | 위조 스트림 한 번에 서버 메모리 약 110MB(동시 run마다) | 16KB 넘는 pax·긴 이름 헤더와 희소 멤버를 읽기 전에 거부. 희소 맵 공격(이번에 찾음)은 이전 코드에서 +431MB·18초 | `t_run_cannot_flood_host_memory`(둘 다 지금 +0MB) |
+| Nice | 파일 시각이 nan·inf면 ValueError로 에이전트 결과가 사라짐 | 유한한 정수로 바꿈, 모든 예외를 메모로 | `t_odd_file_time_keeps_result` |
+| Nice | 결과·메모의 짝 없는 서로게이트(`\ud800`)가 SQLite 이벤트 저장을 깨뜨림 | 반환 전에 UTF-8로 치환 | `t_lone_surrogate_in_result` |
+| Nice | 판정 캐시 확인과 읽기 사이에 clear() 경쟁 | `.get` 한 번 | |
+
+남김: 15초 제한이 읽기 한 번 기준(N3), 복사 의미(권한 644, 큰 파일 뒤 작은 파일, 받는 쪽이 실패한 파일도 `sent`에 들어감)(N5).

@@ -10,6 +10,7 @@ Timeouts, line size and message count are enforced here, outside the sandbox.
 import contextlib
 import hashlib
 import json
+import math
 import re
 import subprocess
 import tarfile
@@ -86,8 +87,14 @@ def run_agent(ctx, name, task, inputs):
         sb.close()
     note = "".join(f"\n[note: {n}]" for n in notes)
     if err:
-        raise RuntimeError(f"{err}{note}")
-    return out + note
+        raise RuntimeError(_utf8(f"{err}{note}"))
+    return _utf8(out + note)
+
+
+def _utf8(t):
+    """Lone surrogates (a file name tar could not decode, a "\\ud800" in the agent's JSON) would fail the event's
+    write to SQLite and the stream to the UI."""
+    return t.encode("utf-8", "replace").decode("utf-8")
 
 
 # Source side: regular files of at most MAX_OUTPUTS bytes (find -size), at most $1 of them, so a huge or sparse file
@@ -125,6 +132,27 @@ if bad:
 """
 
 
+class _Info(tarfile.TarInfo):
+    """Header parsing that cannot be made to hold much in memory: a pax or GNU long-name header is read whole before
+    any check of ours, and sparse maps become one Python object per number. Our tar sends neither sparse files nor
+    names near this size, so such a header is a forged stream: stop."""
+    MAX_HEADER = 16 * 1024
+
+    def _proc_member(self, tf):
+        if self.type == tarfile.GNUTYPE_SPARSE:
+            raise tarfile.HeaderError("sparse member")
+        if self.type in (tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK, tarfile.XHDTYPE,
+                         tarfile.XGLTYPE, tarfile.SOLARIS_XHDTYPE) and \
+                self.size > self.MAX_HEADER:
+            raise tarfile.HeaderError(f"extended header of {self.size} bytes")
+        return super()._proc_member(tf)
+
+    def _proc_gnusparse_00(self, *a):
+        raise tarfile.HeaderError("sparse member")
+
+    _proc_gnusparse_01 = _proc_gnusparse_10 = _proc_gnusparse_00
+
+
 class _Capped:
     """A pipe that fails once more than `cap` bytes were read from it."""
     def __init__(self, f, cap):
@@ -147,9 +175,9 @@ def _transfer(src, dst, keep, what, scan, timeout=120):
     the limit or a failing side becomes a note for the result, never an exception that hides the agent's answer."""
     inner = str(max(timeout - 10, 5))
     # the source container can write its own stream (stop our tar, write to its stdout): a header that claims
-    # 1 GB would be read into our memory before any member check. Never read more than the files we may take,
-    # the unchanged ones keep() skips (copy-out) and their headers.
-    cap = 2 * MAX_OUTPUTS + scan * 8192
+    # 1 GB would be read into our memory before any member check (_Info refuses that). Never read more than the
+    # files we may take, the unchanged ones keep() skips (copy-out), the one that is over the limit, and headers.
+    cap = 3 * MAX_OUTPUTS + scan * 8192
     tx = subprocess.Popen(["docker", "exec", src.name, "timeout", "-k", "2", inner, "sh", "-c", _SEND, "_", str(scan),
                            str(MAX_OUTPUTS)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     rx = subprocess.Popen(["docker", "exec", "-i", dst.name, "timeout", "-k", "2", inner, "python", "-I", "-c", _RECV],
@@ -161,7 +189,7 @@ def _transfer(src, dst, keep, what, scan, timeout=120):
     killer.start()
     sent, notes, total, skipped = {}, [], 0, 0
     try:
-        with tarfile.open(fileobj=_Capped(tx.stdout, cap), mode="r|") as tin, \
+        with tarfile.open(fileobj=_Capped(tx.stdout, cap), mode="r|", tarinfo=_Info) as tin, \
                 tarfile.open(fileobj=rx.stdin, mode="w|", format=tarfile.PAX_FORMAT) as tout:
             for mi in tin:
                 if mi.size > MAX_OUTPUTS:  # grew after find looked: stop, never skip over it (that reads it all)
@@ -171,9 +199,8 @@ def _transfer(src, dst, keep, what, scan, timeout=120):
                 if not mi.isfile() or not parts or ".." in parts or mi.name.startswith("/"):
                     continue
                 rel = "/".join(parts)
-                if len(sent) >= MAX_FILES or total + mi.size > MAX_OUTPUTS:
-                    skipped += 1  # stop here: skipping on would still read every later file through us
-                    break
+                # over the limit unless keep() skips it: a file the run already has (copy-out) does not count
+                over = len(sent) >= MAX_FILES or total + mi.size > MAX_OUTPUTS
                 with tempfile.SpooledTemporaryFile(1 << 20) as buf:
                     h = hashlib.sha256()
                     for chunk in iter(lambda f=tin.extractfile(mi): f.read(1 << 16), b""):
@@ -181,13 +208,17 @@ def _transfer(src, dst, keep, what, scan, timeout=120):
                         buf.write(chunk)
                     if not keep(rel, h.hexdigest()):
                         continue
+                    if over:
+                        skipped += 1  # stop here: skipping on would still read every later file through us
+                        break
                     buf.seek(0)
                     mo = tarfile.TarInfo(rel)
-                    mo.size, mo.mtime, mo.mode = mi.size, mi.mtime, 0o644
+                    mtime = mi.mtime if isinstance(mi.mtime, (int, float)) and math.isfinite(mi.mtime) else 0
+                    mo.size, mo.mtime, mo.mode = mi.size, int(min(max(mtime, 0), 2**33 - 1)), 0o644
                     tout.addfile(mo, buf)
                 sent[rel] = h.hexdigest()
                 total += mi.size
-    except (tarfile.TarError, OSError) as e:
+    except Exception as e:  # TarError, OSError, and what a forged header raises (ValueError, RecursionError, ...)
         notes.append(f"copying {what} stopped: {type(e).__name__}: {e}"[:300])
     finally:
         with contextlib.suppress(OSError):

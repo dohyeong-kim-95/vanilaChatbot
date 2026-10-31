@@ -14,7 +14,7 @@ class Scripted:
     """Scripted model replies. A correction question (CLASSIFY) is answered by judge(new message) -> reply text,
     by default the regex's verdict, and recorded in .judged instead of .efforts."""
     def __init__(self, steps, judge=lambda text: "yes" if is_correction(text) else "no"):
-        self.steps, self.efforts, self.judge, self.judged = list(steps), [], judge, []
+        self.steps, self.efforts, self.judge, self.judged, self.sent = list(steps), [], judge, [], []
         self.chat = self.completions = self
 
     def create(self, **kw):
@@ -25,6 +25,7 @@ class Scripted:
             msg = {"role": "assistant", "content": self.judge(text)}
         else:
             self.efforts.append((kw.get("extra_body") or {}).get("reasoning_effort"))
+            self.sent.append(kw["messages"])
             msg = self.steps.pop(0)
         return ChatCompletion.model_validate({"id": "x", "object": "chat.completion", "created": 0, "model": "m",
                                               "choices": [{"index": 0, "finish_reason": "stop", "message": msg}]})
@@ -184,6 +185,28 @@ def t_classifier_context_and_resume():
     c = Judge([DONE], judge=lambda _t: "no")
     run(None, Context(), tool_names=["current_time"], client=c, model="m", history=hist, effort="low", log=lambda *_: None)
     assert c.efforts == ["high"] and len(seen) == 1, (c.efforts, len(seen))
+
+
+def t_verdict_kept_in_history():
+    """The verdict is stored on the user message (not sent to the model), so a resume after a restart (no in-memory
+    cache) or after compaction stays escalated without asking again, even if the model would now say no."""
+    hist = [{"role": "system", "content": "s"}, {"role": "user", "content": "카드A 합계 알려줘"},
+            {"role": "assistant", "content": "합계는 1,500원"}]
+    c = Scripted([call("q1", "current_time", {}), DONE], judge=lambda _t: "yes")
+    run("틀렸어요", Context(), tool_names=["current_time"], client=c, model="m", history=hist, effort="low",
+        log=lambda *_: None)
+    assert c.efforts == ["high", "high"] and hist[3].get(loop.VERDICT) is True, (c.efforts, hist[3])
+    assert not any(loop.VERDICT in m for sent in c.sent for m in sent), "the verdict reached the model"
+    for compacted in (False, True):
+        loop._DECIDED.clear()  # a restarted server
+        if compacted:
+            hist[:] = loop.compact(hist, Scripted([{"role": "assistant", "content": "summary"}]), "m", budget=1)
+            assert hist[2]["content"].startswith(loop.SUMMARY) and hist[2].get(loop.VERDICT) is True, hist[2]
+        hist.append(call(f"r{compacted}", "current_time", {}))  # paused on a tool call (approval), then resumed
+        c = Scripted([DONE], judge=lambda _t: "no")
+        run(None, Context(), tool_names=["current_time"], client=c, model="m", history=hist, effort="low",
+            log=lambda *_: None)
+        assert c.efforts == ["high"] and not c.judged, (compacted, c.efforts, c.judged)
 
 
 def t_escalates_on_tool_error_streak():

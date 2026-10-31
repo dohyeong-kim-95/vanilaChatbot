@@ -86,6 +86,13 @@ def run(task, inputs, ctx):
     if task == "hl":
         open("/workspace/outputs/h.txt", "w").write("AGENT")
         return "hl done"
+    if task == "mixed":  # a big and a small new file next to the run's big files (given to us, left alone)
+        open("/workspace/outputs/new.bin", "wb").write(b"1" * 40_000_000)
+        open("/workspace/outputs/small.txt", "w").write("small")
+        return "mixed done"
+    if task == "surrogate":
+        sys.__stdout__.write('{"type": "result", "content": "bad \\ud800 name"}\n'); sys.__stdout__.flush()
+        os._exit(0)
     if task == "crash":
         raise ValueError("boom")
     return "?"
@@ -345,6 +352,7 @@ def t_agent_cannot_write_through_run_hardlinks():
 
 INJECT = r"""
 import os, sys, tarfile, time
+mode = sys.argv[1]
 t0 = time.time()
 while time.time() - t0 < 60:
     for p in filter(str.isdigit, os.listdir("/proc")):
@@ -355,30 +363,66 @@ while time.time() - t0 < 60:
         if cmd.startswith(b"tar\0--null"):
             os.kill(int(p), 19)  # SIGSTOP our tar, then write our own stream on its stdout
             ti = tarfile.TarInfo("evil.txt")
-            ti.pax_headers = {"comment": "x" * 300_000_000}
             with open(f"/proc/{p}/fd/1", "wb") as f:
-                f.write(ti.tobuf(tarfile.PAX_FORMAT))
+                if mode == "pax":  # a header that claims 300 MB
+                    ti.pax_headers = {"comment": "x" * 300_000_000}
+                    f.write(ti.tobuf(tarfile.PAX_FORMAT))
+                elif mode == "sparse":  # a GNU 1.0 sparse map of 100M numbers: one Python int each
+                    ti.pax_headers = {"GNU.sparse.major": "1", "GNU.sparse.minor": "0", "GNU.sparse.name": "evil.txt"}
+                    f.write(ti.tobuf(tarfile.PAX_FORMAT) + b"100000000\n")
+                    for _ in range(300):
+                        f.write(b"1\n" * 500_000)
             open("/tmp/injected", "w").write("1")
             sys.exit()
 """
 
 
-def t_run_cannot_flood_host_memory():
-    """The run stops our tar and writes a tar whose header claims 300 MB: we stop reading, the host does not hold it."""
+def _inject(name, mode):
+    """The run stops our tar (copy-in) and writes its own stream instead. -> (agent's result, host MB grown)"""
     import resource
-    sb, _ = sandbox("ws-inject")
+    sb, _ = sandbox(name)
     try:
         sb.write_bytes("inject.py", INJECT.encode())
         sb.exec("mkdir -p /workspace/outputs && for i in $(seq 300); do head -c 100000 /dev/urandom > /workspace/outputs/f$i; done")
-        sb.exec("setsid python /workspace/inject.py > /dev/null 2>&1 < /dev/null &")
+        sb.exec(f"setsid python /workspace/inject.py {mode} > /dev/null 2>&1 < /dev/null &")
         before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024
         out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="readout")
         grew = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024 - before
         assert "exit_code=0\n1" == sb.exec("cat /tmp/injected"), "the injection did not happen (race); rerun"
-        assert out.startswith("[rogue finished") and "evil" not in out.split("\n")[1], out[:300]
-        assert grew < 150, f"host grew {grew} MB"
-        print(f"    host memory +{grew} MB")
+        return out, grew
     finally:
+        sb.close()
+
+
+def t_run_cannot_flood_host_memory():
+    """A header that claims 300 MB, or a sparse map of 100M numbers: refused before it is read, the host does not
+    hold it."""
+    for mode in ("pax", "sparse"):
+        out, grew = _inject(f"ws-inject-{mode}", mode)
+        assert out.startswith("[rogue finished") and "evil" not in out.split("\n")[1], out[:300]
+        assert grew < 40, f"{mode}: host grew {grew} MB"
+        print(f"    {mode}: host memory +{grew} MB")
+
+
+def t_odd_file_time_keeps_result():
+    """The run's stream has a file whose time is nan or inf (Python cannot make an int of it): the file and the
+    agent's answer still arrive. The stream is sent as is (a stopped tar's pipe is a race to write into)."""
+    import io
+    import tarfile
+    sb, _ = sandbox("ws-mtime")
+    old = delegate._SEND
+    try:
+        for v in ("nan", "inf"):
+            buf, ti = io.BytesIO(), tarfile.TarInfo("t.txt")
+            ti.size, ti.pax_headers = 2, {"mtime": v}
+            with tarfile.open(fileobj=buf, mode="w", format=tarfile.PAX_FORMAT) as t:
+                t.addfile(ti, io.BytesIO(b"hi"))
+            sb.write_bytes("crafted.tar", buf.getvalue())
+            delegate._SEND = "cat /workspace/crafted.tar"
+            out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="readout")
+            assert out.startswith("[rogue finished") and "['t.txt'] ['hi']" in out, (v, out[:300])
+    finally:
+        delegate._SEND = old
         sb.close()
 
 
@@ -406,6 +450,32 @@ def t_outputs_copy_is_capped():
         assert len(files) == delegate.MAX_FILES and sum(p.stat().st_size for p in files) <= delegate.MAX_OUTPUTS
         assert took < 30, took
         print(f"    {len(files)} files back in {took:.1f}s")
+    finally:
+        sb.close()
+
+
+def t_new_files_not_dropped_for_unchanged_ones():
+    """The run gave the agent 40 MB it left alone: those are not copied back, so they do not use up the 50 MB for
+    the agent's new files."""
+    sb, _ = sandbox("ws-mixed")
+    try:
+        sb.exec("mkdir -p /workspace/outputs && head -c 20000000 /dev/urandom > /workspace/outputs/a.bin && "
+                "head -c 20000000 /dev/urandom > /workspace/outputs/b.bin")
+        out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="mixed")
+        assert out.startswith("[rogue finished") and "[note" not in out, out
+        assert (sb.workspace / "outputs" / "small.txt").read_text() == "small"
+        assert (sb.workspace / "outputs" / "new.bin").stat().st_size == 40_000_000
+    finally:
+        sb.close()
+
+
+def t_lone_surrogate_in_result():
+    """An agent's answer with "\\ud800" in its JSON: what we return can be stored (SQLite) and sent as UTF-8."""
+    sb, _ = sandbox("ws-surrogate")
+    try:
+        out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="surrogate")
+        assert out.startswith("[rogue finished") and "bad ? name" in out, ascii(out)
+        out.encode("utf-8")
     finally:
         sb.close()
 
