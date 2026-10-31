@@ -153,9 +153,7 @@ def t_runs_and_ui():
     try:
         # 1. two questions, reload while the second waits
         page = b.new_page(viewport={"width": 1300, "height": 800})
-        page.goto(l9.APP + "/")
-        page.evaluate("() => localStorage.setItem('user', 'alice')")
-        page.goto(l9.APP + "/")
+        l9.ui_login(page, "alice")
         page.wait_for_function("() => document.querySelector('#project option')")
         page.select_option("#project", "q")
         page.fill("#input", "two questions")

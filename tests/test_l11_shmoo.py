@@ -109,9 +109,7 @@ def t_browser_interact_capture():
         page = b.new_page(viewport={"width": 1500, "height": 900})
         errs = []
         page.on("pageerror", lambda e: errs.append(str(e)))
-        page.goto(l9.APP + "/")
-        page.evaluate("""() => { localStorage.setItem("user", "alice"); }""")
-        page.goto(l9.APP + "/")
+        l9.ui_login(page, "alice")
         page.wait_for_function("() => document.querySelector('#project option')")
         page.select_option("#project", "shmoo")
         page.wait_for_selector("#artifacts li")

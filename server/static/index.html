@@ -7,10 +7,21 @@
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-<div id="app">
+<form id="login" hidden>
+  <h1>vanilaChatbot</h1>
+  <label for="login-user">사용자</label>
+  <input id="login-user" autocomplete="username" autocapitalize="off" spellcheck="false" required>
+  <label for="login-password">비밀번호</label>
+  <input id="login-password" type="password" autocomplete="current-password" required>
+  <p id="login-error" role="alert"></p>
+  <button class="primary" type="submit">로그인</button>
+</form>
+<div id="app" hidden>
   <aside id="side">
-    <label for="user">사용자</label>
-    <input id="user" autocomplete="off" placeholder="alice">
+    <div class="row between first">
+      <span id="whoami"></span>
+      <button id="logout">로그아웃</button>
+    </div>
     <label for="project">프로젝트</label>
     <div class="row">
       <select id="project"></select>

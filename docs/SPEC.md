@@ -17,6 +17,7 @@
 | RAG (사용자 문서) | ✅ | `agent/rag.py` |
 | GitHub 연동 (clone → commit → push → PR) | ✅ | `agent/github.py` |
 | 채팅 서버 (durable run, 재접속, 승인=중단/재개, 취소) | ✅ | `server/app.py` |
+| 로그인 (쿠키 세션, 계정 CLI, 잠금) | ✅ | `server/auth.py` |
 | OpenAI 호환 gateway | ✅ | `gateway/app.py` |
 | sandbox egress allowlist (도메인 단위, 승인으로 추가) | ✅ | `agent/egress.py` |
 | MCP tool 연동 (stdio, annotation 기반 승인, pinning) | ✅ | `agent/mcp_adapter.py` |
@@ -312,6 +313,7 @@ sandbox ──(--internal docker network: 경로·DNS 없음)──▶ egress pr
 | sandbox가 설정·지시사항 수정 | `.claude/`·CLAUDE.md를 workspace에 두지 않고, workspace에서 읽어 오지 않음 | [검증: Loop 12] |
 | write-back 경로 (symlink, `:ro` 우회, git config/filter) | 일반 파일만 복사, 호스트 tool이 ro 경로 거부, 호스트 전용 git-dir | [검증: Loop 12] |
 | 사용자 간 접근 | 서버가 매 요청 소유권 확인(404), run마다 자기 프로젝트만 mount | [검증: Loop 12] |
+| 다른 사용자 사칭, 비밀번호 추측, 다른 사이트에서 요청 위조 | 쿠키 로그인(토큰 해시만 저장), scrypt, 이름별 잠금, Origin 검사(§9.7) | [검증: Loop 24] |
 | 과도한 권한 | 모드별 tool 정책(Q&A=read-only), outward=항상 승인, 비신뢰 입력을 읽은 뒤엔 taint 플래그로 위험도 상향 | [리서치] |
 | sandbox egress 우회 (NUL/`#`/`@`/IP literal/포트/평문 HTTP/직접 연결) | internal 네트워크 + CONNECT 전용 엄격 hostname allowlist 프록시 | [검증: 7종 403, 직접 연결 unreachable] |
 | SSRF (메타데이터, 사내망) | 프록시가 resolve한 IP가 public인지 확인하고 그 IP로 접속 | [구현] |
@@ -341,7 +343,7 @@ POST /runs/{id}/cancel
 - 이벤트: `run_started{resumed}`, `text`, `tool_call`, `tool_result`, `approval_request{call_id,tool,arguments}`, `final`, `error`, `run_finished{outcome: succeeded|interrupt|cancelled|error}`
 - 저장: `sessions(history, notes)`, `runs(status, inflight, pending)`, `events(seq, run_id, type, data)` (MVP는 SQLite, 운영은 Postgres)
 
-- Loop 12부터: 모든 요청에 사용자 식별(`X-User`, 실제 인증 대용). 프로젝트 API와 세션의 `project_id`는 §9.3.
+- 모든 요청은 로그인한 사용자의 것이다(§9.7, Loop 24. Loop 12–23은 `X-User` 헤더가 대신했다). 프로젝트 API와 세션의 `project_id`는 §9.3.
 
 ### 9.2 Durable run 설계 [검증: Loop 7]
 - **run은 HTTP 요청과 분리**: POST는 run을 만들고 worker를 시작한 뒤 바로 반환. 이벤트는 DB에 append하고, SSE는 그것을 tail할 뿐. 탭을 닫았다가 `Last-Event-ID`로 재접속해도 빠지거나 중복된 seq가 없다. [검증]
@@ -402,7 +404,7 @@ users/{u}/projects/{p}/outputs/              결과물
 - **영역별 캡처**: `GET /projects/{p}/artifacts/{a}/sections/{s}.png`. headless Chrome으로 `<section>` 하나를 2배율로 캡처한다(JS 끔, 모든 요청 차단).
   - 각 section에 자체 제목과 고정 폭이 있어서 문서에 붙였을 때 따로 읽힌다.
   - UI에는 section마다 [복사]·[저장] 버튼이 있다.
-- **최소 UI**(`server/static`): 사이드바(사용자, 프로젝트, 대화, 아티팩트), 채팅(fetch로 SSE를 받고 승인 버튼 표시), 아티팩트 패널(버전 선택, 코드 보기).
+- **최소 UI**(`server/static`): 로그인 화면, 사이드바(사용자·로그아웃, 프로젝트, 대화, 아티팩트), 채팅(fetch로 SSE를 받고 승인 버튼 표시), 아티팩트 패널(버전 선택, 코드 보기).
   - 모델·tool 텍스트는 textContent로만 넣는다.
 
 ### 9.5 인터랙티브 템플릿 뷰와 "보이는 그대로" 캡처 [검증: Loop 16]
@@ -430,6 +432,21 @@ users/{u}/projects/{p}/outputs/              결과물
 - `log-triage` skill: `sniff.py`가 파일마다 종류(표, 텍스트 로그, JSON lines, 스프레드시트)와 맞는 skill(`fits`)을 알려 준다. 판정은 각 skill의 로더로 직접 해 본다.
   - 흐름: 훑기 → 질문 한 번(첫 문장에서 파일이 무엇인지 구체적인 수치로 말함, 파일 종류에 맞는 선택지) → 맞는 skill과 뷰.
   - 사용자가 이미 초점을 말했으면 묻지 않는다.
+
+### 9.7 로그인 [검증: Loop 24]
+여러 사람이 Linux 서버 하나에 브라우저로 접속하는 경우를 위한 것이다. 가입 화면은 없고 서버를 운영하는 사람이 계정을 만든다.
+```
+python -m server.auth add alice | passwd alice | remove alice | list      # AGENT_ROOT의 agent.db
+POST /login {user, password}   POST /logout   POST /password {old, new}   GET /me
+```
+- **세션**: 로그인하면 임의 토큰(32바이트)을 쿠키 `vc_session`(HttpOnly, SameSite=Strict, Path=/, 앱 출처가 https면 Secure)에 넣는다. DB에는 토큰의 SHA-256만 둬서 DB 사본으로는 로그인할 수 없다. 기본 7일(`AGENT_LOGIN_TTL`). [검증]
+- **비밀번호**: scrypt(n=2^14, r=8, 16바이트 salt), 10자 이상. 없는 이름도 같은 해시 비용을 치러, 응답이나 시간으로 이름을 알아낼 수 없다. [검증: 틀린 비밀번호와 없는 이름의 응답이 같음]
+- **잠금**: 한 이름에 5번 틀리면 5분 잠금. 잠긴 동안은 맞는 비밀번호도 실패와 같은 응답을 받고, 다른 이름에는 영향이 없다. 잠금 상태는 프로세스 메모리에 있어 재시작하면 풀린다. [검증]
+- **폐기**: 로그아웃하면 그 토큰을 지운다. 비밀번호를 바꾸면(CLI든 `/password`든) 그 사용자의 모든 로그인이 끝나고, 바꾼 쪽만 새 쿠키를 받는다. 계정 삭제도 로그인을 지운다(저장된 파일은 남긴다). [검증: 기존 토큰 재사용이 401]
+- **출처 검사**: 상태를 바꾸는 요청(GET/HEAD/OPTIONS 외)에 `Origin`이 있으면 앱 출처와 같아야 한다. SameSite는 같은 사이트의 다른 호스트·포트를 막지 못하기 때문이다. 브라우저가 아닌 클라이언트는 Origin을 보내지 않으므로 그대로 통과한다. [검증: 다른 사이트, 같은 사이트의 다른 포트 모두 403]
+- **개발 모드**: `AGENT_AUTH=header`면 예전처럼 `X-User`를 믿는다. 포트에 닿는 누구나 아무 사용자가 될 수 있으므로 혼자 쓰는 PC나 테스트에서만 쓴다. 다른 값을 넣으면 서버가 시작하지 않는다.
+- UI는 쿠키가 없거나 만료되면(401) 로그인 화면으로 돌아가고, 로그아웃할 때 화면에 남은 대화와 아티팩트를 지운다.
+- 남은 일: HTTPS는 앞단 리버스 프록시(예: Caddy)가 맡는다. 렌더러는 앱과 다른 등록 도메인에 둔다(§9.4). 다중 프로세스로 돌리면 잠금 상태를 DB로 옮겨야 한다.
 
 ---
 
@@ -478,6 +495,7 @@ agents/                 연결된 에이전트(mock 2개: wafer-yield, text-summ
 skills/log-triage/      처음 보는 파일 판정(sniff.py) + "무엇을 볼까요?" 질문 + 맞는 skill로 넘김
 skills/shmoo/           ATE 로그 → shmoo 격자, 이상 패턴(구멍·벽·천장·낮은 통과율), ASCII 출력
 server/app.py           채팅 서버 (durable run, 이벤트 로그, interrupt/resume, 취소, 복구, 아티팩트 API, UI 서빙)
+server/auth.py          로그인 (계정 CLI, scrypt, 쿠키 세션, 잠금)
 server/render.py        아티팩트 렌더러 (별도 출처, 서명 URL, CSP, WebRTC 제거)
 server/capture.py       리포트 section PNG 캡처 (headless Chrome)
 server/static/          최소 웹 UI (채팅 + 아티팩트 패널)
@@ -531,8 +549,10 @@ K=3 python tests/test_l8_userstore.py      # 결정적 3개는 LLM 없이 몇 �
 python tests/test_l10_skills.py           # 결정적, Docker 필요. LLM 비교: python tests/eval/finance/run.py 3 5 --skills
 python tests/test_l11_shmoo.py             # 결정적. LLM: K=1 python tests/test_l11_shmoo.py t_llm_show_and_find
 K=3 python tests/test_l9_artifacts.py      # Playwright + 시스템 Chrome(AGENT_CHROME_CHANNEL, ""=번들 Chromium)
-# UI: AGENT_ROOT=/tmp/agent uvicorn server.app:app --port 8200 & AGENT_ROOT=/tmp/agent uvicorn server.render:app --port 8201 &
-#     → http://127.0.0.1:8200  (렌더러는 http://localhost:8201: 포트뿐 아니라 사이트도 다르게)
+python tests/test_l18_auth.py             # 결정적, LLM 없이 몇 초
+# UI: AGENT_ROOT=/tmp/agent python -m server.auth add alice       # 계정 만들기(비밀번호 10자 이상)
+#     AGENT_ROOT=/tmp/agent uvicorn server.app:app --port 8200 & AGENT_ROOT=/tmp/agent uvicorn server.render:app --port 8201 &
+#     → http://127.0.0.1:8200 에서 로그인  (렌더러는 http://localhost:8201: 포트뿐 아니라 사이트도 다르게)
 python tests/eval/run_eval.py 3 4          # k=3, 동시 4개
 # 실제 OpenAI 호환 모델로: LLM_BASE_URL=https://.../v1 LLM_API_KEY=... LLM_MODEL=... python tests/test_l2_agent.py
 ```

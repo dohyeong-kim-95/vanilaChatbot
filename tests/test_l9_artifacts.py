@@ -9,6 +9,7 @@ import os
 import re
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -30,7 +31,7 @@ from agent.artifacts import ArtifactStore  # noqa: E402
 from agent.loop import Context, run, run_tool  # noqa: E402
 from agent.sandbox import Sandbox  # noqa: E402
 from agent.userstore import UserStore  # noqa: E402
-from server import render  # noqa: E402
+from server import auth, render  # noqa: E402
 
 K = int(os.environ.get("K", 3))
 SINK_PORT, UDP_PORT = 8399, 8395
@@ -55,8 +56,30 @@ def kill(ps):
         p.send_signal(signal.SIGKILL); p.wait()
 
 
+PASSWORD = "test-password-1"
+
+
+def account(user):
+    db = sqlite3.connect(DATA / "agent.db", isolation_level=None)
+    auth.init(db)
+    if not db.execute("SELECT 1 FROM users WHERE id=?", (user,)).fetchone():  # a new password would end old logins
+        auth.set_password(lambda sql, *a: db.execute(sql, a).fetchall(), user, PASSWORD)
+    db.close()
+
+
+def ui_login(page, user):
+    account(user)
+    page.goto(APP + "/")
+    page.fill("#login-user", user)
+    page.fill("#login-password", PASSWORD)
+    page.click("#login button")
+
+
 def client(user):
-    return httpx.Client(base_url=APP, timeout=None, headers={"X-User": user})
+    account(user)
+    c = httpx.Client(base_url=APP, timeout=None)
+    assert c.post("/login", json={"user": user, "password": PASSWORD}).status_code == 200
+    return c
 
 
 def stub_sandbox(ws):

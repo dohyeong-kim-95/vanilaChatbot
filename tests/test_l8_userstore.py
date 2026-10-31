@@ -37,7 +37,7 @@ def server():
     (TMP / "org.md").write_text(ORG_POLICY)
     (TMP / "org.json").write_text(json.dumps({"allowed_domains": ["pypi.org", "files.pythonhosted.org"]}))
     p = subprocess.Popen([sys.executable, "-m", "uvicorn", "server.app:app", "--port", "8300"], cwd=ROOT,
-                         env={**os.environ, "AGENT_ROOT": str(DATA), "AGENT_ORG_POLICY": str(TMP / "org.md"),
+                         env={**os.environ, "AGENT_ROOT": str(DATA), "AGENT_AUTH": "header", "AGENT_ORG_POLICY": str(TMP / "org.md"),
                               "AGENT_ORG_SETTINGS": str(TMP / "org.json")},
                          stdout=subprocess.DEVNULL, stderr=open(TMP / "server.log", "a"))
     for _ in range(50):

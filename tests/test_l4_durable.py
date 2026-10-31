@@ -22,7 +22,7 @@ C = httpx.Client(base_url="http://127.0.0.1:8200", timeout=None, headers={"X-Use
 
 def server():
     p = subprocess.Popen([sys.executable, "-m", "uvicorn", "server.app:app", "--port", "8200"], cwd=ROOT,
-                         env={**os.environ, "AGENT_ROOT": str(DATA)},
+                         env={**os.environ, "AGENT_ROOT": str(DATA), "AGENT_AUTH": "header"},
                          stdout=subprocess.DEVNULL, stderr=open(TMP / "server.log", "a"))
     for _ in range(50):
         try:

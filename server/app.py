@@ -1,7 +1,9 @@
 """Chat backend (MVP): durable runs decoupled from HTTP, replayable event log, approval = interrupt/resume,
 per-user storage (agent/userstore.py) with a disposable sandbox per run.
 
-Every request carries the caller's identity (X-User: stand-in for real auth); resources of other users are 404.
+Every request is a logged-in user's (server/auth.py: cookie; AGENT_AUTH=header trusts X-User, for development);
+resources of other users are 404.
+POST /login {user, password} | /logout | /password {old, new}    GET /me
 PUT  /instructions | /projects/{p}/instructions   {text}      user / project CLAUDE.md
 PUT  /settings     | /projects/{p}/settings       {settings}  never visible to the sandbox
 POST /projects                          {project_id}
@@ -32,7 +34,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from agent import delegate, report, skills
@@ -42,7 +44,7 @@ from agent.rag import DocStore
 from agent.sandbox import Sandbox
 from agent.tools import REGISTRY, schemas
 from agent.userstore import ID_RE, UserStore
-from server import capture, render
+from server import auth, capture, render
 
 ROOT = Path(os.environ.get("AGENT_ROOT", "/tmp/agent-sessions"))
 ROOT.mkdir(parents=True, exist_ok=True)
@@ -53,6 +55,10 @@ CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, user_id TEXT, project_i
 CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, session_id TEXT, status TEXT, inflight TEXT, pending TEXT);
 CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, type TEXT, data TEXT);
 """)
+auth.init(DB)
+AUTH = os.environ.get("AGENT_AUTH", "login")
+if AUTH not in ("login", "header"):
+    raise SystemExit(f"AGENT_AUTH={AUTH!r}: use login (default) or header")
 LOCK = threading.Lock()
 CANCEL = {}  # process-local
 _read = lambda env: Path(os.environ[env]).read_text() if os.environ.get(env) else ""
@@ -169,6 +175,10 @@ def start(rid, **kw):
 def recover():
     """Resume runs that were mid-flight when the process died. A tool that was running is NOT re-executed
     (it may have had side effects): it gets an 'outcome unknown' result and the model decides."""
+    if AUTH == "header":
+        print("WARNING: AGENT_AUTH=header trusts X-User: anyone who can reach this port can act as any user")
+    elif not q("SELECT 1 FROM users LIMIT 1"):
+        print("No accounts yet: python -m server.auth add <user>")
     for rid, sid, inflight in q("SELECT id, session_id, inflight FROM runs WHERE status='running'"):
         if inflight:
             msgs = json.loads(q("SELECT history FROM sessions WHERE id=?", sid)[0][0])
@@ -179,11 +189,27 @@ def recover():
         start(rid)
 
 
-def caller(x_user: str = Header(None)):
-    """Stand-in for real authentication. The user id always comes from here, never from a request body."""
-    if not x_user or not ID_RE.match(x_user):
-        raise HTTPException(401, "missing or invalid X-User")
-    return x_user
+@app.middleware("http")
+async def same_origin(request: Request, call_next):
+    """A page on another site cannot make the browser send our cookie (SameSite=Strict), but a sibling host counts
+    as the same site; so a request that changes something must not come from a foreign page at all. Clients that
+    are not browsers send no Origin."""
+    origin = request.headers.get("origin")
+    if request.method not in ("GET", "HEAD", "OPTIONS") and origin and origin != render.APP_ORIGIN:
+        return JSONResponse({"detail": "cross-origin request"}, 403)
+    return await call_next(request)
+
+
+def caller(request: Request, x_user: str = Header(None)):
+    """The user id always comes from here, never from a request body."""
+    if AUTH == "header":
+        if not x_user or not ID_RE.match(x_user):
+            raise HTTPException(401, "missing or invalid X-User")
+        return x_user
+    user = auth.user_of(q, request.cookies.get(auth.COOKIE))
+    if not user:
+        raise HTTPException(401, "not logged in")
+    return user
 
 
 def own_session(sid, user):
@@ -204,6 +230,59 @@ def own_project(project, user):
     if not ID_RE.match(project) or project not in STORE.projects(user):
         raise HTTPException(404, "no such project")
     return project
+
+
+class Login(BaseModel):
+    user: str
+    password: str
+
+
+class NewPassword(BaseModel):
+    old: str
+    new: str
+
+
+def _logged_in(user, token):
+    r = JSONResponse({"user": user})
+    r.set_cookie(auth.COOKIE, token, max_age=auth.TTL, path="/", httponly=True, samesite="strict",
+                 secure=render.APP_ORIGIN.startswith("https://"))
+    return r
+
+
+@app.post("/login")
+def login(b: Login):
+    if AUTH != "login":
+        raise HTTPException(404)
+    token = auth.login(q, b.user, b.password[:1024])
+    if not token:  # wrong password, unknown name and a locked name all look the same
+        raise HTTPException(401, "wrong user or password")
+    return _logged_in(b.user, token)
+
+
+@app.post("/logout")
+def logout(request: Request):
+    auth.logout(q, request.cookies.get(auth.COOKIE))
+    r = JSONResponse({"ok": True})
+    r.delete_cookie(auth.COOKIE, path="/")
+    return r
+
+
+@app.post("/password")
+def change_password(b: NewPassword, user=Depends(caller)):
+    if AUTH != "login":
+        raise HTTPException(404)
+    if not auth.login(q, user, b.old[:1024]):  # also counts toward the lock: a stolen cookie cannot guess it
+        raise HTTPException(403, "wrong password")
+    try:
+        auth.set_password(q, user, b.new)  # signs out every other login of this user
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return _logged_in(user, auth.login(q, user, b.new))
+
+
+@app.get("/me")
+def me(user=Depends(caller)):
+    return {"user": user}
 
 
 class Msg(BaseModel):

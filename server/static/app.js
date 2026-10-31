@@ -13,8 +13,10 @@ function store(key, value) {
   return value;
 }
 
+// The login cookie (HttpOnly) goes along by itself; a 401 means it expired or was revoked: back to the login form.
 async function api(path, opts = {}) {
-  const r = await fetch(path, { ...opts, headers: { "X-User": state.user, "Content-Type": "application/json", ...(opts.headers || {}) } });
+  const r = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", ...(opts.headers || {}) } });
+  if (r.status === 401 && path !== "/login") showLogin();
   if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0, 200)}`);
   return r.headers.get("content-type")?.includes("json") ? r.json() : r;
 }
@@ -119,7 +121,7 @@ async function send(text) {
   await follow(run_id);
 }
 
-// SSE over fetch (EventSource cannot send the X-User header). Resumes with Last-Event-ID.
+// SSE over fetch (EventSource cannot send Last-Event-ID on the first request). Resumes with Last-Event-ID.
 async function follow(rid, after = 0) {
   stopFollow();
   const ctl = state.follow = new AbortController();
@@ -399,11 +401,40 @@ function showCapture(a, frame) {
 }
 
 // ---- wiring ---------------------------------------------------------------------------------------
-$("user").value = state.user = store("user") || "";
-$("user").onchange = async () => {
-  state.user = $("user").value.trim();
-  store("user", state.user);
+function showLogin() {
+  stopFollow();
+  $("art-close").onclick();  // nothing of the previous user stays on screen
+  $("messages").replaceChildren();
+  state.user = state.project = state.session = "";
+  $("app").hidden = true;
+  $("login").hidden = false;
+  $("login-password").value = "";
+  $("login-user").focus();
+}
+
+async function enter(user) {
+  state.user = user;
+  $("whoami").textContent = user;
+  $("login").hidden = true;
+  $("app").hidden = false;
   await loadProjects().catch((e) => addMsg("error", String(e)));
+}
+
+$("login").onsubmit = async (e) => {
+  e.preventDefault();
+  $("login-error").textContent = "";
+  try {
+    const { user } = await api("/login", { method: "POST", body: JSON.stringify(
+      { user: $("login-user").value.trim(), password: $("login-password").value }) });
+    $("login-password").value = "";
+    await enter(user);
+  } catch (err) {
+    $("login-error").textContent = String(err).startsWith("Error: 401") ? "사용자 또는 비밀번호가 틀렸어요." : String(err);
+  }
+};
+$("logout").onclick = async () => {
+  await api("/logout", { method: "POST" }).catch(() => {});
+  showLogin();
 };
 $("project").onchange = () => { state.project = $("project").value; loadProject(); };
 $("new-project").onclick = async () => {
@@ -437,4 +468,4 @@ $("art-close").onclick = () => {
   state.artifact = null;
   markActive();
 };
-if (state.user) loadProjects().catch((e) => addMsg("error", String(e)));
+api("/me").then(({ user }) => enter(user)).catch(() => showLogin());

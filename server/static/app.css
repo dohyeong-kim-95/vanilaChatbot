@@ -28,6 +28,19 @@ input, select, textarea {
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid #a5d8e6; outline-offset: 0; border-color: var(--primary); }
 
+#login {
+  width: 320px; margin: 18vh auto 0; padding: 24px; background: var(--white); border: 1px solid var(--border);
+  border-radius: 8px; display: flex; flex-direction: column; gap: 8px;
+}
+#login[hidden] { display: none; }
+#login h1 { font-size: 18px; margin: 0 0 8px; }
+#login label { font-size: 13px; font-weight: 500; color: var(--muted); }
+#login button { margin-top: 8px; }
+#login-error { color: var(--danger); font-size: 13px; min-height: 1em; margin: 0; }
+#app[hidden] { display: none; }
+#whoami { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.row.between.first { margin-top: 0; }
+
 #app { display: grid; grid-template-columns: 240px minmax(360px, 1fr); height: 100vh; }
 #app.with-panel { grid-template-columns: 240px minmax(360px, 1fr) minmax(420px, 1.2fr); }
 
