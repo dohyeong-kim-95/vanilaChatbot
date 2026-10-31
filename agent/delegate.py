@@ -78,7 +78,8 @@ def run_agent(ctx, name, task, inputs):
         except RuntimeError as e:
             out, err = None, e
         # nothing of the agent's runs on while we copy (a background writer would race the copy)
-        subprocess.run(["docker", "exec", sb.name, "sh", "-c", "kill -9 -1"], capture_output=True, timeout=30)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            subprocess.run(["docker", "exec", sb.name, "sh", "-c", "kill -9 -1"], capture_output=True, timeout=30)
         notes += _transfer(sb, ctx.sandbox, lambda rel, digest: seen.get(rel) != digest, "the agent's outputs/",
                            len(seen) + MAX_FILES + 1)[1]
     finally:
@@ -92,34 +93,63 @@ def run_agent(ctx, name, task, inputs):
 # Source side: regular files of at most MAX_OUTPUTS bytes (find -size), at most $1 of them, so a huge or sparse file
 # is never read. timeout kills find/tar inside the container (killing the docker exec client does not).
 _SEND = ('cd /workspace/outputs 2>/dev/null || exec tar -cf - -T /dev/null; '
+         'n=$(find . -type f -size +$(($2))c | head -n 1000 | wc -l); '
+         '[ "$n" -gt 0 ] && echo "$n file(s) over $(($2 / 1048576)) MB not sent" >&2; '
          'find . -type f -size -$(($2 + 1))c -print0 | head -z -n "$1" | '
          'tar --null --no-recursion -T - -cf - --warning=no-file-changed')
 # Destination side: Python's "data" filter refuses members that would land outside outputs/ through a link the
 # source container made (outputs/ws -> /workspace), absolute paths and ../; outputs/ itself must not be a link.
+# An existing file is unlinked first: writing into it would go through a hard link the source made
+# (outputs/h.txt = /workspace/keep.py).
 _RECV = """import os, sys, tarfile
 d = "/workspace/outputs"
 if os.path.islink(d):
     sys.exit("outputs/ is a symlink; nothing written")
 os.makedirs(d, exist_ok=True)
 bad = []
-with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as t:
-    for m in t:
-        try:
-            t.extract(m, d, filter="data")
-        except Exception as e:
-            bad.append(f"{m.name}: {type(e).__name__}: {e}")
+try:
+    with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as t:
+        for m in t:
+            try:
+                m = tarfile.data_filter(m, d)
+                p = os.path.join(d, m.name)
+                if os.path.lexists(p) and not os.path.isdir(p):
+                    os.unlink(p)
+                t.extract(m, d, filter="fully_trusted")
+            except Exception as e:
+                bad.append(f"{m.name}: {type(e).__name__}: {e}")
+except tarfile.ReadError as e:
+    bad.append(f"ReadError: {e}")
 if bad:
     sys.exit("; ".join(bad[:3]) + (f"; ... {len(bad)} files not written" if len(bad) > 3 else ""))
 """
 
 
+class _Capped:
+    """A pipe that fails once more than `cap` bytes were read from it."""
+    def __init__(self, f, cap):
+        self.f, self.left = f, cap
+
+    def read(self, n=-1):
+        b = self.f.read(min(n, self.left + 1) if n >= 0 else self.left + 1)
+        self.left -= len(b)
+        if self.left < 0:
+            raise OSError("stream larger than expected; stopped")
+        return b
+
+
 def _transfer(src, dst, keep, what, scan, timeout=120):
     """Regular files under src's /workspace/outputs into dst's, as tar streams through us: one docker exec each
     side; nothing lands on the host disk but a spool file (> 1 MB, deleted at once). The source lists at most
-    `scan` files of at most MAX_OUTPUTS bytes (one more than we take, to know there were more); we pass on plain relative names only, at most MAX_FILES /
-    MAX_OUTPUTS in all, and only those keep(rel, sha256) wants. Returns ({rel: sha256} sent, notes): a bad file,
+    `scan` files of at most MAX_OUTPUTS bytes (one more than we take, to know there were more); we pass on
+    plain relative names only, at most MAX_FILES / MAX_OUTPUTS in all (then stop), and only those keep(rel, sha256)
+    wants. Returns ({rel: sha256} sent, notes): a bad file,
     the limit or a failing side becomes a note for the result, never an exception that hides the agent's answer."""
     inner = str(max(timeout - 10, 5))
+    # the source container can write its own stream (stop our tar, write to its stdout): a header that claims
+    # 1 GB would be read into our memory before any member check. Never read more than the files we may take,
+    # the unchanged ones keep() skips (copy-out) and their headers.
+    cap = 2 * MAX_OUTPUTS + scan * 8192
     tx = subprocess.Popen(["docker", "exec", src.name, "timeout", "-k", "2", inner, "sh", "-c", _SEND, "_", str(scan),
                            str(MAX_OUTPUTS)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     rx = subprocess.Popen(["docker", "exec", "-i", dst.name, "timeout", "-k", "2", inner, "python", "-I", "-c", _RECV],
@@ -131,7 +161,7 @@ def _transfer(src, dst, keep, what, scan, timeout=120):
     killer.start()
     sent, notes, total, skipped = {}, [], 0, 0
     try:
-        with tarfile.open(fileobj=tx.stdout, mode="r|") as tin, \
+        with tarfile.open(fileobj=_Capped(tx.stdout, cap), mode="r|") as tin, \
                 tarfile.open(fileobj=rx.stdin, mode="w|", format=tarfile.PAX_FORMAT) as tout:
             for mi in tin:
                 if mi.size > MAX_OUTPUTS:  # grew after find looked: stop, never skip over it (that reads it all)
@@ -142,8 +172,8 @@ def _transfer(src, dst, keep, what, scan, timeout=120):
                     continue
                 rel = "/".join(parts)
                 if len(sent) >= MAX_FILES or total + mi.size > MAX_OUTPUTS:
-                    skipped += 1
-                    continue
+                    skipped += 1  # stop here: skipping on would still read every later file through us
+                    break
                 with tempfile.SpooledTemporaryFile(1 << 20) as buf:
                     h = hashlib.sha256()
                     for chunk in iter(lambda f=tin.extractfile(mi): f.read(1 << 16), b""):
@@ -169,7 +199,7 @@ def _transfer(src, dst, keep, what, scan, timeout=120):
         for c in caps:
             c.join(5)
     if skipped:
-        notes.append(f"{skipped}+ file(s) of {what} not copied: over the limit of {MAX_FILES} files / "
+        notes.append(f"some files of {what} not copied: over the limit of {MAX_FILES} files / "
                      f"{MAX_OUTPUTS // 2**20} MB")
     errs = [c.text().strip() for c in caps if c.text().strip()]
     if rx.returncode or errs:  # tx is killed after we read it, its code says nothing; its stderr does

@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from agent import loop  # noqa: E402
 from agent.loop import CLASSIFY, Context, is_correction, run  # noqa: E402
 
 
@@ -143,9 +144,11 @@ def t_model_decides_correction():
     for text, reply, want in (("오답이에요", "yes", "high"), ("3월이 빠졌어요", "Yes.", "high"), ("nope, card B", "네", "high"),
                               ("틀렸어요", "no", "low"), ("아니에요 괜찮아요", "No", "low"),
                               ("틀렸어요", "음… 잘 모르겠네요", "high"), ("좋아요 고마워요", "", "low")):
+        loop._DECIDED.clear()
         c = Scripted([DONE], judge=lambda _t, r=reply: r)
         run(text, Context(), client=c, model="m", history=hist(), effort="low", log=lambda *_: None)
         assert c.efforts == [want] and c.judged == [text], (text, reply, c.efforts, c.judged)
+    loop._DECIDED.clear()
     c = Scripted([DONE], judge=lambda _t: 1 / 0)  # the call fails: regex
     run("틀렸어요", Context(), client=c, model="m", history=hist(), effort="low", log=lambda *_: None)
     assert c.efforts == ["high"], c.efforts
@@ -155,6 +158,32 @@ def t_model_decides_correction():
     c = Scripted([DONE])
     run("오답이에요", Context(), client=c, model="m", history=hist(), effort="high", log=lambda *_: None)
     assert not c.judged, c.judged
+
+
+def t_classifier_context_and_resume():
+    """The model sees the answer (not a tool-call turn), the earlier question and both ends of a long message; a
+    resume asks nothing new and keeps the verdict even if the model would now say otherwise."""
+    loop._DECIDED.clear()
+    seen = []
+
+    class Judge(Scripted):
+        def create(self, **kw):
+            if kw["messages"][0]["content"] == CLASSIFY:
+                seen.append(kw["messages"][1]["content"])
+            return super().create(**kw)
+    hist = [{"role": "system", "content": "s"}, {"role": "user", "content": "카드A 합계 알려줘"},
+            {"role": "assistant", "content": "합계는 1,500원"}, {"role": "user", "content": "카드B도"},
+            call("q0", "current_time", {}), {"role": "tool", "tool_call_id": "q0", "content": "t"}]
+    long = "틀렸어요. 아래가 원본이에요\n" + "1,2,3\n" * 2000
+    c = Judge([call("q1", "current_time", {}), DONE], judge=lambda _t: "yes")
+    run(long, Context(), tool_names=["current_time"], client=c, model="m", history=hist, effort="low", log=lambda *_: None)
+    assert c.efforts == ["high", "high"] and len(seen) == 1, (c.efforts, len(seen))
+    assert "PREVIOUS ANSWER (excerpt):\n합계는 1,500원" in seen[0] and "earlier message:\n카드B도" in seen[0], seen[0][:300]
+    assert "틀렸어요." in seen[0] and len(seen[0]) < 4000, len(seen[0])
+    hist.append(call("q2", "current_time", {}))  # paused on a tool call (approval), then resumed
+    c = Judge([DONE], judge=lambda _t: "no")
+    run(None, Context(), tool_names=["current_time"], client=c, model="m", history=hist, effort="low", log=lambda *_: None)
+    assert c.efforts == ["high"] and len(seen) == 1, (c.efforts, len(seen))
 
 
 def t_escalates_on_tool_error_streak():

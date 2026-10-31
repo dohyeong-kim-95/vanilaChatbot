@@ -1,4 +1,5 @@
 """Agent loop over any OpenAI-compatible Chat Completions endpoint."""
+import hashlib
 import json
 import os
 import re
@@ -216,7 +217,10 @@ CLAUSE_RE = re.compile(r"(?<=[,!?])|(?<=\.)(?!\d)|\n|(?:(?<=[가-힣][요어아�
 
 def is_correction(text):
     """Regex heuristic: the fallback when the model cannot be asked (classify_correction)."""
-    return not DECLINE_RE.search(str(text)) and any(CORRECTION_RE.search(c) and not REQUEST_RE.search(c) for c in CLAUSE_RE.split(str(text)) if c)
+    text = str(text)
+    if m := DECLINE_RE.search(text):  # "아니요 괜찮아요" is not one; what follows it may be ("…. 근데 합계가 틀렸어요")
+        text = re.sub(r"^\S*[.!,]?", "", text[m.end():])
+    return any(CORRECTION_RE.search(c) and not REQUEST_RE.search(c) for c in CLAUSE_RE.split(text) if c)
 
 
 ERROR_STREAK = 2
@@ -259,20 +263,32 @@ def classify_correction(client, model, prev, text, effort="low", asked=""):
     """The model's yes/no on CLASSIFY (Loop 23.4: four rounds of regex fixes kept missing everyday phrasings such as
     "오답이에요", "3월이 빠졌어요", "nope, card B"). Falls back to is_correction when the call fails or the reply is
     not yes/no. One short call per message that follows an answer, at low effort. tests/eval/correction measures it."""
-    try:
-        r = client.chat.completions.create(model=model, messages=[
+    key = hashlib.sha256(json.dumps([prev, text, asked]).encode()).hexdigest()
+    if key in _DECIDED:  # the same message again (a resume after approval/ask_user): the same answer
+        return _DECIDED[key]
+    try:  # a hung gateway must not hold the run: short timeout, no retries, then the regex
+        c = client.with_options(timeout=15, max_retries=0) if hasattr(client, "with_options") else client
+        r = c.chat.completions.create(model=model, messages=[
             {"role": "system", "content": CLASSIFY},
-            {"role": "user", "content": (f"User's earlier message:\n{asked[-1000:]}\n\n" if asked else "") +
-             f"PREVIOUS ANSWER (excerpt):\n{prev[-1500:]}\n\nNEW user message:\n{text[-2000:]}"}],
+            {"role": "user", "content": (f"User's earlier message:\n{_ends(asked, 1000)}\n\n" if asked else "") +
+             f"PREVIOUS ANSWER (excerpt):\n{_ends(prev, 1500)}\n\nNEW user message:\n{_ends(text, 2000)}"}],
             **({"extra_body": {"reasoning_effort": effort}} if effort else {}))
         word = re.sub(r"[^a-z가-힣]", "", (r.choices[0].message.content or "").strip().split()[0].lower())
     except Exception:
         word = ""
-    if word in ("yes", "예", "네"):
-        return True
-    if word in ("no", "아니오", "아니요"):
-        return False
-    return is_correction(text)
+    yes = True if word in ("yes", "예", "네") else False if word in ("no", "아니오", "아니요") else is_correction(text)
+    if len(_DECIDED) > 1000:
+        _DECIDED.clear()
+    _DECIDED[key] = yes
+    return yes
+
+
+_DECIDED = {}  # (prev, text, asked) -> verdict, so a resumed run keeps its effort (the model is not deterministic)
+
+
+def _ends(t, n):
+    """Head and tail of a long text ("틀렸어요." then pasted data keeps the correction)."""
+    return t if len(t) <= n else f"{t[:n // 2]}\n[...]\n{t[-n // 2:]}"
 
 
 def _corrects(task, msgs, judge):
@@ -286,7 +302,8 @@ def _corrects(task, msgs, judge):
         if str(msgs[i]["content"]).startswith(SUMMARY):  # compacted: earlier answers were summarized with it
             return judge("(earlier answers are summarized; not shown)", task, "")
         msgs = msgs[:i]
-    prev = next((str(m.get("content") or "") for m in reversed(msgs) if m["role"] == "assistant"), None)
+    prev = next((str(m.get("content") or "") for m in reversed(msgs)  # an answer, not a tool-call turn
+                 if m["role"] == "assistant" and (m.get("content") or not m.get("tool_calls"))), None)
     asked = next((_user_text(m) or "" for m in reversed(msgs) if m["role"] == "user"), "")
     return prev is not None and judge(prev, task, asked)
 

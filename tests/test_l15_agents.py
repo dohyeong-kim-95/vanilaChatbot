@@ -83,6 +83,9 @@ def run(task, inputs, ctx):
         open("/workspace/outputs/ws/json.py", "w").write("PWNED = 1\n")
         open("/workspace/outputs/top.py", "w").write("PWNED = 1\n")
         return "linkwrite done"
+    if task == "hl":
+        open("/workspace/outputs/h.txt", "w").write("AGENT")
+        return "hl done"
     if task == "crash":
         raise ValueError("boom")
     return "?"
@@ -297,7 +300,7 @@ def t_sparse_files_do_not_hang():
         sb.exec("mkdir -p /workspace/outputs && truncate -s 1T /workspace/outputs/big && echo -n hi > /workspace/outputs/z.txt")
         t = time.time()
         out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="readout")
-        assert time.time() - t < 30 and "['big', 'z.txt'] ['hi']" not in out and "['z.txt'] ['hi']" in out, out
+        assert time.time() - t < 30 and "['z.txt'] ['hi']" in out and "1 file(s) over 50 MB not sent" in out, out
         t = time.time()
         out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="sparse")
         took = time.time() - t
@@ -323,6 +326,58 @@ def t_agent_cannot_write_through_run_links():
         sb.exec("rm -rf /workspace/outputs && ln -s /workspace /workspace/outputs")
         out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="linkwrite")
         assert "[note:" in out and not (sb.workspace / "top.py").exists(), out
+    finally:
+        sb.close()
+
+
+def t_agent_cannot_write_through_run_hardlinks():
+    """outputs/h.txt is a hard link to /workspace/keep.py: the agent's h.txt replaces the link, not keep.py."""
+    sb, _ = sandbox("ws-hardlink")
+    try:
+        sb.exec("echo -n KEEP > /workspace/keep.py && mkdir -p /workspace/outputs && ln /workspace/keep.py /workspace/outputs/h.txt")
+        out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="hl")
+        assert out.startswith("[rogue finished"), out
+        assert (sb.workspace / "keep.py").read_text() == "KEEP", "written through the hard link"
+        assert (sb.workspace / "outputs" / "h.txt").read_text() == "AGENT"
+    finally:
+        sb.close()
+
+
+INJECT = r"""
+import os, sys, tarfile, time
+t0 = time.time()
+while time.time() - t0 < 60:
+    for p in filter(str.isdigit, os.listdir("/proc")):
+        try:
+            cmd = open(f"/proc/{p}/cmdline", "rb").read()
+        except OSError:
+            continue
+        if cmd.startswith(b"tar\0--null"):
+            os.kill(int(p), 19)  # SIGSTOP our tar, then write our own stream on its stdout
+            ti = tarfile.TarInfo("evil.txt")
+            ti.pax_headers = {"comment": "x" * 300_000_000}
+            with open(f"/proc/{p}/fd/1", "wb") as f:
+                f.write(ti.tobuf(tarfile.PAX_FORMAT))
+            open("/tmp/injected", "w").write("1")
+            sys.exit()
+"""
+
+
+def t_run_cannot_flood_host_memory():
+    """The run stops our tar and writes a tar whose header claims 300 MB: we stop reading, the host does not hold it."""
+    import resource
+    sb, _ = sandbox("ws-inject")
+    try:
+        sb.write_bytes("inject.py", INJECT.encode())
+        sb.exec("mkdir -p /workspace/outputs && for i in $(seq 300); do head -c 100000 /dev/urandom > /workspace/outputs/f$i; done")
+        sb.exec("setsid python /workspace/inject.py > /dev/null 2>&1 < /dev/null &")
+        before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024
+        out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="readout")
+        grew = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024 - before
+        assert "exit_code=0\n1" == sb.exec("cat /tmp/injected"), "the injection did not happen (race); rerun"
+        assert out.startswith("[rogue finished") and "evil" not in out.split("\n")[1], out[:300]
+        assert grew < 150, f"host grew {grew} MB"
+        print(f"    host memory +{grew} MB")
     finally:
         sb.close()
 
