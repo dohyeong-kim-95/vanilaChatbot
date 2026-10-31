@@ -435,17 +435,51 @@ def _hdr(name, typ, size):
     return t.tobuf(tarfile.USTAR_FORMAT)
 
 
-def t_odd_file_time_keeps_result():
-    """A pax file time of nan or inf (Python cannot make an int of it): the agent's answer still arrives."""
+def t_forged_headers_are_noted():
+    """Headers our tar never writes stop the copy with a note, and the agent's answer still arrives: a pax time of
+    nan (Python cannot make an int of it), or a negative size after a good file (tarfile would end there silently)."""
     import io
     import tarfile
-    for v in ("nan", "inf"):
-        buf, ti = io.BytesIO(), tarfile.TarInfo("t.txt")
-        ti.size, ti.pax_headers = 2, {"mtime": v}
-        with tarfile.open(fileobj=buf, mode="w", format=tarfile.PAX_FORMAT) as t:
-            t.addfile(ti, io.BytesIO(b"hi"))
-        out, _ = _crafted(f"ws-mtime-{v}", buf.getvalue())
-        assert out.startswith("[rogue finished"), (v, out[:300])
+    buf, ti = io.BytesIO(), tarfile.TarInfo("t.txt")
+    ti.size, ti.pax_headers = 2, {"mtime": "nan"}
+    with tarfile.open(fileobj=buf, mode="w", format=tarfile.PAX_FORMAT) as t:
+        t.addfile(ti, io.BytesIO(b"hi"))
+    good, bad = tarfile.TarInfo("a.txt"), tarfile.TarInfo("b.txt")
+    good.size, bad.size = 2, -5
+    neg = good.tobuf(tarfile.GNU_FORMAT) + b"hi".ljust(512, b"\0") + bad.tobuf(tarfile.GNU_FORMAT) + b"\0" * 1024
+    for case, data, note in (("nan", buf.getvalue(), "pax header"), ("neg", neg, "bad header")):
+        out, _ = _crafted(f"ws-forged-{case}", data)
+        assert out.startswith("[rogue finished") and note in out, (case, out[:400])
+    assert "['a.txt'] ['hi']" in out, out[:400]
+
+
+def t_tar_format_is_pinned():
+    """An image whose tar defaults to pax (here TAR_OPTIONS) still sends: we ask for gnu."""
+    sb, _ = sandbox("ws-format")
+    old = delegate._SEND
+    try:
+        sb.exec("mkdir -p /workspace/outputs && echo -n 한글 > /workspace/outputs/이름.txt")
+        delegate._SEND = "export TAR_OPTIONS=--format=posix; " + old
+        out = call(Context(sandbox=sb, agents=AGENTS), "rogue", task="readout")
+        assert out.startswith("[rogue finished") and "['이름.txt'] ['한글']" in out and "[note" not in out, out[:400]
+    finally:
+        delegate._SEND = old
+        sb.close()
+
+
+def t_agent_error_still_copies_back():
+    """Any error while talking to the agent (here the server's event write fails): its files still come back and
+    the error says what failed."""
+    sb, _ = sandbox("ws-emitfail")
+
+    def emit(ev):
+        raise ValueError("database is locked")
+    try:
+        out = call(Context(sandbox=sb, agents=AGENTS, emit=emit), "rogue", task="surrogateprog")
+        assert out.startswith("ERROR: RuntimeError: agent rogue failed: ValueError: database is locked"), out
+        assert (sb.workspace / "outputs" / "after.txt").read_text() == "kept"
+    finally:
+        sb.close()
 
 
 def t_many_small_headers_do_not_flood_host():

@@ -10,7 +10,6 @@ Timeouts, line size and message count are enforced here, outside the sandbox.
 import contextlib
 import hashlib
 import json
-import math
 import re
 import subprocess
 import tarfile
@@ -77,8 +76,7 @@ def run_agent(ctx, name, task, inputs):
         try:
             out, err = _talk(ctx, sb, name, m, task, inputs), None
         except Exception as e:  # whatever went wrong (e.g. emit), the agent's files are still copied back
-            out, err = None, e if isinstance(e, RuntimeError) else \
-                RuntimeError(f"agent {name} failed: {type(e).__name__}: {e}")
+            out, err = None, e
         # nothing of the agent's runs on while we copy (a background writer would race the copy)
         with contextlib.suppress(subprocess.TimeoutExpired):
             subprocess.run(["docker", "exec", sb.name, "sh", "-c", "kill -9 -1"], capture_output=True, timeout=30)
@@ -88,7 +86,8 @@ def run_agent(ctx, name, task, inputs):
         sb.close()
     note = "".join(f"\n[note: {n}]" for n in notes)
     if err:
-        raise RuntimeError(_utf8(f"{err}{note}"))
+        msg = str(err) if isinstance(err, RuntimeError) else f"agent {name} failed: {type(err).__name__}: {err}"
+        raise RuntimeError(_utf8(msg + note)) from err
     return _utf8(out + note)
 
 
@@ -98,13 +97,13 @@ def _utf8(t):
     return t.encode("utf-8", "replace").decode("utf-8")
 
 
-# Source side: regular files of at most MAX_OUTPUTS bytes (find -size), at most $1 of them, so a huge or sparse file
+# Source side (format gnu: _Info refuses pax headers, whatever the image's tar defaults to): regular files of at most MAX_OUTPUTS bytes (find -size), at most $1 of them, so a huge or sparse file
 # is never read. timeout kills find/tar inside the container (killing the docker exec client does not).
 _SEND = ('cd /workspace/outputs 2>/dev/null || exec tar -cf - -T /dev/null; '
          'n=$(find . -type f -size +$(($2))c | head -n 1000 | wc -l); '
          '[ "$n" -gt 0 ] && echo "$n file(s) over $(($2 / 1048576)) MB not sent" >&2; '
          'find . -type f -size -$(($2 + 1))c -print0 | head -z -n "$1" | '
-         'tar --null --no-recursion -T - -cf - --warning=no-file-changed')
+         'tar --null --format=gnu --no-recursion -T - -cf - --warning=no-file-changed')
 # Destination side: Python's "data" filter refuses members that would land outside outputs/ through a link the
 # source container made (outputs/ws -> /workspace), absolute paths and ../; outputs/ itself must not be a link.
 # An existing file is unlinked first: writing into it would go through a hard link the source made
@@ -139,6 +138,13 @@ class _Info(tarfile.TarInfo):
     object per number. Our tar (format gnu) writes no pax headers, no sparse files and no names near this size, so
     such a header is a forged stream: stop."""
     MAX_HEADER = 16 * 1024
+
+    @classmethod
+    def fromtarfile(cls, tf):
+        try:
+            return super().fromtarfile(tf)
+        except (tarfile.InvalidHeaderError, tarfile.TruncatedHeaderError) as e:  # past the first member, tarfile
+            raise tarfile.HeaderError(f"bad header: {e}") from None         # takes these as the end: say so
 
     def _proc_member(self, tf):
         if self.type in (tarfile.GNUTYPE_SPARSE, tarfile.XHDTYPE, tarfile.XGLTYPE, tarfile.SOLARIS_XHDTYPE):
@@ -217,8 +223,7 @@ def _transfer(src, dst, keep, what, scan, timeout=120, known=lambda rel: False):
                         break
                     buf.seek(0)
                     mo = tarfile.TarInfo(rel)
-                    mtime = mi.mtime if isinstance(mi.mtime, (int, float)) and math.isfinite(mi.mtime) else 0
-                    mo.size, mo.mtime, mo.mode = mi.size, int(min(max(mtime, 0), 2**33 - 1)), 0o644
+                    mo.size, mo.mtime, mo.mode = mi.size, min(max(mi.mtime, 0), 2**33 - 1), 0o644  # gnu: an int
                     tout.addfile(mo, buf)
                 sent[rel] = h.hexdigest()
                 total += mi.size

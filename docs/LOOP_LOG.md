@@ -754,3 +754,14 @@ sandbox 안에서 한 번에 심고, 저장소로 되돌린 뒤 확인했다.
 | Must | 16KB 이하 pax 헤더 수천 개로 서버 메모리 폭증: 전역 헤더는 스트림 전체에 쌓이고(40MB 스트림에 +1.3GB), 파일별 헤더는 tarfile이 읽은 멤버마다 보관(+534MB). 결과는 정상으로 보여 드러나지 않음 | 우리 tar는 gnu 형식이라 pax 헤더를 쓰지 않으므로 pax 헤더는 모두 거부, 읽은 멤버 목록을 매번 비움 | `t_many_small_headers_do_not_flood_host`(이전 코드는 메모리 부족으로 강제 종료, 지금 +0MB) |
 | Should | 진행 메시지의 `\ud800`이 서버 이벤트 저장에서 예외를 내, 복사 단계를 건너뛰어 결과·파일이 사라짐 | 진행 메시지도 UTF-8로 치환, 에이전트 대화 중 어떤 예외든 복사는 계속 | `t_bad_progress_keeps_files` |
 | Should | 23.6 수정 뒤, 상한을 넘는 파일도 끝까지 읽은 다음 버림(최대 50MB 헛읽기) | run에서 받은 이름(`known`)이 아니면 읽기 전에 멈춤 | |
+
+### 23.8 여덟 번째 확인 리뷰 후 수정
+판정: Must 없음(루프 종료 조건 충족). 위조 스트림 8종(긴 이름 연쇄, 디렉터리 수십만 개, base-256 크기 등)을 실제 경로로 보내 메모리 증가 없음 확인. 남은 Should 1, Nice 4를 고쳤다.
+
+| # | 지적 | 수정 | 테스트 |
+|---|---|---|---|
+| Should | 보내는 tar 형식이 이미지 기본값에 의존. 기본이 pax인 이미지면 모든 파일이 거부됨 | `--format=gnu` 명시 | `t_tar_format_is_pinned`(TAR_OPTIONS=posix, 이전 코드 실패) |
+| Nice | 음수 크기·체크섬 오류 헤더가 스트림 중간에 오면 메모 없이 끝남 | `_Info.fromtarfile`이 이를 오류로 바꿔 메모 | `t_forged_headers_are_noted`(이전 코드 실패) |
+| Nice | nan 시각 테스트가 pax 거부로 먼저 막혀 이름과 내용이 다름, 시각 검사는 죽은 코드 | 테스트를 위조 헤더 메모 검사로 바꿈, 검사 제거(gnu 시각은 정수) | `t_forged_headers_are_noted` |
+| Nice | 에이전트 대화 중 예외 경로에 테스트 없음 | 테스트 추가 | `t_agent_error_still_copies_back` |
+| Nice | 감싼 예외의 원인이 사라짐 | `raise ... from err` | |
