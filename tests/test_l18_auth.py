@@ -62,7 +62,7 @@ def main_server():
     global SRV
     if SRV is None:
         DATA.mkdir(parents=True, exist_ok=True)
-        accounts(DATA, "alice", "bob", "carol", "dave", "erin", "gus")
+        accounts(DATA, "alice", "bob", "carol", "dave", "erin", "gus", "hal", "ivy")
         SRV = server(8302, DATA)
     return SRV
 
@@ -305,7 +305,7 @@ def t_relogin_ends_previous_login():
 
 
 def t_bad_app_origin_refused():
-    for origin in ("http://127.0.0.1:8200/", "https://chat.example/app"):
+    for origin in ("http://127.0.0.1:8200/", "https://chat.example/app", "https://Chat.example", "https://chat.example:443"):
         r = subprocess.run([sys.executable, "-c", "import server.app"], cwd=ROOT, capture_output=True, text=True,
                            env={**os.environ, "AGENT_ROOT": str(TMP / "bad"), "AGENT_APP_ORIGIN": origin})
         assert r.returncode != 0 and "AGENT_APP_ORIGIN" in r.stderr + r.stdout, (origin, r.stderr[-300:])
@@ -344,6 +344,73 @@ def t_ui_logout_leaves_nothing():
         page.wait_for_function("() => document.getElementById('whoami').textContent === 'gus'")
         html = page.evaluate("() => document.getElementById('app').outerHTML + document.getElementById('input').value")
         assert "alice-secret" not in html and "unsent draft" not in html, "the next user sees alice's data"
+        b.close()
+
+
+def t_odd_input_never_sticks():
+    q = local("odd")
+    auth.set_password(q, "una", PW)
+    auth._FAILS = {}
+    try:
+        for _ in range(auth.MAX_FAILS + 2):  # lone surrogate: valid JSON, used to raise before the guess was recorded
+            assert auth.login(q, "una", "\ud800") is None
+        assert all(busy == 0 for _, _, busy in auth._FAILS.values()), auth._FAILS
+        auth._FAILS = {}
+        assert auth.login(q, "una", PW), "the account stayed blocked"
+        try:
+            auth.set_password(q, "una", "x" * (auth.MAX_PASSWORD + 1))
+            raise AssertionError("a password /login can never accept was set")
+        except ValueError:
+            pass
+        auth.set_password(q, "una", "y" * auth.MAX_PASSWORD)
+        assert auth.login(q, "una", "y" * auth.MAX_PASSWORD)
+        assert auth.login(q, "una", "y" * (auth.MAX_PASSWORD + 1)) is None
+    finally:
+        auth._FAILS = {}
+
+
+def t_failed_login_keeps_current_login():
+    main_server()
+    c, _ = login(URL, "hal")
+    assert c.post("/login", json={"user": "hal", "password": "wrong-password"}).status_code == 401
+    assert c.get("/me").json() == {"user": "hal"}
+
+
+def t_event_stream_ends_after_logout():
+    main_server()
+    c, _ = login(URL, "ivy")
+    db = sqlite3.connect(DATA / "agent.db", isolation_level=None)
+    db.execute("INSERT INTO sessions(id, user_id, project_id, history) VALUES ('s-ivy', 'ivy', 'p', '[]')")
+    db.execute("INSERT INTO runs(id, session_id, status) VALUES ('r-ivy', 's-ivy', 'running')")  # never finishes
+    db.close()
+    token = c.cookies[auth.COOKIE]
+    reader = httpx.Client(base_url=URL, cookies={auth.COOKIE: token}, timeout=30)
+    t0 = time.time()
+    with reader.stream("GET", "/runs/r-ivy/events") as r:
+        assert r.status_code == 200
+        c.post("/logout")
+        for _ in r.iter_lines():
+            pass
+    assert time.time() - t0 < 15, "the stream kept running after logout"
+
+
+def t_ui_expired_login_clears_page():
+    from playwright.sync_api import sync_playwright
+    main_server()
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(channel="chrome", headless=True)
+        page = b.new_page()
+        page.goto(URL + "/")
+        page.wait_for_selector("#login:not([hidden])")
+        page.fill("#login-user", "gus")
+        page.fill("#login-password", PW)
+        page.click("#login button")
+        page.wait_for_selector("#app:not([hidden])")
+        page.fill("#input", "gus's unsent draft")
+        accounts(DATA, "gus")  # same password again: ends every login of gus
+        page.evaluate("() => loadProjects().catch(() => {})")  # the next API call gets 401
+        page.wait_for_selector("#login:not([hidden])")
+        assert page.input_value("#input") == "" and page.inner_text("#whoami") == "", "the page kept gus's state"
         b.close()
 
 

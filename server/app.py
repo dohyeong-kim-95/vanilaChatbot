@@ -60,8 +60,11 @@ auth.init(DB)
 AUTH = os.environ.get("AGENT_AUTH", "login")
 if AUTH not in ("login", "header"):
     raise SystemExit(f"AGENT_AUTH={AUTH!r}: use login (default) or header")
-if not re.fullmatch(r"https?://[^/?#\s]+", render.APP_ORIGIN):  # compared as a string with the browser's Origin
-    raise SystemExit(f"AGENT_APP_ORIGIN={render.APP_ORIGIN!r}: scheme://host[:port], no path or trailing /")
+# compared as a string with the browser's Origin, which is lowercase and leaves out the default port
+if (not re.fullmatch(r"https?://[^/?#\s]+", render.APP_ORIGIN) or render.APP_ORIGIN != render.APP_ORIGIN.lower()
+        or re.search(r"^http://.*:80$|^https://.*:443$", render.APP_ORIGIN)):
+    raise SystemExit(f"AGENT_APP_ORIGIN={render.APP_ORIGIN!r}: scheme://host[:port] in lowercase, no default port, "
+                     "no path or trailing /")
 LOCK = threading.Lock()
 CANCEL = {}  # process-local
 _read = lambda env: Path(os.environ[env]).read_text() if os.environ.get(env) else ""
@@ -257,10 +260,10 @@ def _logged_in(user, token):
 def login(b: Login, request: Request):
     if AUTH != "login":
         raise HTTPException(404)
-    auth.logout(q, request.cookies.get(auth.COOKIE))  # the login this browser had before ends here
-    token = auth.login(q, b.user, b.password[:1024])
+    token = auth.login(q, b.user, b.password)
     if not token:  # wrong password, unknown name and a locked name all look the same
         raise HTTPException(401, "wrong user or password")
+    auth.logout(q, request.cookies.get(auth.COOKIE))  # the login this browser had before ends here
     return _logged_in(b.user, token)
 
 
@@ -276,13 +279,16 @@ def logout(request: Request):
 def change_password(b: NewPassword, user=Depends(caller)):
     if AUTH != "login":
         raise HTTPException(404)
-    if not auth.login(q, user, b.old[:1024]):  # also counts toward the lock: a stolen cookie cannot guess it
+    if not auth.verify(q, user, b.old):  # also counts toward the lock: a stolen cookie cannot guess it
         raise HTTPException(403, "wrong password")
     try:
-        auth.set_password(q, user, b.new)  # signs out every other login of this user
+        pw = auth.set_password(q, user, b.new)  # signs out every login of this user, this one too
     except ValueError as e:
         raise HTTPException(422, str(e))
-    return _logged_in(user, auth.login(q, user, b.new))
+    token = auth.issue(q, user, pw)
+    if not token:  # changed again meanwhile
+        raise HTTPException(409, "password changed meanwhile; log in again")
+    return _logged_in(user, token)
 
 
 @app.get("/me")
@@ -447,7 +453,11 @@ async def events(rid: str, request: Request, after: int = 0, user=Depends(caller
 
     async def sse():
         nonlocal after
+        ticks = 0
         while not await request.is_disconnected():
+            ticks += 1
+            if AUTH == "login" and ticks % 25 == 0 and auth.user_of(q, request.cookies.get(auth.COOKIE)) != user:
+                return  # logged out, password changed or account removed since the stream opened
             rows = q("SELECT seq, type, data FROM events WHERE run_id=? AND seq>? ORDER BY seq", rid, after)
             for seq, typ, data in rows:
                 yield f"id: {seq}\nevent: {typ}\ndata: {data}\n\n"

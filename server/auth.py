@@ -24,7 +24,7 @@ from agent.userstore import ID_RE
 
 COOKIE = "vc_session"
 TTL = int(os.environ.get("AGENT_LOGIN_TTL", 7 * 24 * 3600))
-MIN_PASSWORD = 10
+MIN_PASSWORD, MAX_PASSWORD = 10, 1024
 MAX_FAILS, LOCK_SECONDS = 5, 300  # per user name: 5 wrong passwords lock the name for 5 minutes
 _N, _R, _P = 2 ** 14, 8, 1        # scrypt cost: ~50 ms, 16 MB
 _FAILS = {}                       # name -> [fails, locked_until, attempts in flight]; process-local
@@ -41,7 +41,8 @@ def init(db):  # the sqlite connection itself; everything else takes q(sql, *arg
 
 def _hash(password, salt=None):
     salt = salt or secrets.token_bytes(16)
-    h = hashlib.scrypt(password.encode(), salt=salt, n=_N, r=_R, p=_P, maxmem=64 * 2 ** 20)
+    # surrogatepass: "\ud800" is valid JSON, and an exception here would leave a guess counted as in flight forever
+    h = hashlib.scrypt(password.encode("utf-8", "surrogatepass"), salt=salt, n=_N, r=_R, p=_P, maxmem=64 * 2 ** 20)
     return f"scrypt${salt.hex()}${h.hex()}"
 
 
@@ -60,10 +61,12 @@ def _digest(token):
 def set_password(q, user, password):
     if not ID_RE.match(user):
         raise ValueError("user id: lowercase letters, digits, - and _, at most 64")
-    if len(password) < MIN_PASSWORD:
-        raise ValueError(f"password: at least {MIN_PASSWORD} characters")
-    q("INSERT INTO users(id, pw) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET pw=excluded.pw", user, _hash(password))
+    if not MIN_PASSWORD <= len(password) <= MAX_PASSWORD:
+        raise ValueError(f"password: {MIN_PASSWORD} to {MAX_PASSWORD} characters")
+    pw = _hash(password)
+    q("INSERT INTO users(id, pw) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET pw=excluded.pw", user, pw)
     q("DELETE FROM logins WHERE user_id=?", user)  # a new password ends every old login
+    return pw
 
 
 def _begin(user, now):
@@ -80,6 +83,7 @@ def _begin(user, now):
             e = _FAILS[user] = [0, 0, 0]
         if e[1] > now or e[0] + e[2] >= MAX_FAILS:
             return False
+        e[1] = 0  # an expired lock
         e[2] += 1
         return True
 
@@ -95,26 +99,38 @@ def _end(user, ok, now):
             del _FAILS[user]
 
 
-def login(q, user, password):
-    """Returns a new token, or None. Wrong passwords, unknown names and locked names look the same to the caller."""
+def verify(q, user, password):
+    """The stored hash if the password is right, else None. Wrong passwords, unknown names and locked names look
+    the same to the caller."""
     now = time.time()
-    if not ID_RE.match(user):  # no account can have this name: same cost, nothing tracked
-        _check(password, _DUMMY)
+    if not ID_RE.match(user) or len(password) > MAX_PASSWORD:  # no account matches: same cost, nothing tracked
+        _check(password[:MAX_PASSWORD], _DUMMY)
         return None
     if not _begin(user, now):
         return None
-    row = (q("SELECT pw FROM users WHERE id=?", user) or [None])[0]
-    ok = _check(password, row[0] if row else _DUMMY) and bool(row)
-    _end(user, ok, now)
-    if not ok:
-        return None
-    token = secrets.token_urlsafe(32)
-    q("DELETE FROM logins WHERE expires < ?", int(now))
-    # only if the hash we checked is still the account's: a password change or removal while we were hashing wins
+    ok = False
+    try:
+        row = (q("SELECT pw FROM users WHERE id=?", user) or [None])[0]
+        ok = _check(password, row[0] if row else _DUMMY) and bool(row)
+    finally:  # whatever happens, the guess is no longer in flight
+        _end(user, ok, now)
+    return row[0] if ok else None
+
+
+def issue(q, user, pw):
+    """A new token for a hash just verified (or just set), or None if the account changed meanwhile."""
+    now, token = int(time.time()), secrets.token_urlsafe(32)
+    q("DELETE FROM logins WHERE expires < ?", now)
+    # only if that hash is still the account's: a password change or removal while we were hashing wins
     if not q("""INSERT INTO logins(token, user_id, expires) SELECT ?, ?, ? WHERE (SELECT pw FROM users WHERE id=?) = ?
-                RETURNING token""", _digest(token), user, int(now) + TTL, user, row[0]):
+                RETURNING token""", _digest(token), user, now + TTL, user, pw):
         return None
     return token
+
+
+def login(q, user, password):
+    pw = verify(q, user, password)
+    return issue(q, user, pw) if pw else None
 
 
 def user_of(q, token):
