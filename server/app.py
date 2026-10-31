@@ -27,6 +27,7 @@ store; a run checks the project out, and writes repo/outputs back when it ends o
 import asyncio
 import json
 import os
+import re
 import shutil
 import sqlite3
 import threading
@@ -59,6 +60,8 @@ auth.init(DB)
 AUTH = os.environ.get("AGENT_AUTH", "login")
 if AUTH not in ("login", "header"):
     raise SystemExit(f"AGENT_AUTH={AUTH!r}: use login (default) or header")
+if not re.fullmatch(r"https?://[^/?#\s]+", render.APP_ORIGIN):  # compared as a string with the browser's Origin
+    raise SystemExit(f"AGENT_APP_ORIGIN={render.APP_ORIGIN!r}: scheme://host[:port], no path or trailing /")
 LOCK = threading.Lock()
 CANCEL = {}  # process-local
 _read = lambda env: Path(os.environ[env]).read_text() if os.environ.get(env) else ""
@@ -176,7 +179,8 @@ def recover():
     """Resume runs that were mid-flight when the process died. A tool that was running is NOT re-executed
     (it may have had side effects): it gets an 'outcome unknown' result and the model decides."""
     if AUTH == "header":
-        print("WARNING: AGENT_AUTH=header trusts X-User: anyone who can reach this port can act as any user")
+        print("WARNING: AGENT_AUTH=header trusts X-User: anyone who can reach this port can act as any user "
+              "(API only: the web UI needs login)")
     elif not q("SELECT 1 FROM users LIMIT 1"):
         print("No accounts yet: python -m server.auth add <user>")
     for rid, sid, inflight in q("SELECT id, session_id, inflight FROM runs WHERE status='running'"):
@@ -250,9 +254,10 @@ def _logged_in(user, token):
 
 
 @app.post("/login")
-def login(b: Login):
+def login(b: Login, request: Request):
     if AUTH != "login":
         raise HTTPException(404)
+    auth.logout(q, request.cookies.get(auth.COOKIE))  # the login this browser had before ends here
     token = auth.login(q, b.user, b.password[:1024])
     if not token:  # wrong password, unknown name and a locked name all look the same
         raise HTTPException(401, "wrong user or password")

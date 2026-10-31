@@ -27,7 +27,8 @@ TTL = int(os.environ.get("AGENT_LOGIN_TTL", 7 * 24 * 3600))
 MIN_PASSWORD = 10
 MAX_FAILS, LOCK_SECONDS = 5, 300  # per user name: 5 wrong passwords lock the name for 5 minutes
 _N, _R, _P = 2 ** 14, 8, 1        # scrypt cost: ~50 ms, 16 MB
-_FAILS = {}                       # name -> (count, locked_until); process-local, a restart clears it
+_FAILS = {}                       # name -> [fails, locked_until, attempts in flight]; process-local
+_MAX_TRACKED = 10000
 _FLOCK = threading.Lock()
 
 
@@ -65,34 +66,62 @@ def set_password(q, user, password):
     q("DELETE FROM logins WHERE user_id=?", user)  # a new password ends every old login
 
 
+def _begin(user, now):
+    """Reserve one guess. Attempts still hashing count as failures-to-be, so parallel requests cannot run more than
+    MAX_FAILS guesses before the lock (checking and recording separately let them overwrite the lock)."""
+    with _FLOCK:
+        e = _FAILS.get(user)
+        if e is None:
+            if len(_FAILS) >= _MAX_TRACKED:  # made-up names: forget only names that are neither locked nor busy
+                for k in [k for k, (_, until, busy) in _FAILS.items() if until <= now and not busy]:
+                    del _FAILS[k]
+                if len(_FAILS) >= _MAX_TRACKED:
+                    return False  # cannot track this name, so do not let it guess
+            e = _FAILS[user] = [0, 0, 0]
+        if e[1] > now or e[0] + e[2] >= MAX_FAILS:
+            return False
+        e[2] += 1
+        return True
+
+
+def _end(user, ok, now):
+    with _FLOCK:
+        e = _FAILS[user]
+        e[2] -= 1
+        e[0] = 0 if ok else e[0] + 1
+        if e[0] >= MAX_FAILS:
+            e[0], e[1] = 0, max(e[1], now + LOCK_SECONDS)
+        if e == [0, 0, 0]:
+            del _FAILS[user]
+
+
 def login(q, user, password):
-    """Returns a new token, or None. Wrong passwords and unknown names look the same to the caller."""
+    """Returns a new token, or None. Wrong passwords, unknown names and locked names look the same to the caller."""
     now = time.time()
-    with _FLOCK:
-        count, until = _FAILS.get(user, (0, 0))
-        if until > now:
-            return None
-    row = (q("SELECT pw FROM users WHERE id=?", user) or [None])[0]
-    if not _check(password, row[0] if row else _DUMMY) or not row:
-        with _FLOCK:
-            count = _FAILS.get(user, (0, 0))[0] + 1
-            _FAILS[user] = (0, now + LOCK_SECONDS) if count >= MAX_FAILS else (count, 0)
-            if len(_FAILS) > 10000:  # many made-up names: drop the oldest entries instead of growing forever
-                for k in list(_FAILS)[:5000]:
-                    _FAILS.pop(k, None)
+    if not ID_RE.match(user):  # no account can have this name: same cost, nothing tracked
+        _check(password, _DUMMY)
         return None
-    with _FLOCK:
-        _FAILS.pop(user, None)
+    if not _begin(user, now):
+        return None
+    row = (q("SELECT pw FROM users WHERE id=?", user) or [None])[0]
+    ok = _check(password, row[0] if row else _DUMMY) and bool(row)
+    _end(user, ok, now)
+    if not ok:
+        return None
     token = secrets.token_urlsafe(32)
     q("DELETE FROM logins WHERE expires < ?", int(now))
-    q("INSERT INTO logins(token, user_id, expires) VALUES (?, ?, ?)", _digest(token), user, int(now) + TTL)
+    # only if the hash we checked is still the account's: a password change or removal while we were hashing wins
+    if not q("""INSERT INTO logins(token, user_id, expires) SELECT ?, ?, ? WHERE (SELECT pw FROM users WHERE id=?) = ?
+                RETURNING token""", _digest(token), user, int(now) + TTL, user, row[0]):
+        return None
     return token
 
 
 def user_of(q, token):
     if not token:
         return None
-    row = q("SELECT user_id FROM logins WHERE token=? AND expires >= ?", _digest(token), int(time.time()))
+    row = q("""SELECT l.user_id FROM logins l JOIN users u ON u.id = l.user_id WHERE l.token=? AND l.expires >= ?""",
+            _digest(token), int(time.time()))
     return row[0][0] if row else None
 
 
@@ -124,8 +153,9 @@ def main(argv):
             sys.exit(str(e))
         print("ok")
     elif cmd == "remove" and len(rest) == 1:
+        gone = q("DELETE FROM users WHERE id=? RETURNING id", rest[0])  # first: a login racing this one fails
         q("DELETE FROM logins WHERE user_id=?", rest[0])
-        print("ok" if q("DELETE FROM users WHERE id=? RETURNING id", rest[0]) else "no such user")
+        print("ok" if gone else "no such user")
     else:
         sys.exit(__doc__)
 

@@ -62,7 +62,7 @@ def main_server():
     global SRV
     if SRV is None:
         DATA.mkdir(parents=True, exist_ok=True)
-        accounts(DATA, "alice", "bob", "carol", "dave", "erin")
+        accounts(DATA, "alice", "bob", "carol", "dave", "erin", "gus")
         SRV = server(8302, DATA)
     return SRV
 
@@ -189,6 +189,162 @@ def t_bad_auth_mode_refused():
     r = subprocess.run([sys.executable, "-c", "import server.app"], cwd=ROOT, capture_output=True, text=True,
                        env={**os.environ, "AGENT_ROOT": str(TMP / "bad"), "AGENT_AUTH": "none"})
     assert r.returncode != 0 and "AGENT_AUTH" in r.stderr + r.stdout, r.stderr[-300:]
+
+
+def local(name):
+    """auth on its own DB, in this process (for races that need exact timing)."""
+    import threading
+    db = sqlite3.connect(TMP / f"{name}.db", check_same_thread=False, isolation_level=None)
+    auth.init(db)
+    lock = threading.Lock()
+
+    def q(sql, *args):
+        with lock:
+            return db.execute(sql, args).fetchall()
+    return q
+
+
+def t_parallel_guesses_cannot_pass_the_lock():
+    import threading
+    q = local("parallel")
+    auth.set_password(q, "pat", PW)
+    stored = q("SELECT pw FROM users WHERE id='pat'")[0][0]
+    real, orig = [0], auth._check
+
+    def counting(password, h):
+        if h == stored:
+            real[0] += 1
+        return orig(password, h)
+    auth._check, auth._FAILS = counting, {}
+    try:
+        stop = time.time() + 1.5
+        hits = []
+
+        def guess():
+            while time.time() < stop:
+                if auth.login(q, "pat", "wrong-password"):
+                    hits.append(1)
+        ts = [threading.Thread(target=guess) for _ in range(16)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+        assert real[0] <= auth.MAX_FAILS, f"{real[0]} guesses were checked, the lock allows {auth.MAX_FAILS}"
+        assert auth.login(q, "pat", PW) is None, "the right password got in while the name is locked"
+    finally:
+        auth._check, auth._FAILS = orig, {}
+
+
+def t_login_racing_a_password_change_loses():
+    q = local("race")
+    orig = auth._check
+    for change in ("passwd", "remove"):
+        auth.set_password(q, "rae", PW)
+        done = []
+
+        def during_hash(password, h):  # the change lands while login is hashing the old password
+            if not done:
+                done.append(1)
+                if change == "passwd":
+                    auth.set_password(q, "rae", "brand-new-password")
+                else:
+                    q("DELETE FROM users WHERE id='rae'")
+            return orig(password, h)
+        auth._check = during_hash
+        try:
+            token = auth.login(q, "rae", PW)
+        finally:
+            auth._check = orig
+        assert token is None or auth.user_of(q, token) is None, f"{change}: a login with the old password survived"
+    auth.set_password(q, "rae", PW)
+    token = auth.login(q, "rae", PW)
+    q("DELETE FROM users WHERE id='rae'")  # removal deletes the user first, then its logins
+    assert auth.user_of(q, token) is None, "a removed user's login still works"
+
+
+def t_expired_login_rejected():
+    q = local("expiry")
+    auth.set_password(q, "eve", PW)
+    token = auth.login(q, "eve", PW)
+    assert auth.user_of(q, token) == "eve"
+    q("UPDATE logins SET expires = ?", int(time.time()) - 1)
+    assert auth.user_of(q, token) is None
+
+
+def t_name_tracking_is_bounded():
+    q = local("bounded")
+    auth.set_password(q, "vic", PW)
+    calls, orig = [0], auth._hash
+
+    def counting(*a):
+        calls[0] += 1
+        return orig(*a)
+    auth._hash, auth._FAILS = counting, {}
+    try:
+        for name in ("ghost", "Bad Name", "x" * 5000):
+            calls[0] = 0
+            assert auth.login(q, name, "whatever-password") is None
+            assert calls[0] == 1, f"{name[:10]!r}: {calls[0]} hashes (an existing name costs 1)"
+        assert "Bad Name" not in auth._FAILS and "x" * 5000 not in auth._FAILS
+        for _ in range(auth.MAX_FAILS):
+            auth.login(q, "vic", "wrong-password")
+        for i in range(auth._MAX_TRACKED):  # made-up names fill the table
+            auth._FAILS.setdefault(f"n{i}", [1, 0, 0])
+        auth.login(q, "one-more", "wrong-password")
+        assert auth.login(q, "vic", PW) is None, "made-up names pushed out the lock on a real one"
+    finally:
+        auth._hash, auth._FAILS = orig, {}
+
+
+def t_relogin_ends_previous_login():
+    main_server()
+    c, r = login(URL, "erin")
+    old = r.cookies[auth.COOKIE]
+    assert c.post("/login", json={"user": "erin", "password": PW}).status_code == 200
+    assert httpx.Client(base_url=URL, cookies={auth.COOKIE: old}).get("/me").status_code == 401
+
+
+def t_bad_app_origin_refused():
+    for origin in ("http://127.0.0.1:8200/", "https://chat.example/app"):
+        r = subprocess.run([sys.executable, "-c", "import server.app"], cwd=ROOT, capture_output=True, text=True,
+                           env={**os.environ, "AGENT_ROOT": str(TMP / "bad"), "AGENT_APP_ORIGIN": origin})
+        assert r.returncode != 0 and "AGENT_APP_ORIGIN" in r.stderr + r.stdout, (origin, r.stderr[-300:])
+
+
+def t_ui_logout_leaves_nothing():
+    from playwright.sync_api import sync_playwright
+    main_server()
+    a, _ = login(URL, "alice")
+    a.post("/projects", json={"project_id": "alice-secret"})
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(channel="chrome", headless=True)
+        page = b.new_page()
+        errs = []
+        page.on("pageerror", lambda e: errs.append(str(e)))
+
+        def enter(user):
+            page.wait_for_selector("#login:not([hidden])")
+            page.fill("#login-user", user)
+            page.fill("#login-password", PW)
+            page.click("#login button")
+            try:
+                page.wait_for_selector("#app:not([hidden])", timeout=8000)
+            except Exception:
+                raise AssertionError(f"{user}: login failed: {page.inner_text('#login-error')!r} {errs}")
+        page.goto(URL + "/")
+        enter("alice")
+        page.wait_for_function("() => [...document.querySelectorAll('#project option')].some(o => o.value === 'alice-secret')")
+        page.fill("#input", "alice's unsent draft")
+        with page.expect_navigation():  # logout reloads the page
+            page.click("#logout")
+        page.wait_for_selector("#login:not([hidden])")
+        html = page.evaluate("() => document.getElementById('app').outerHTML + document.getElementById('input').value")
+        assert "alice-secret" not in html and "unsent draft" not in html, "alice's data is still in the page"
+        enter("gus")
+        page.wait_for_function("() => document.getElementById('whoami').textContent === 'gus'")
+        html = page.evaluate("() => document.getElementById('app').outerHTML + document.getElementById('input').value")
+        assert "alice-secret" not in html and "unsent draft" not in html, "the next user sees alice's data"
+        b.close()
 
 
 if __name__ == "__main__":

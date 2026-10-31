@@ -401,10 +401,14 @@ function showCapture(a, frame) {
 }
 
 // ---- wiring ---------------------------------------------------------------------------------------
+// Nothing of the previous user may stay in the page, not even hidden: a 401 clears what is shown, and both logout
+// and a new login reload the page, which also drops answers still in flight for the old user.
 function showLogin() {
+  if (!$("login").hidden) return;  // already shown (api() and its caller both react to a 401): keep what was typed
   stopFollow();
-  $("art-close").onclick();  // nothing of the previous user stays on screen
-  $("messages").replaceChildren();
+  $("art-close").onclick();
+  for (const id of ["messages", "sessions", "artifacts", "project", "frame-wrap", "art-sections", "art-version"]) $(id).replaceChildren();
+  $("art-code").textContent = $("art-title").textContent = $("whoami").textContent = $("input").value = "";
   state.user = state.project = state.session = "";
   $("app").hidden = true;
   $("login").hidden = false;
@@ -424,18 +428,23 @@ $("login").onsubmit = async (e) => {
   e.preventDefault();
   $("login-error").textContent = "";
   try {
-    const { user } = await api("/login", { method: "POST", body: JSON.stringify(
+    await api("/login", { method: "POST", body: JSON.stringify(
       { user: $("login-user").value.trim(), password: $("login-password").value }) });
     $("login-password").value = "";
-    await enter(user);
+    location.reload();
   } catch (err) {
     $("login-error").textContent = String(err).startsWith("Error: 401") ? "사용자 또는 비밀번호가 틀렸어요." : String(err);
   }
 };
 $("logout").onclick = async () => {
-  await api("/logout", { method: "POST" }).catch(() => {});
   showLogin();
+  await api("/logout", { method: "POST" }).catch(() => {});
+  location.reload();
 };
+// Another tab may have logged in as someone else (the cookie is shared): do not keep showing this user's data.
+window.addEventListener("focus", () => {
+  if (state.user) api("/me").then(({ user }) => { if (user !== state.user) location.reload(); }).catch(() => {});
+});
 $("project").onchange = () => { state.project = $("project").value; loadProject(); };
 $("new-project").onclick = async () => {
   const id = prompt("프로젝트 id (소문자, 숫자, -, _)");
