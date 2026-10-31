@@ -819,3 +819,14 @@ Linux 서버 한 대에 여러 사람이 브라우저로 접속하는 경우를 
 | Nice | 401 경로의 화면 비우기를 테스트가 지키지 못함 | 로그인을 끝낸 뒤 API 호출 → 입력·사용자 표시가 비었는지 | `t_ui_expired_login_clears_page` |
 | Nice | 로그아웃 뒤에도 열린 이벤트 스트림이 계속됨 | 5초마다 로그인 재확인 | `t_event_stream_ends_after_logout` |
 | Nice | 잠금으로 남을 잠가 두기, 추적이 꽉 차면 전부 거부 | 한계로 SPEC에 기록 | |
+
+### 24.3 세 번째 리뷰 후 수정
+판정: 24.2의 7개 항목 닫힘. 새 지적 Must 1, Should 1. 전체 통과(l18은 25개). 새 테스트 중 기존 동작을 지키는 것(잠금, finally)은 그 코드를 지웠을 때 실패하는 것을 확인했다.
+
+| # | 지적 | 수정 | 테스트 |
+|---|---|---|---|
+| Must | `/password`가 확인 뒤 무조건 upsert해, 해시 두 번(약 100ms) 사이의 관리자 `remove`·`passwd`를 되돌림. 탈취한 계정이 비밀번호를 계속 바꾸면 삭제해도 살아남음(10/10, 재설정 6/6) | 확인한 해시가 그대로일 때만 바꿈(`UPDATE … WHERE pw=?`), 아니면 409. upsert는 CLI만 | `t_own_change_cannot_undo_the_admin` |
+| Should | l18이 실패해도 종료 코드 0 | 실패가 있으면 1 | |
+| Nice | 로그아웃 요청이 실패해도 로그인 화면으로 바뀌어, 공용 PC에서 다음 사람이 새로고침하면 이전 사용자로 들어감 | 실패하면 오류만 표시 | `t_ui_failed_logout_does_not_look_logged_out` |
+| Nice | `/password`가 잠금에 세어지는지, `finally` 경로를 지키는 테스트 없음 | 추가 | `t_password_endpoint_counts_toward_lock`, `t_guess_released_on_any_error` |
+| Nice | https에서 형제 서브도메인의 쿠키 심기 | `__Host-` 접두사 | `t_https_origin_sets_secure_cookie` |

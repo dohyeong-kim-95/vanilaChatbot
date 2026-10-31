@@ -58,13 +58,19 @@ def _digest(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def set_password(q, user, password):
+def set_password(q, user, password, expect=None):
+    """Create or reset (the CLI), or with `expect` (the hash the user just proved) change it only if nobody else did
+    meanwhile: a user's own change must not bring back a removed account or undo a reset. Returns the new hash,
+    or None if `expect` no longer matches."""
     if not ID_RE.match(user):
         raise ValueError("user id: lowercase letters, digits, - and _, at most 64")
     if not MIN_PASSWORD <= len(password) <= MAX_PASSWORD:
         raise ValueError(f"password: {MIN_PASSWORD} to {MAX_PASSWORD} characters")
     pw = _hash(password)
-    q("INSERT INTO users(id, pw) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET pw=excluded.pw", user, pw)
+    if expect is None:
+        q("INSERT INTO users(id, pw) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET pw=excluded.pw", user, pw)
+    elif not q("UPDATE users SET pw=? WHERE id=? AND pw=? RETURNING id", pw, user, expect):
+        return None
     q("DELETE FROM logins WHERE user_id=?", user)  # a new password ends every old login
     return pw
 

@@ -62,7 +62,7 @@ def main_server():
     global SRV
     if SRV is None:
         DATA.mkdir(parents=True, exist_ok=True)
-        accounts(DATA, "alice", "bob", "carol", "dave", "erin", "gus", "hal", "ivy")
+        accounts(DATA, "alice", "bob", "carol", "dave", "erin", "gus", "hal", "ivy", "jon", "kit")
         SRV = server(8302, DATA)
     return SRV
 
@@ -180,7 +180,8 @@ def t_https_origin_sets_secure_cookie():
     p = server(8303, data, AGENT_APP_ORIGIN="https://chat.example")
     try:
         _, r = login("http://127.0.0.1:8303", "alice")
-        assert r.status_code == 200 and "secure" in r.headers["set-cookie"].lower(), r.headers
+        sc = r.headers["set-cookie"].lower()
+        assert r.status_code == 200 and "secure" in sc and sc.startswith("__host-vc_session="), r.headers
     finally:
         kill(p)
 
@@ -414,15 +415,79 @@ def t_ui_expired_login_clears_page():
         b.close()
 
 
+def t_own_change_cannot_undo_the_admin():
+    q = local("cas")
+    for admin in ("remove", "reset"):
+        auth.set_password(q, "kim", PW)
+        old = auth.verify(q, "kim", PW)  # the user proved the old password (/password) ...
+        if admin == "remove":                 # ... and the admin acts before the new one is stored
+            q("DELETE FROM users WHERE id='kim'")
+        else:
+            auth.set_password(q, "kim", "admin-reset-pass")
+        assert auth.set_password(q, "kim", "users-new-pass", expect=old) is None, admin
+        assert auth.login(q, "kim", "users-new-pass") is None, f"{admin} was undone"
+        if admin == "reset":
+            assert auth.login(q, "kim", "admin-reset-pass")
+
+
+def t_password_endpoint_counts_toward_lock():
+    main_server()
+    c, _ = login(URL, "jon")
+    for _ in range(auth.MAX_FAILS):
+        assert c.post("/password", json={"old": "wrong-password", "new": "another-pass-3"}).status_code == 403
+    r = c.post("/password", json={"old": PW, "new": "another-pass-3"})
+    assert r.status_code == 403, "a cookie could keep guessing the password through /password"
+
+
+def t_guess_released_on_any_error():
+    q = local("errors")
+    auth.set_password(q, "lee", PW)
+    orig = auth._check
+
+    def boom(password, h):
+        raise RuntimeError("hash failed")
+    auth._check, auth._FAILS = boom, {}
+    try:
+        for _ in range(auth.MAX_FAILS + 1):
+            try:
+                auth.login(q, "lee", PW)
+            except RuntimeError:
+                pass
+        assert all(busy == 0 for _, _, busy in auth._FAILS.values()), auth._FAILS
+    finally:
+        auth._check, auth._FAILS = orig, {}
+
+
+def t_ui_failed_logout_does_not_look_logged_out():
+    from playwright.sync_api import sync_playwright
+    main_server()
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(channel="chrome", headless=True)
+        page = b.new_page()
+        page.goto(URL + "/")
+        page.wait_for_selector("#login:not([hidden])")
+        page.fill("#login-user", "kit")
+        page.fill("#login-password", PW)
+        page.click("#login button")
+        page.wait_for_selector("#app:not([hidden])")
+        page.route("**/logout", lambda route: route.abort())
+        page.click("#logout")
+        page.wait_for_selector(".msg.error")
+        assert page.is_hidden("#login") and page.is_visible("#app"), "a failed logout showed the login form"
+        b.close()
+
+
 if __name__ == "__main__":
-    only = sys.argv[1:]
+    only, failed = sys.argv[1:], 0
     try:
         for name, fn in list(globals().items()):
             if name.startswith("t_") and (not only or name in only):
                 try:
                     t = time.time(); fn(); print(f"PASS {name} ({time.time() - t:.0f}s)")
                 except Exception as e:
+                    failed += 1
                     print("FAIL", name, repr(e)[:600])
     finally:
         if SRV:
             kill(SRV)
+    sys.exit(1 if failed else 0)

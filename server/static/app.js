@@ -437,8 +437,13 @@ $("login").onsubmit = async (e) => {
   }
 };
 $("logout").onclick = async () => {
+  try {
+    await api("/logout", { method: "POST" });
+  } catch (err) {  // the login is still valid: do not look logged out (the next person would be let in)
+    addMsg("error", `로그아웃하지 못했어요: ${err}`);
+    return;
+  }
   showLogin();
-  await api("/logout", { method: "POST" }).catch(() => {});
   location.reload();
 };
 // Another tab may have logged in as someone else (the cookie is shared): do not keep showing this user's data.

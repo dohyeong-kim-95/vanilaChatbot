@@ -213,7 +213,7 @@ def caller(request: Request, x_user: str = Header(None)):
         if not x_user or not ID_RE.match(x_user):
             raise HTTPException(401, "missing or invalid X-User")
         return x_user
-    user = auth.user_of(q, request.cookies.get(auth.COOKIE))
+    user = auth.user_of(q, request.cookies.get(COOKIE))
     if not user:
         raise HTTPException(401, "not logged in")
     return user
@@ -249,9 +249,13 @@ class NewPassword(BaseModel):
     new: str
 
 
+# __Host-: a sibling subdomain cannot plant this cookie for us (only possible with Secure, i.e. https)
+COOKIE = ("__Host-" if render.APP_ORIGIN.startswith("https://") else "") + auth.COOKIE
+
+
 def _logged_in(user, token):
     r = JSONResponse({"user": user})
-    r.set_cookie(auth.COOKIE, token, max_age=auth.TTL, path="/", httponly=True, samesite="strict",
+    r.set_cookie(COOKIE, token, max_age=auth.TTL, path="/", httponly=True, samesite="strict",
                  secure=render.APP_ORIGIN.startswith("https://"))
     return r
 
@@ -263,15 +267,15 @@ def login(b: Login, request: Request):
     token = auth.login(q, b.user, b.password)
     if not token:  # wrong password, unknown name and a locked name all look the same
         raise HTTPException(401, "wrong user or password")
-    auth.logout(q, request.cookies.get(auth.COOKIE))  # the login this browser had before ends here
+    auth.logout(q, request.cookies.get(COOKIE))  # the login this browser had before ends here
     return _logged_in(b.user, token)
 
 
 @app.post("/logout")
 def logout(request: Request):
-    auth.logout(q, request.cookies.get(auth.COOKIE))
+    auth.logout(q, request.cookies.get(COOKIE))
     r = JSONResponse({"ok": True})
-    r.delete_cookie(auth.COOKIE, path="/")
+    r.delete_cookie(COOKIE, path="/", secure=COOKIE.startswith("__Host-"))
     return r
 
 
@@ -279,14 +283,15 @@ def logout(request: Request):
 def change_password(b: NewPassword, user=Depends(caller)):
     if AUTH != "login":
         raise HTTPException(404)
-    if not auth.verify(q, user, b.old):  # also counts toward the lock: a stolen cookie cannot guess it
+    old = auth.verify(q, user, b.old)  # also counts toward the lock: a stolen cookie cannot guess it
+    if not old:
         raise HTTPException(403, "wrong password")
     try:
-        pw = auth.set_password(q, user, b.new)  # signs out every login of this user, this one too
+        pw = auth.set_password(q, user, b.new, expect=old)  # signs out every login of this user, this one too
     except ValueError as e:
         raise HTTPException(422, str(e))
-    token = auth.issue(q, user, pw)
-    if not token:  # changed again meanwhile
+    token = pw and auth.issue(q, user, pw)
+    if not token:  # reset or removed meanwhile
         raise HTTPException(409, "password changed meanwhile; log in again")
     return _logged_in(user, token)
 
@@ -456,7 +461,7 @@ async def events(rid: str, request: Request, after: int = 0, user=Depends(caller
         ticks = 0
         while not await request.is_disconnected():
             ticks += 1
-            if AUTH == "login" and ticks % 25 == 0 and auth.user_of(q, request.cookies.get(auth.COOKIE)) != user:
+            if AUTH == "login" and ticks % 25 == 0 and auth.user_of(q, request.cookies.get(COOKIE)) != user:
                 return  # logged out, password changed or account removed since the stream opened
             rows = q("SELECT seq, type, data FROM events WHERE run_id=? AND seq>? ORDER BY seq", rid, after)
             for seq, typ, data in rows:
