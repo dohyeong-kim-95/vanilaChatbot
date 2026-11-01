@@ -1,7 +1,9 @@
 """OpenAI-compatible stand-in for tests/test_l19_deploy.py (stdlib only): the first answer runs `id` in the sandbox
-and writes outputs/deployed.txt, the second ends the run quoting the tool result."""
+and writes outputs/deployed.txt, the second ends the run quoting the tool result. A task containing "slow" waits
+two minutes first (a run that stays running, with its event stream open)."""
 import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 class H(BaseHTTPRequestHandler):
@@ -18,6 +20,8 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         msgs = json.loads(self.rfile.read(int(self.headers["Content-Length"])))["messages"]
+        if any(m["role"] == "user" and "slow" in str(m["content"]) for m in msgs):
+            time.sleep(120)
         if not any(m["role"] == "tool" for m in msgs):
             args = {"command": "id && echo ok > outputs/deployed.txt"}
             msg = {"role": "assistant", "content": None, "tool_calls": [
@@ -28,4 +32,4 @@ class H(BaseHTTPRequestHandler):
                     "choices": [{"index": 0, "finish_reason": "stop", "message": msg}]})
 
 
-HTTPServer(("127.0.0.1", 9100), H).serve_forever()
+ThreadingHTTPServer(("127.0.0.1", 9100), H).serve_forever()

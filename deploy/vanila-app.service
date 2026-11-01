@@ -9,8 +9,10 @@ Group=vanila
 SupplementaryGroups=docker
 EnvironmentFile=/etc/vanila/vanila.env
 WorkingDirectory=/opt/vanila/current
-ExecStart=/opt/vanila/current/.venv/bin/uvicorn server.app:app --host 127.0.0.1 --port 8200
+ExecStart=/opt/vanila/current/.venv/bin/uvicorn server.app:app --timeout-graceful-shutdown 5 --host 127.0.0.1 --port 8200
 Restart=on-failure
+# open event streams do not end by themselves: without a limit a restart waits for them (90 s, then SIGKILL)
+TimeoutStopSec=15
 UMask=0077
 NoNewPrivileges=true
 ProtectSystem=strict

@@ -130,16 +130,21 @@ def t_login_through_caddy():
     assert loc == f"https://{APP}/", loc
 
 
+def wait_app():
+    for _ in range(60):
+        if sh("curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8200/me", check=False).stdout == "401":
+            return
+        time.sleep(1)
+    raise AssertionError("the app did not come back")
+
+
 def t_run_in_sandbox():
     """A chat run end to end on the installed server: the app (in its systemd sandbox) starts a Docker sandbox,
     which runs as the service account, and the files come back."""
     sh("cp /src/tests/deploy/fake_llm.py /root/ && (nohup python3 /root/fake_llm.py >/root/fake.log 2>&1 &)")
     sh("sed -i 's|^LLM_BASE_URL=.*|LLM_BASE_URL=http://127.0.0.1:9100/v1|' /etc/vanila/vanila.env "
        "&& systemctl restart vanila-app")
-    for _ in range(60):
-        if sh("curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8200/me", check=False).stdout == "401":
-            break
-        time.sleep(1)
+    wait_app()
     assert curl("POST", "/projects", {"project_id": "p"})[0] == 200
     sid = json.loads(curl("POST", "/sessions", {"project_id": "p"})[1])["session_id"]
     code, body = curl("POST", f"/sessions/{sid}/messages", {"content": "deploy check"})
@@ -160,6 +165,24 @@ def t_run_in_sandbox():
     saved = sh("find /var/lib/vanila/data -name deployed.txt -path '*outputs*' -exec cat {} +").stdout
     assert "ok" in saved, saved
     assert not sh("ls /var/lib/vanila/data/work 2>/dev/null", check=False).stdout.strip()  # run dir removed
+
+
+def t_restart_with_open_stream():
+    """Someone is watching a run (event stream open): a restart, as every update does, still takes seconds."""
+    assert curl("POST", "/projects", {"project_id": "slow"})[0] == 200
+    sid = json.loads(curl("POST", "/sessions", {"project_id": "slow"})[1])["session_id"]
+    rid = json.loads(curl("POST", f"/sessions/{sid}/messages", {"content": "slow run"})[1])["run_id"]
+    sh(f"(curl -skN --resolve {APP}:443:127.0.0.1 -b /root/jar https://{APP}/runs/{rid}/events >/root/sse.out 2>&1 &)")
+    for _ in range(50):
+        if "event:" in sh("cat /root/sse.out").stdout:
+            break
+        time.sleep(0.2)
+    t0 = time.time()
+    sh("systemctl restart vanila-app")
+    took = time.time() - t0
+    assert took < 20, f"restart took {took:.0f}s"
+    wait_app()
+    curl("POST", f"/runs/{rid}/cancel")
 
 
 def t_renderer_through_caddy():
@@ -266,8 +289,8 @@ def t_hangup_during_switch():
     out = sh("python3 /src/tests/deploy/hangup.py '(switching' /src/deploy/install.sh").stdout
     assert "exit 0" in out, out
     assert current() != before, current()
-    assert "running: https://app.test" in sh("tail -n 20 /var/log/vanila-install.log").stdout
-    assert sh("stat -c %a /var/log/vanila-install.log").stdout.strip() == "600"
+    assert "running: https://app.test" in sh("tail -n 20 /var/log/vanila/install.log").stdout
+    assert sh("stat -c %a /var/log/vanila /var/log/vanila/install.log").stdout.split() == ["700", "600"]
     assert not sh("ls /etc/vanila/*.prev /etc/caddy/*.prev 2>/dev/null", check=False).stdout
 
 
@@ -282,6 +305,13 @@ def t_failed_pull_keeps_current():
     assert p.returncode != 0, p.stdout[-1000:]
     assert current() == before, current()
     assert curl("GET", "/me")[0] == 200
+    # an image that is only here (built on this server): pulling fails, the local copy is used
+    sh("docker tag python:3.12-slim local/sandbox:1 && echo SANDBOX_IMAGE=local/sandbox:1 >> /etc/vanila/vanila.env")
+    try:
+        p = install(check=False)
+    finally:
+        sh("sed -i '/^SANDBOX_IMAGE=/d' /etc/vanila/vanila.env")
+    assert p.returncode == 0 and "using the copy already here" in p.stdout, p.stdout[-1000:]
     p = install("--app-host", APP, "--render-host", RENDER, "--no-start", check=False)
     assert p.returncode != 0 and "unchecked release" in p.stdout, p.stdout[-500:]
 
@@ -338,13 +368,14 @@ def main():
     run("docker", "run", "-d", "--name", NAME, "--privileged", "--cgroupns=private", "--tmpfs", "/run",
         "--tmpfs", "/run/lock", *[a for v, d in VOLUMES.items() for a in ("-v", f"{v}:{d}")], "-v", f"{tmp}:/src",
         IMAGE)
-    tests = [t_bad_arguments, lambda: t_failed_first_install(tmp), t_fresh_install, t_login_through_caddy, t_run_in_sandbox, t_renderer_through_caddy,
+    tests = [t_bad_arguments, lambda: t_failed_first_install(tmp), t_fresh_install, t_login_through_caddy, t_run_in_sandbox, t_restart_with_open_stream,
+             t_renderer_through_caddy,
              t_local_accounts_cannot_reach_admin_or_docker,
              lambda: t_update_keeps_data_and_secrets(tmp), t_existing_caddyfile, t_hangup_during_switch,
              t_failed_pull_keeps_current,
              lambda: t_broken_release_rolls_back(tmp)]
     names = ["t_bad_arguments", "t_failed_first_install", "t_fresh_install", "t_login_through_caddy", "t_run_in_sandbox",
-             "t_renderer_through_caddy", "t_local_accounts_cannot_reach_admin_or_docker",
+             "t_restart_with_open_stream", "t_renderer_through_caddy", "t_local_accounts_cannot_reach_admin_or_docker",
              "t_update_keeps_data_and_secrets", "t_existing_caddyfile", "t_hangup_during_switch",
              "t_failed_pull_keeps_current",
              "t_broken_release_rolls_back"]

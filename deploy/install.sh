@@ -41,7 +41,7 @@ CADDY_ADMIN=/var/lib/caddy/admin.sock
 PORTS=(80 2019 8100 8200 8201)  # Caddy's http and admin, the services
 say() { printf '\n== %s\n' "$*"; }
 die() { printf 'install.sh: %s\n' "$*" >&2; show_log; exit 1; }
-LOG=/var/log/vanila-install.log LOG_FROM=
+LOG=/var/log/vanila/install.log LOG_FROM=  # in a root-only directory: /var/log itself is group-writable
 show_log() {  # back to the terminal and what was logged since the switch began; a closed terminal is no error now
   [[ -n $LOG_FROM ]] || return 0
   exec 1>&3 2>&4 3>&- 4>&-
@@ -90,7 +90,8 @@ if ((PACKAGES)); then
     die "no caddy package here: use Ubuntu 24.04+ / Debian 12+, or add Caddy's apt repository first"
   pkgs=(python3-venv git caddy curl ca-certificates fontconfig)
   command -v docker >/dev/null || pkgs+=(docker.io)  # keep an existing Docker (e.g. docker-ce) as it is
-  apt-get install -y -q "${pkgs[@]}"
+  # keep our edits to Caddy's conffile (the Caddyfile) when an upgrade comes with a new one, without asking
+  apt-get install -y -q -o Dpkg::Options::=--force-confold "${pkgs[@]}"
 fi
 need=(python3 git curl fc-cache)
 ((!START)) || need+=(caddy docker systemctl)
@@ -143,7 +144,11 @@ if ((START)); then
   say "docker image"
   systemctl enable -q --now docker  # a fresh docker.io is not always running yet
   IMAGE=$(getenv SANDBOX_IMAGE "$ENV")
-  docker pull -q "${IMAGE:-python:3.12-slim}" >/dev/null
+  IMAGE=${IMAGE:-python:3.12-slim}
+  if ! docker pull -q "$IMAGE" >/dev/null; then  # a locally built image, or the registry is down or rate-limited
+    docker image inspect "$IMAGE" >/dev/null 2>&1 || die "sandbox image $IMAGE: cannot pull it and it is not here"
+    echo "warning: could not pull $IMAGE; using the copy already here"
+  fi
 fi
 
 # --- from here until the switch is done: what this install changes is kept to put back -----------------------------
@@ -165,7 +170,7 @@ restore() {  # settings, Caddy files and units as they were before this install
 # output goes to a file, since writing to a terminal that is gone fails and set -e would end the script there.
 trap '' HUP INT TERM PIPE
 echo "(switching: interrupts are ignored and output goes to $LOG until the end)"
-touch "$LOG" && chmod 0600 "$LOG"
+install -d -m 0700 "${LOG%/*}" && touch "$LOG" && chmod 0600 "$LOG"
 LOG_FROM=$(($(wc -l <"$LOG") + 1))
 exec 3>&1 4>&2 1>>"$LOG" 2>&1
 echo "== install.sh $(date -Is) $REL"
@@ -232,7 +237,9 @@ healthy() {  # answering, and a few seconds later still the same processes (not 
   for _ in $(seq 30); do
     if answers; then
       sleep 3
-      systemctl is-active -q vanila-app vanila-render vanila-gateway && ! restarted && answers
+      # one unit at a time: is-active with several units succeeds when any one of them is active
+      systemctl is-active -q vanila-app && systemctl is-active -q vanila-render &&
+        systemctl is-active -q vanila-gateway && ! restarted && answers
       return
     fi
     sleep 1
@@ -319,7 +326,6 @@ if ! activate "$REL"; then
   die "the new release did not start; back on $PREV with its settings"
 fi
 SWITCHING=0
-trap - HUP INT TERM PIPE
 for f in "${CHANGED[@]}"; do rm -f "$f.prev"; done
 # only the app needs Docker (its unit adds the group): docker membership is root on this machine (SPEC 부록 C).
 # Not the account's own group, which every process of it (renderer, gateway, vanila-auth) would get. Only now:

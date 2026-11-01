@@ -945,3 +945,18 @@ Linux 서버 한 대에 여러 사람이 브라우저로 접속하는 경우를 
 | Nice | 전환 뒤 `gpasswd` 실패가 설치 실패가 됨 | 경고만 | |
 
 결과: l19 12개 통과.
+
+### 25.6 여섯 번째 리뷰 후 수정
+판정: 25.5까지 유지됨(Debian 12의 systemd 252에서도 `NRestarts` 동작 확인). Must 없음, Should 2개.
+
+| 등급 | 지적 | 고친 것 | 회귀 테스트 |
+|---|---|---|---|
+| Should | run을 보는 사람이 있으면(SSE 열림) 앱 재시작이 90초 걸리고(그동안 모두 502) SIGKILL로 끝남. 업데이트·되돌리기마다 | uvicorn `--timeout-graceful-shutdown 5`, `TimeoutStopSec=15`(세 유닛) | `t_restart_with_open_stream`(가짜 LLM이 2분 기다리는 run의 스트림을 연 채 재시작 20초 미만. 고치기 전 코드에서 실패 확인) |
+| Should | sandbox 이미지 pull이 실패하면 무조건 중단: 서버에서 만든 이미지, 레지스트리 장애·횟수 제한 때 업데이트 불가 | 이미지가 이미 있으면 경고만 | `t_failed_pull_keeps_current`(로컬 태그 이미지로 설치 성공. 고치기 전 코드에서 실패 확인) |
+| Nice | `systemctl is-active a b c`는 하나만 active여도 성공 | 유닛마다 | |
+| Nice | 전환 뒤 정리 단계에서 시그널 무시를 너무 일찍 풂 | 끝까지 무시(출력은 이미 로그로) | |
+| Nice | `/var/log`가 그룹 쓰기 가능이라 로그 파일 링크 바꿔치기 가능 | `/var/log/vanila/`(0700) 아래로 | `t_hangup_during_switch`(권한 확인) |
+| Nice | caddy 업그레이드가 고친 Caddyfile 때문에 dpkg 질문으로 멈춤 | `--force-confold` | |
+| Nice | glob import로 이미 `vanila.caddy`를 불러오는 Caddyfile, 전환 전 실패 시 남는 릴리스 폴더, snap Docker | 남김(안전하게 실패하거나 다음 성공 때 정리됨) | |
+
+결과: l19 13개 통과.

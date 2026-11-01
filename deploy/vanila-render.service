@@ -7,8 +7,10 @@ User=vanila
 Group=vanila
 EnvironmentFile=/etc/vanila/vanila.env
 WorkingDirectory=/opt/vanila/current
-ExecStart=/opt/vanila/current/.venv/bin/uvicorn server.render:app --host 127.0.0.1 --port 8201
+ExecStart=/opt/vanila/current/.venv/bin/uvicorn server.render:app --timeout-graceful-shutdown 5 --host 127.0.0.1 --port 8201
 Restart=on-failure
+# open event streams do not end by themselves: without a limit a restart waits for them (90 s, then SIGKILL)
+TimeoutStopSec=15
 UMask=0077
 NoNewPrivileges=true
 ProtectSystem=strict
