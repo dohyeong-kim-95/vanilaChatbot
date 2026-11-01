@@ -325,8 +325,10 @@ def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, histo
     """task=None resumes `history` (after an Interrupt or a restart): pending tool calls run first.
     effort: sent as OpenAI `reasoning_effort` only when given (some endpoints reject the field); a low/medium
     effort is raised to ESCALATE for this run when the user corrects the previous answer or tools keep failing."""
+    # max_retries: the SDK backs off up to 8 s between tries, so ~20 s of a gateway restart (an update) is ridden out
+    # instead of failing the run that the restarted app has just resumed
     client = client or OpenAI(base_url=os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8100/v1"),
-                              api_key=os.environ.get("LLM_API_KEY", "dummy"))
+                              api_key=os.environ.get("LLM_API_KEY", "dummy"), max_retries=6)
     model = model or os.environ.get("LLM_MODEL") or client.models.list().data[0].id
     msgs = history if history is not None else [{"role": "system", "content": SYSTEM}]
     corrected = None

@@ -8,10 +8,11 @@ User=vanila
 Group=vanila
 EnvironmentFile=/etc/vanila/gateway.env
 WorkingDirectory=/opt/vanila/current
-ExecStart=/opt/vanila/current/.venv/bin/uvicorn gateway.app:app --timeout-graceful-shutdown 60 --host 127.0.0.1 --port 8100
+ExecStart=/opt/vanila/current/.venv/bin/uvicorn gateway.app:app --timeout-graceful-shutdown 5 --host 127.0.0.1 --port 8100
 Restart=on-failure
-# a model call in progress is let finish (a cut one makes the client retry, paying twice, or fails the run)
-TimeoutStopSec=75
+# not longer: the app that would get the answer restarts in the same update, and every new call is refused meanwhile
+# (a cut call is retried by the app's client, at the cost of a second call)
+TimeoutStopSec=15
 UMask=0077
 NoNewPrivileges=true
 ProtectSystem=strict

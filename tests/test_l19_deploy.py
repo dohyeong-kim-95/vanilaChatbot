@@ -185,6 +185,23 @@ def t_restart_with_open_stream():
     curl("POST", f"/runs/{rid}/cancel")
 
 
+def t_llm_restart_is_ridden_out():
+    """The model endpoint is down for a few seconds (the gateway restarting in an update): the run waits for it
+    instead of failing."""
+    sh("pkill -f '^python3 /root/fake_llm' || true")
+    assert curl("POST", "/projects", {"project_id": "gw"})[0] == 200
+    sid = json.loads(curl("POST", "/sessions", {"project_id": "gw"})[1])["session_id"]
+    rid = json.loads(curl("POST", f"/sessions/{sid}/messages", {"content": "while the gateway restarts"})[1])["run_id"]
+    time.sleep(8)
+    sh("(nohup python3 /root/fake_llm.py >/root/fake.log 2>&1 &)")
+    for _ in range(120):
+        status = json.loads(curl("GET", f"/runs/{rid}")[1])["status"]
+        if status != "running":
+            break
+        time.sleep(1)
+    assert status == "succeeded", status
+
+
 def t_renderer_through_caddy():
     code, _ = curl("GET", "/a/not-a-token", host=RENDER, origin=False)
     assert code in (403, 404), code  # the renderer answered (not 502)
@@ -289,8 +306,8 @@ def t_hangup_during_switch():
     out = sh("python3 /src/tests/deploy/hangup.py '(switching' /src/deploy/install.sh").stdout
     assert "exit 0" in out, out
     assert current() != before, current()
-    assert "running: https://app.test" in sh("tail -n 20 /var/log/vanila/install.log").stdout
-    assert sh("stat -c %a /var/log/vanila /var/log/vanila/install.log").stdout.split() == ["700", "600"]
+    assert "running: https://app.test" in sh("tail -n 20 /opt/vanila/install.log").stdout
+    assert sh("stat -c %a /opt/vanila/install.log").stdout.strip() == "600"
     assert not sh("ls /etc/vanila/*.prev /etc/caddy/*.prev 2>/dev/null", check=False).stdout
 
 
@@ -384,13 +401,13 @@ def main():
         "--tmpfs", "/run/lock", *[a for v, d in VOLUMES.items() for a in ("-v", f"{v}:{d}")], "-v", f"{tmp}:/src",
         IMAGE)
     tests = [t_bad_arguments, lambda: t_failed_first_install(tmp), t_fresh_install, t_login_through_caddy, t_run_in_sandbox, t_restart_with_open_stream,
-             t_renderer_through_caddy,
+             t_llm_restart_is_ridden_out, t_renderer_through_caddy,
              t_local_accounts_cannot_reach_admin_or_docker,
              lambda: t_update_keeps_data_and_secrets(tmp), t_existing_caddyfile, t_hangup_during_switch,
              t_korean_locale_and_proxy_env, t_failed_pull_keeps_current,
              lambda: t_broken_release_rolls_back(tmp)]
     names = ["t_bad_arguments", "t_failed_first_install", "t_fresh_install", "t_login_through_caddy", "t_run_in_sandbox",
-             "t_restart_with_open_stream", "t_renderer_through_caddy", "t_local_accounts_cannot_reach_admin_or_docker",
+             "t_restart_with_open_stream", "t_llm_restart_is_ridden_out", "t_renderer_through_caddy", "t_local_accounts_cannot_reach_admin_or_docker",
              "t_update_keeps_data_and_secrets", "t_existing_caddyfile", "t_hangup_during_switch",
              "t_korean_locale_and_proxy_env", "t_failed_pull_keeps_current",
              "t_broken_release_rolls_back"]

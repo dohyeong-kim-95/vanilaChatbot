@@ -973,3 +973,14 @@ Linux 서버 한 대에 여러 사람이 브라우저로 접속하는 경우를 
 | Nice | `/var/log/vanila`가 미리 만들어져 있으면 소유자·링크를 확인하지 않음 | root 소유이고 링크가 아닐 때만 | |
 
 결과: l19 14개 통과.
+
+### 25.8 여덟 번째 리뷰 후 수정
+판정: 25.7까지 유지됨(`LC_ALL=C`에서 Python은 UTF-8 모드라 인코딩이 바뀌지 않음, `--noproxy`는 이 서버 포트 확인에만). Must 없음, Should 1개(25.7의 회귀).
+
+| 등급 | 지적 | 고친 것 | 회귀 테스트 |
+|---|---|---|---|
+| Should | gateway의 60초 graceful이 업데이트의 동시 재시작과 맞물림: 옛 앱은 이미 죽어 응답을 받을 쪽이 없는데 gateway는 최대 60초 버티고, 그동안 새 앱이 재개한 run의 첫 호출이 연결 거부(SDK 재시도 2번, 약 1.2초) → run 오류 | gateway도 5초로 되돌림. 앱의 LLM 클라이언트 `max_retries=6`(최대 8초 간격, 약 20초를 버팀) | `t_llm_restart_is_ridden_out`(모델 서버가 8초 내려간 동안 보낸 run이 성공. 고치기 전 코드에서 실패 확인) |
+| Nice | 로그 폴더 확인 전에 `install -d`가 링크를 따라 chmod, 확인 후 바꿔치기 틈 | 로그를 `/opt/vanila/install.log`로(경로 전체가 root 전용) | `t_hangup_during_switch` |
+| Nice | 서비스는 `/etc/environment`의 프록시를 읽지 않음 | SPEC에 `systemctl edit`와 Docker 데몬 프록시 안내 | |
+| Nice | 글꼴 다운로드에 타임아웃 없음, 옛 Chromium 리비전이 쌓임 | `curl -m 120`. 리비전 정리는 남김 | |
+

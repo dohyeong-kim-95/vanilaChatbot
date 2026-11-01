@@ -42,7 +42,7 @@ CADDY_ADMIN=/var/lib/caddy/admin.sock
 PORTS=(80 2019 8100 8200 8201)  # Caddy's http and admin, the services
 say() { printf '\n== %s\n' "$*"; }
 die() { printf 'install.sh: %s\n' "$*" >&2; show_log; exit 1; }
-LOG=/var/log/vanila/install.log LOG_FROM=  # in a root-only directory: /var/log itself is group-writable
+LOG=/opt/vanila/install.log LOG_FROM=  # every directory on the way is root's alone (/var/log is group-writable)
 show_log() {  # back to the terminal and what was logged since the switch began; a closed terminal is no error now
   [[ -n $LOG_FROM ]] || return 0
   exec 1>&3 2>&4 3>&- 4>&-
@@ -126,7 +126,7 @@ if [[ ! -s $FONTS/OFL.txt ]]; then
   say fonts
   install -d -m 0755 "$FONTS"
   for f in arimo/Arimo%5Bwght%5D.ttf notosanskr/NotoSansKR%5Bwght%5D.ttf arimo/OFL.txt; do
-    curl -fsSL -o "$FONTS/${f##*/}" "https://raw.githubusercontent.com/google/fonts/main/ofl/$f"
+    curl -fsSL -m 120 -o "$FONTS/${f##*/}" "https://raw.githubusercontent.com/google/fonts/main/ofl/$f"
   done
   chmod 0644 "$FONTS"/*
   fc-cache -f "$FONTS" >/dev/null
@@ -171,9 +171,6 @@ restore() {  # settings, Caddy files and units as they were before this install
 # output goes to a file, since writing to a terminal that is gone fails and set -e would end the script there.
 trap '' HUP INT TERM PIPE
 echo "(switching: interrupts are ignored and output goes to $LOG until the end)"
-install -d -m 0700 "${LOG%/*}"
-# /var/log is writable by the syslog group: only a directory that root made, with no link in it
-[[ ! -L ${LOG%/*} && $(stat -c %u "${LOG%/*}") == 0 && ! -L $LOG ]] || die "${LOG%/*}: not root's own directory"
 touch "$LOG" && chmod 0600 "$LOG"
 LOG_FROM=$(($(wc -l <"$LOG") + 1))
 exec 3>&1 4>&2 1>>"$LOG" 2>&1
