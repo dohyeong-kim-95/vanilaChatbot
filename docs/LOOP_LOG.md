@@ -984,3 +984,13 @@ Linux 서버 한 대에 여러 사람이 브라우저로 접속하는 경우를 
 | Nice | 서비스는 `/etc/environment`의 프록시를 읽지 않음 | SPEC에 `systemctl edit`와 Docker 데몬 프록시 안내 | |
 | Nice | 글꼴 다운로드에 타임아웃 없음, 옛 Chromium 리비전이 쌓임 | `curl -m 120`. 리비전 정리는 남김 | |
 
+
+### 25.9 아홉 번째 리뷰: Must·Should 없음 (리뷰 루프 종료)
+25.8까지의 수정이 모두 유지됨. Nice 중 Should에 가까운 하나를 반영했다.
+
+| Nice | 반영 |
+|---|---|
+| 앱의 6번 재시도가 gateway의 모든 502에 적용됨: API 키가 없거나 틀렸을 때(첫 설치 직후 순서 그대로)·거부된 요청도 run마다 약 20초 멈춘 뒤 오류. 429는 상류 요청이 최대 21번 | gateway가 나아질 수 없는 오류에 `x-should-retry: false`(openai SDK가 따름), 상류의 `Retry-After` 전달. `tests/test_l20_gateway_errors.py`(고치기 전: 7번 호출, 21.7초) |
+| 재시도 중 취소가 `error`로 끝남, 시간 초과도 6번 재시도(gateway가 멈추면 run이 오래 묶임), 업데이트 중 정정 분류가 regex로 넘어감, gateway만 깨진 릴리스에서 재개된 run이 오류, 느린 회선에서 글꼴 120초 제한, 25.6/25.7의 옛 로그 폴더 | 남김(드물거나 안전하게 실패) |
+
+결과: l19 15개, l20 4개 통과. 리뷰 9번(Must 0, Should 합계 21개 → 0).

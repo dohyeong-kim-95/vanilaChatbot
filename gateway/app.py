@@ -111,6 +111,15 @@ async def models():
     return {"object": "list", "data": [{"id": MODEL, "object": "model", "owned_by": "gateway"}]}
 
 
+def _transient(e):
+    if BACKEND != "anthropic":  # claude -p: no way to tell, keep retrying
+        return True
+    import anthropic
+    if isinstance(e, anthropic.APIConnectionError):  # includes timeouts
+        return True
+    return isinstance(e, anthropic.APIStatusError) and (e.status_code == 429 or e.status_code >= 500)
+
+
 @app.post("/v1/chat/completions")
 async def chat(req: Request):
     if API_KEY and req.headers.get("authorization") != f"Bearer {API_KEY}":
@@ -132,7 +141,12 @@ async def chat(req: Request):
             so, usage = await call_backend(system, prompt, tools, effort)
             msg, finish = to_message(so)
     except Exception as e:
-        return JSONResponse({"error": {"message": str(e), "type": "backend_error"}}, status_code=502)
+        # The app's client retries a 5xx 6 times (~20 s, to ride out a restart): say when trying again cannot help
+        # (no or wrong API key, a bad request), and pass on how long the upstream asked to wait
+        headers = {} if _transient(e) else {"x-should-retry": "false"}
+        if wait := getattr(getattr(e, "response", None), "headers", {}).get("retry-after"):
+            headers["retry-after"] = wait
+        return JSONResponse({"error": {"message": str(e), "type": "backend_error"}}, status_code=502, headers=headers)
     cid, created = "chatcmpl-" + uuid.uuid4().hex, int(time.time())
 
     if not body.get("stream"):

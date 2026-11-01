@@ -531,6 +531,7 @@ tests/eval/correction/run.py  Loop 23.4 (정정 분류기 정확도, 모델 필�
 tests/test_l17_slides.py      Loop 23 (리뷰 회귀: shmoo 구멍 분리, 축 단위 구분자, 입력한 캡처 제목 초기화, 로그 주석 위치)
 tests/test_l18_auth.py        Loop 24 (로그인, 잠금, 폐기, 출처 검사, UI)
 tests/test_l19_deploy.py      Loop 25 (새 Ubuntu 서버 컨테이너에 설치 → Caddy 거쳐 로그인·run → 업데이트 → 되돌리기)
+tests/test_l20_gateway_errors.py  Loop 25.9 (gateway 오류: 나아질 수 없는 오류는 재시도 안 함, Retry-After 전달)
 tests/eval/logview/gen.py     합성 주문 서비스 로그 (배포 후 새 에러, 15분 장애, 스택 트레이스)
 tests/eval/shmoo/gen.py       합성 ATE shmoo 로그 (장치 24개 × 온도 2 × VDD 16 × 주파수 17, 결함 3종)
 docs/research/          R1–R6 리서치 노트
@@ -560,6 +561,8 @@ python tests/test_l10_skills.py           # 결정적, Docker 필요. LLM 비교
 python tests/test_l11_shmoo.py             # 결정적. LLM: K=1 python tests/test_l11_shmoo.py t_llm_show_and_find
 K=3 python tests/test_l9_artifacts.py      # Playwright + 시스템 Chrome(AGENT_CHROME_CHANNEL, ""=번들 Chromium)
 python tests/test_l18_auth.py             # 결정적, LLM 없이 몇 초
+python tests/test_l20_gateway_errors.py   # 결정적, 네트워크 없이 몇 초
+KEEP=1 python tests/test_l19_deploy.py    # 배포: Docker와 인터넷, 약 13분 (부록 C)
 # UI: AGENT_ROOT=/tmp/agent python -m server.auth add alice       # 계정 만들기(비밀번호 10자 이상)
 #     AGENT_ROOT=/tmp/agent uvicorn server.app:app --port 8200 & AGENT_ROOT=/tmp/agent uvicorn server.render:app --port 8201 &
 #     → http://127.0.0.1:8200 에서 로그인  (렌더러는 http://localhost:8201: 포트뿐 아니라 사이트도 다르게)
@@ -579,7 +582,7 @@ git pull && sudo deploy/install.sh   # 업데이트 (호스트·비밀값은 지
 | 구성 | 위치 | 내용 |
 |---|---|---|
 | Caddy | `/etc/caddy/vanila.caddy` (기존 Caddyfile에 `import /etc/caddy/vanila.caddy` 한 줄 추가) | 두 이름에 HTTPS, http→https, 외부의 `X-User` 제거. 관리 API는 `localhost:2019` 대신 caddy만 쓸 수 있는 소켓(`/var/lib/caddy/admin.sock`): 기본값이면 서버의 아무 계정이나 TLS 종단 설정을 바꿔 비밀번호·쿠키를 가로챌 수 있다. 운영자가 이미 정했으면(`caddy adapt` 결과의 `admin`) 그대로 두고, `admin off`면 reload 대신 restart한다. 기존 Caddyfile은 그 자리에서 고쳐 권한·소유자·심볼릭 링크와 다른 사이트를 유지한다(링크면 가리키는 파일을 고치고, Caddy에는 늘 `/etc/caddy/Caddyfile`을 준다). `--tls acme`(기본, 공인 인증서: 두 이름이 이 서버를 가리키고 80/443이 열려 있어야 함) 또는 `--tls internal`(Caddy 자체 CA, 브라우저에 `root.crt`를 신뢰시켜야 함) |
-| 서비스 | `vanila-app`(8200), `vanila-render`(8201), `vanila-gateway`(8100) | 모두 127.0.0.1에서만, 계정 `vanila`, `ProtectSystem=strict`·`ProtectHome`·`PrivateTmp`·`NoNewPrivileges`, 쓰기는 `/var/lib/vanila`만(렌더러는 읽기만). `docker` 그룹은 앱 유닛에만 준다(`SupplementaryGroups`, 계정 자체는 그룹에 넣지 않음). 렌더러와 gateway는 그 그룹이 없고, 시작할 때의 소켓도 가린다(`InaccessiblePaths`). 끝내기는 앱·렌더러 최대 5초(`--timeout-graceful-shutdown`, 열린 이벤트 스트림은 스스로 끝나지 않음, 15초면 강제 종료), gateway도 5초(같은 업데이트에서 앱도 다시 시작하므로 응답을 받을 쪽이 없음). 앱의 LLM 클라이언트는 최대 6번 재시도해 약 20초의 gateway 재시작을 넘긴다 |
+| 서비스 | `vanila-app`(8200), `vanila-render`(8201), `vanila-gateway`(8100) | 모두 127.0.0.1에서만, 계정 `vanila`, `ProtectSystem=strict`·`ProtectHome`·`PrivateTmp`·`NoNewPrivileges`, 쓰기는 `/var/lib/vanila`만(렌더러는 읽기만). `docker` 그룹은 앱 유닛에만 준다(`SupplementaryGroups`, 계정 자체는 그룹에 넣지 않음). 렌더러와 gateway는 그 그룹이 없고, 시작할 때의 소켓도 가린다(`InaccessiblePaths`). 끝내기는 앱·렌더러 최대 5초(`--timeout-graceful-shutdown`, 열린 이벤트 스트림은 스스로 끝나지 않음, 15초면 강제 종료), gateway도 5초(같은 업데이트에서 앱도 다시 시작하므로 응답을 받을 쪽이 없음). 앱의 LLM 클라이언트는 최대 6번 재시도해 약 20초의 gateway 재시작을 넘긴다. gateway는 나아질 수 없는 오류(API 키 없음·잘못됨, 거부된 요청)에 `x-should-retry: false`를 붙여 바로 끝나게 하고, 상류의 `Retry-After`를 넘긴다 |
 | 코드 | `/opt/vanila/releases/<시각>-<rev>`, `current` 링크 | 릴리스마다 venv. sandbox 이미지 pull처럼 실행 중인 릴리스 없이 실패할 수 있는 일은 전환 전에 한다(pull이 안 돼도 이미지가 서버에 있으면 경고만 하고 그것을 쓴다). 전환은 유닛·Caddy 설정·`current`를 한 릴리스에서 함께 바꾸고, 앱(401)·렌더러(404)·gateway가 30초 안에 응답하고, 3초 뒤에도 systemd가 다시 띄운 적 없이(`NRestarts`=0) 응답해야 성공이다. 재시작 전에 `reset-failed`로 시작 제한을 풀어, 크래시를 반복한 릴리스 뒤에도 이전 릴리스가 뜬다. 실패하면 그 릴리스를 지우고, 이번에 바꾼 설정(`vanila.env`·TLS·이메일)도 되돌린 뒤 이전 릴리스를 같은 방식으로 띄운다. 성공한 릴리스에만 `.ok`를 남기고, 실행 중인 것과 그 전에 성공한 것 하나만 남긴다 |
 | 데이터 | `/var/lib/vanila/data` (0700) | `AGENT_ROOT`: DB, 사용자 저장 공간 |
 | 설정 | `/etc/vanila/vanila.env` (0640 root:vanila), `gateway.env` (0600 root, API 키) | 처음 한 번 만들고 덮어쓰지 않는다. 렌더러 서명 키와 gateway 공유 키는 임의 생성. `LLM_*`을 바꾸면 다른 OpenAI 호환 서버를 쓴다 |
