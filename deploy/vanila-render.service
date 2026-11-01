@@ -14,7 +14,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-# the account is in the docker group for the app's sandboxes; this service never needs Docker
+# never needs Docker: no docker group here (only the app's unit has it), and the socket hidden as well
 InaccessiblePaths=-/run/docker.sock
 ReadOnlyPaths=/var/lib/vanila
 

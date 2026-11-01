@@ -75,6 +75,23 @@ def current():
     return sh("readlink /opt/vanila/current").stdout.strip()
 
 
+def t_failed_first_install(tmp):
+    """A first install that cannot start leaves nothing running or half-made: no services, no site in Caddy, no
+    units, Caddy back on its own config."""
+    snapshot(tmp, broken="server/render.py")
+    p = install("--app-host", APP, "--render-host", RENDER, "--tls", "internal", check=False)
+    assert p.returncode != 0 and "first release did not start" in p.stdout, p.stdout[-1500:]
+    run("git", "-C", str(tmp), "reset", "-q", "--hard", "HEAD~1")
+    left = sh("ls /opt/vanila/current /etc/caddy/vanila.caddy /etc/systemd/system/vanila-* "
+              "/etc/systemd/system/multi-user.target.wants/vanila-* /var/lib/caddy/admin.sock 2>/dev/null",
+              check=False).stdout
+    assert not left, left
+    assert not sh("ss -Hltn | grep -E ':(8100|8200|8201|443) '", check=False).stdout
+    assert "vanila" not in sh("cat /etc/caddy/Caddyfile").stdout
+    assert sh("systemctl is-active caddy", check=False).stdout.strip() == "active"
+    assert not sh("ls /etc/vanila/*.prev /etc/caddy/*.prev 2>/dev/null", check=False).stdout
+
+
 def t_fresh_install():
     out = install("--app-host", APP, "--render-host", RENDER, "--tls", "internal").stdout
     assert "running: https://app.test" in out, out[-2000:]
@@ -196,12 +213,13 @@ def t_update_keeps_data_and_secrets(tmp):
     assert curl("GET", "/me")[0] == 200
 
 
-CADDYFILES = {  # what a server may already have; each gets `import vanila.caddy` at the end. Local certificates only:
-    # the test must not ask a public CA for anything
+CADDYFILES = {  # what a server may already have; each gets the import at the end. Local certificates only: the test
+    # must not ask a public CA for anything. "(link)" = /etc/caddy/Caddyfile is a symlink to a file elsewhere
     "global block with a comment": "{ # global\n\tlocal_certs\n}\n\nother.test {\n\trespond \"other\"\n}\n",
     "a user called admin": "other.test {\n\ttls internal\n\tbasicauth {\n\t\tadmin HASH\n"
                            "\t}\n\trespond \"other\"\n}\n",
     "admin off": "{\n\tadmin off\n}\n",
+    "site address from an env var (link)": "{$OTHER_SITE:other.test} {\n\ttls internal\n\trespond \"other\"\n}\n",
 }
 
 
@@ -211,13 +229,17 @@ def t_existing_caddyfile():
     hashed = sh("caddy hash-password --plaintext secret-1").stdout.strip()
     for name, text in CADDYFILES.items():
         text = text.replace("HASH", hashed)
-        sh("cat > /etc/caddy/Caddyfile && chown root:caddy /etc/caddy/Caddyfile && chmod 640 /etc/caddy/Caddyfile "
-           "&& systemctl restart caddy", input=text + "\nimport vanila.caddy\n")
+        f = "/srv/caddy-conf/Caddyfile" if "(link)" in name else "/etc/caddy/Caddyfile"
+        sh(f"rm -f /etc/caddy/Caddyfile && mkdir -p /srv/caddy-conf && cat > {f} && chown root:caddy {f} && chmod 640 {f}"
+           f" && {{ [ {f} = /etc/caddy/Caddyfile ] || ln -s {f} /etc/caddy/Caddyfile; }} && systemctl restart caddy",
+           input=text + "\nimport /etc/caddy/vanila.caddy\n")
         p = install(check=False)
         assert p.returncode == 0 and "running: https://app.test" in p.stdout, (name, p.stdout[-1500:])
         after = sh("cat /etc/caddy/Caddyfile").stdout
-        assert text.split("\n", 1)[1][:20] in after and "import vanila.caddy" in after, (name, after)
-        assert sh("stat -c '%a %U:%G' /etc/caddy/Caddyfile").stdout.strip() == "640 root:caddy", name
+        assert text.split("\n", 1)[1][:20] in after and after.count("vanila.caddy") == 1, (name, after)
+        assert sh(f"stat -c '%a %U:%G' {f}").stdout.strip() == "640 root:caddy", name
+        if "(link)" in name:
+            assert sh("readlink /etc/caddy/Caddyfile").stdout.strip() == f, name
         admin = sh("caddy adapt --config /etc/caddy/Caddyfile 2>/dev/null | python3 -c "
                    "'import json,sys; print(json.load(sys.stdin).get(\"admin\"))'").stdout.strip()
         if name == "admin off":
@@ -228,7 +250,8 @@ def t_existing_caddyfile():
                      check=False).stdout
             assert tcp == "000", (name, tcp)
         assert curl("GET", "/me")[0] == 200, name
-    sh("cat > /etc/caddy/Caddyfile && chmod 644 /etc/caddy/Caddyfile && systemctl restart caddy",
+    sh("rm -f /etc/caddy/Caddyfile && cat > /etc/caddy/Caddyfile && chmod 644 /etc/caddy/Caddyfile "
+       "&& systemctl restart caddy",
        input="{\n\tadmin unix//var/lib/caddy/admin.sock\n}\n\nimport vanila.caddy\n")
 
 
@@ -301,12 +324,12 @@ def main():
     run("docker", "run", "-d", "--name", NAME, "--privileged", "--cgroupns=private", "--tmpfs", "/run",
         "--tmpfs", "/run/lock", *[a for v, d in VOLUMES.items() for a in ("-v", f"{v}:{d}")], "-v", f"{tmp}:/src",
         IMAGE)
-    tests = [t_bad_arguments, t_fresh_install, t_login_through_caddy, t_run_in_sandbox, t_renderer_through_caddy,
+    tests = [t_bad_arguments, lambda: t_failed_first_install(tmp), t_fresh_install, t_login_through_caddy, t_run_in_sandbox, t_renderer_through_caddy,
              t_local_accounts_cannot_reach_admin_or_docker,
              lambda: t_update_keeps_data_and_secrets(tmp), t_existing_caddyfile, t_hangup_during_switch,
              t_failed_pull_keeps_current,
              lambda: t_broken_release_rolls_back(tmp)]
-    names = ["t_bad_arguments", "t_fresh_install", "t_login_through_caddy", "t_run_in_sandbox",
+    names = ["t_bad_arguments", "t_failed_first_install", "t_fresh_install", "t_login_through_caddy", "t_run_in_sandbox",
              "t_renderer_through_caddy", "t_local_accounts_cannot_reach_admin_or_docker",
              "t_update_keeps_data_and_secrets", "t_existing_caddyfile", "t_hangup_during_switch",
              "t_failed_pull_keeps_current",

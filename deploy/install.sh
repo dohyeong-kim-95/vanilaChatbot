@@ -94,9 +94,6 @@ say "user vanila"
 id vanila >/dev/null 2>&1 ||
   useradd --system --user-group --home-dir "$HOME_DIR" --shell /usr/sbin/nologin vanila
 getent group docker >/dev/null || groupadd --system docker
-# only the app needs Docker (its unit adds the group): docker membership is root on this machine (SPEC 부록 C).
-# Not the account's own group, which every process of it (renderer, gateway, vanila-auth) would get.
-[[ " $(id -nG vanila) " != *" docker "* ]] || gpasswd -d vanila docker >/dev/null
 install -d -o vanila -g vanila -m 0700 "$HOME_DIR" "$DATA"
 install -d -o root -g vanila -m 0750 "$ETC"
 install -d -m 0755 "$OPT" "$OPT/releases"
@@ -143,10 +140,14 @@ if ((START)); then
 fi
 
 # --- from here until the switch is done: what this install changes is kept to put back -----------------------------
-CADDYFILE=$(readlink -f /etc/caddy/Caddyfile || echo /etc/caddy/Caddyfile)  # edited in place: a symlinked Caddyfile stays a symlink
+# edited in place, at the file a symlinked Caddyfile points to (it stays a symlink); Caddy is always given the link
+CADDYFILE=$(readlink -f /etc/caddy/Caddyfile || echo /etc/caddy/Caddyfile)
 CHANGED=("$ENV" "$ETC/tls" "$ETC/email" "$CADDYFILE" /etc/caddy/vanila.caddy
          /etc/systemd/system/vanila-{app,render,gateway}.service)
 NEW=()
+for f in "${CHANGED[@]}"; do
+  [[ ! -e $f.prev ]] || die "$f.prev is left from an interrupted install: compare it with $f, keep one, run again"
+done
 for f in "${CHANGED[@]}"; do if [[ -f $f ]]; then cp -p "$f" "$f.prev"; else NEW+=("$f"); fi; done
 restore() {  # settings, Caddy files and units as they were before this install
   local f
@@ -155,7 +156,7 @@ restore() {  # settings, Caddy files and units as they were before this install
   done
 }
 SWITCHING=1
-trap '' HUP INT TERM  # a closed SSH session or ^C must not stop it halfway (current switched, settings not back)
+trap '' HUP INT TERM PIPE  # a closed SSH session or ^C must not stop it halfway (current switched, settings not back)
 trap '((!SWITCHING)) || { echo "install.sh: stopped while switching; settings put back" >&2; restore; }' EXIT
 echo "(interrupts are ignored until the switch is done)"
 
@@ -219,11 +220,12 @@ healthy() {  # answering, and still up a few seconds later (a release that dies 
   return 1
 }
 caddy_admin() {  # Caddy's admin API listens on localhost:2019 for every local account; a socket only caddy can use
-  local admin
-  admin=$(caddy adapt --config "$CADDYFILE" --adapter caddyfile 2>/dev/null | python3 -c '
+  local json admin
+  json=$(caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile) || return 1
+  admin=$(python3 -c '
 import json, sys
-a = json.load(sys.stdin).get("admin") or {}
-print("off" if a.get("disabled") else a.get("listen", ""))') || return 1
+a = json.loads(sys.argv[1]).get("admin") or {}
+print("off" if a.get("disabled") else a.get("listen", ""))' "$json") || return 1
   case $admin in
     off) CADDY_RESTART=1; return 0 ;;  # no admin API: only a restart applies a new config
     "") ;;                              # the default, localhost:2019
@@ -237,7 +239,7 @@ path, sock = sys.argv[1:]
 text = open(path).read()
 start = re.match(r"(?:\s|#[^\n]*)*", text).end()
 line = f"\tadmin unix/{sock}\n"
-if text[start:start + 1] == "{":
+if text[start:start + 1] == "{" and not text.startswith(("{$", "{env."), start):  # those are site addresses
     end = text.find("\n", start)
     end = len(text) if end < 0 else end
     rest = text[start + 1:end].strip()
@@ -261,12 +263,13 @@ activate() {  # every step checked by hand: set -e does not apply inside a funct
     "$rel/deploy/vanila.caddy" >/etc/caddy/vanila.caddy.new || return 1
   mv /etc/caddy/vanila.caddy.new /etc/caddy/vanila.caddy || return 1
   [[ -f $CADDYFILE ]] || install -m 0644 /dev/null "$CADDYFILE" || return 1
-  grep -qx 'import vanila.caddy' "$CADDYFILE" || printf '\nimport vanila.caddy\n' >>"$CADDYFILE" || return 1
+  grep -Eq '^[[:space:]]*import[[:space:]]+(/etc/caddy/)?vanila\.caddy[[:space:]]*$' "$CADDYFILE" ||
+    printf '\nimport /etc/caddy/vanila.caddy\n' >>"$CADDYFILE" || return 1
   { ln -sfn "$rel" "$OPT/current.new" && mv -T "$OPT/current.new" "$OPT/current"; } || return 1
   ((START)) || return 0
   caddy_admin || return 1
   # as the caddy account: root can read files that Caddy itself cannot
-  runuser -u caddy -- caddy validate --config "$CADDYFILE" --adapter caddyfile >/dev/null || return 1
+  runuser -u caddy -- caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null || return 1
   { systemctl daemon-reload && systemctl enable -q vanila-app vanila-render vanila-gateway caddy &&
     systemctl restart vanila-gateway vanila-render vanila-app; } || return 1
   if ((${CADDY_RESTART:-0})); then systemctl restart caddy || return 1; CADDY_RESTART=0
@@ -279,11 +282,14 @@ say "switch to $REL"
 if ! activate "$REL"; then
   ((!START)) || journalctl -u vanila-app -u vanila-render -u vanila-gateway -u caddy -n 40 --no-pager || true
   rm -rf "$REL"
+  # first install: nothing to go back to; leave no services, site or units behind
+  [[ -n $PREV ]] || ((!START)) || systemctl disable -q --now vanila-app vanila-render vanila-gateway || true
   restore  # a new setting may be the cause
   SWITCHING=0
-  if [[ -z $PREV ]]; then  # first install: nothing to go back to; leave no half-made site or units behind
+  if [[ -z $PREV ]]; then
     rm -f "$OPT/current"
-    ((!START)) || { systemctl daemon-reload; systemctl reload-or-restart caddy || true; }
+    # restart, not reload: the running Caddy may already listen on the admin socket the restored file no longer has
+    ((!START)) || { systemctl daemon-reload; systemctl restart caddy || echo "warning: caddy did not restart"; }
     die "the first release did not start (journalctl output above)"
   fi
   APP_HOST=$OLD_APP_HOST RENDER_HOST=$OLD_RENDER_HOST TLS=$OLD_TLS EMAIL=$OLD_EMAIL
@@ -291,8 +297,12 @@ if ! activate "$REL"; then
   die "the new release did not start; back on $PREV with its settings"
 fi
 SWITCHING=0
-trap - HUP INT TERM
+trap - HUP INT TERM PIPE
 for f in "${CHANGED[@]}"; do rm -f "$f.prev"; done
+# only the app needs Docker (its unit adds the group): docker membership is root on this machine (SPEC 부록 C).
+# Not the account's own group, which every process of it (renderer, gateway, vanila-auth) would get. Only now:
+# a release from before that unit line, gone back to, still needs the account's membership.
+[[ " $(id -nG vanila) " != *" docker "* ]] || gpasswd -d vanila docker >/dev/null
 
 if ((!START)); then
   say "done (--no-start: nothing started)"

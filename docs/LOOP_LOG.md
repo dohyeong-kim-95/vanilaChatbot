@@ -916,3 +916,19 @@ Linux 서버 한 대에 여러 사람이 브라우저로 접속하는 경우를 
 테스트 쪽: 렌더러의 Docker 접근을 root로 확인하고 있었다(root는 권한 검사를 건너뜀). 프로세스의 그룹과 소켓 권한(660 docker)으로 바꿨다. 기존 Caddyfile 사례는 공인 CA에 요청하지 않도록 로컬 인증서만 쓴다. 스냅샷 폴더를 지운다.
 
 결과: l19 11개 통과.
+
+### 25.4 네 번째 리뷰 후 수정
+판정: 25.3까지 유지됨. Must 없음, Should 2개(둘 다 25.3에서 바꾼 코드).
+
+| 등급 | 지적 | 고친 것 | 회귀 테스트 |
+|---|---|---|---|
+| Should | 링크를 풀어 얻은 Caddyfile 경로를 `caddy adapt`·`validate`에 넘겨, 상대 경로 `import vanila.caddy`를 못 찾음. Caddyfile이 링크인 서버에서는 설치 불가 | Caddy에는 늘 `/etc/caddy/Caddyfile`, 편집·백업만 링크 대상. import는 절대 경로로 쓰고, 기존 줄은 들여쓰기·두 형태 모두 인정. adapt 오류를 숨기지 않음 | `t_existing_caddyfile`의 링크 사례 |
+| Should | 첫 설치 실패 정리가 서비스를 멈추지 않고 유닛 파일만 지움. reload가 실패해(Caddy는 이미 소켓으로 옮김) 사이트가 계속 서빙됨 | `disable --now` 뒤 정리, Caddy는 restart | `t_failed_first_install`(고치기 전 코드에서 실패 확인) |
+| Nice | `gpasswd -d`가 되돌림 구간 밖에 있어, 예전 릴리스로 돌아가면 앱이 Docker를 못 씀 | 전환 성공 뒤로 | |
+| Nice | `{$SITE} {`를 한 줄짜리 전역 블록으로 오인 | `{$`·`{env.`는 사이트 주소로 | `t_existing_caddyfile` |
+| Nice | 이미 있는 import 줄의 다른 형태를 못 알아봐 두 번 넣음 | 위 Should와 함께 | 같은 테스트(import 1번) |
+| Nice | 전환 중 SIGPIPE | 무시 목록에 PIPE | |
+| Nice | 강제 종료 뒤 남은 `.prev`를 덮어씀 | 있으면 멈추고 안내 | |
+| Nice | 유닛 주석이 25.3 이후와 안 맞음 | 고침 | |
+
+결과: l19 12개 통과.
