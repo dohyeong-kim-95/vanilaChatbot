@@ -10,6 +10,7 @@ Playwright's Chromium, fonts): about 10 minutes.
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -161,8 +162,19 @@ def t_local_accounts_cannot_reach_admin_or_docker():
     docker = lambda unit: sh(  # noqa: E731  Docker's API through the socket as the unit's mounts show it
         f"nsenter -t $(systemctl show -p MainPID --value {unit}) -m -- curl -s -m 3 -o /dev/null -w '%{{http_code}}' "
         "--unix-socket /run/docker.sock http://x/version", check=False).stdout
-    assert docker("vanila-render") == "000" and docker("vanila-gateway") == "000"  # systemd's inaccessible node
-    assert docker("vanila-app") == "200"
+    seen = {u: docker(u) for u in ("vanila-render", "vanila-gateway", "vanila-app")}
+    assert seen == {"vanila-render": "000", "vanila-gateway": "000", "vanila-app": "200"}, seen
+    # (as root: that node is not a socket anyone can use.) A new socket file (docker.socket restarted, e.g. a package
+    # upgrade) is not covered by it, so what counts is that only the app's process has the docker group
+    assert "docker" not in sh("id -nG vanila").stdout.split()
+    sh("systemctl restart docker.socket docker")
+    gid = sh("getent group docker | cut -d: -f3").stdout.strip()
+    groups = {u: sh(f"grep ^Groups: /proc/$(systemctl show -p MainPID --value {u})/status").stdout.split()[1:]
+              for u in ("vanila-render", "vanila-gateway", "vanila-app")}
+    assert gid not in groups["vanila-render"] and gid not in groups["vanila-gateway"], (gid, groups)
+    assert gid in groups["vanila-app"], (gid, groups)
+    perm = sh("stat -c '%a %G' /run/docker.sock").stdout.strip()
+    assert perm == "660 docker", perm  # so the group is the only way in for a non-root process
 
 
 def t_update_keeps_data_and_secrets(tmp):
@@ -182,6 +194,51 @@ def t_update_keeps_data_and_secrets(tmp):
     assert sh("stat -c %a /etc/caddy/vanila.caddy").stdout.strip() == "644"
     sh("systemctl restart caddy")  # reads its files as the caddy account
     assert curl("GET", "/me")[0] == 200
+
+
+CADDYFILES = {  # what a server may already have; each gets `import vanila.caddy` at the end. Local certificates only:
+    # the test must not ask a public CA for anything
+    "global block with a comment": "{ # global\n\tlocal_certs\n}\n\nother.test {\n\trespond \"other\"\n}\n",
+    "a user called admin": "other.test {\n\ttls internal\n\tbasicauth {\n\t\tadmin HASH\n"
+                           "\t}\n\trespond \"other\"\n}\n",
+    "admin off": "{\n\tadmin off\n}\n",
+}
+
+
+def t_existing_caddyfile():
+    """An existing Caddyfile keeps its sites, mode and owner; the admin API ends up on the socket unless the
+    operator chose otherwise (admin off stays off, and updates still apply)."""
+    hashed = sh("caddy hash-password --plaintext secret-1").stdout.strip()
+    for name, text in CADDYFILES.items():
+        text = text.replace("HASH", hashed)
+        sh("cat > /etc/caddy/Caddyfile && chown root:caddy /etc/caddy/Caddyfile && chmod 640 /etc/caddy/Caddyfile "
+           "&& systemctl restart caddy", input=text + "\nimport vanila.caddy\n")
+        p = install(check=False)
+        assert p.returncode == 0 and "running: https://app.test" in p.stdout, (name, p.stdout[-1500:])
+        after = sh("cat /etc/caddy/Caddyfile").stdout
+        assert text.split("\n", 1)[1][:20] in after and "import vanila.caddy" in after, (name, after)
+        assert sh("stat -c '%a %U:%G' /etc/caddy/Caddyfile").stdout.strip() == "640 root:caddy", name
+        admin = sh("caddy adapt --config /etc/caddy/Caddyfile 2>/dev/null | python3 -c "
+                   "'import json,sys; print(json.load(sys.stdin).get(\"admin\"))'").stdout.strip()
+        if name == "admin off":
+            assert "'disabled': True" in admin, (name, admin)
+        else:
+            assert "unix//var/lib/caddy/admin.sock" in admin, (name, admin)
+            tcp = sh("runuser -u nobody -- curl -s -m 3 -o /dev/null -w '%{http_code}' http://localhost:2019/config/",
+                     check=False).stdout
+            assert tcp == "000", (name, tcp)
+        assert curl("GET", "/me")[0] == 200, name
+    sh("cat > /etc/caddy/Caddyfile && chmod 644 /etc/caddy/Caddyfile && systemctl restart caddy",
+       input="{\n\tadmin unix//var/lib/caddy/admin.sock\n}\n\nimport vanila.caddy\n")
+
+
+def t_hangup_during_switch():
+    """A closed SSH session (SIGHUP) or ^C while switching does not leave a half switch behind."""
+    out = sh("/src/deploy/install.sh >/root/hup.log 2>&1 & pid=$!; "
+             "until grep -q '== switch' /root/hup.log; do sleep 0.2; done; kill -HUP $pid; kill -INT $pid; "
+             "wait $pid; echo rc=$?; tail -n 5 /root/hup.log").stdout
+    assert "rc=0" in out and "running: https://app.test" in out, out
+    assert not sh("ls /etc/vanila/*.prev /etc/caddy/*.prev 2>/dev/null", check=False).stdout
 
 
 def t_failed_pull_keeps_current():
@@ -246,11 +303,13 @@ def main():
         IMAGE)
     tests = [t_bad_arguments, t_fresh_install, t_login_through_caddy, t_run_in_sandbox, t_renderer_through_caddy,
              t_local_accounts_cannot_reach_admin_or_docker,
-             lambda: t_update_keeps_data_and_secrets(tmp), t_failed_pull_keeps_current,
+             lambda: t_update_keeps_data_and_secrets(tmp), t_existing_caddyfile, t_hangup_during_switch,
+             t_failed_pull_keeps_current,
              lambda: t_broken_release_rolls_back(tmp)]
     names = ["t_bad_arguments", "t_fresh_install", "t_login_through_caddy", "t_run_in_sandbox",
              "t_renderer_through_caddy", "t_local_accounts_cannot_reach_admin_or_docker",
-             "t_update_keeps_data_and_secrets", "t_failed_pull_keeps_current",
+             "t_update_keeps_data_and_secrets", "t_existing_caddyfile", "t_hangup_during_switch",
+             "t_failed_pull_keeps_current",
              "t_broken_release_rolls_back"]
     passed = failed = 0
     try:
@@ -270,6 +329,7 @@ def main():
         if not os.environ.get("KEEP"):
             run("docker", "rm", "-f", NAME, check=False)
             run("docker", "volume", "rm", *VOLUMES, check=False)
+            shutil.rmtree(tmp, ignore_errors=True)
     print(f"{passed} pass, {failed} fail")
     sys.exit(1 if failed else 0)
 

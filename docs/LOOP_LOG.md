@@ -898,3 +898,21 @@ Linux 서버 한 대에 여러 사람이 브라우저로 접속하는 경우를 
 함께 찾은 것: 설정 파일이 없을 때 `getenv`의 `sed`가 실패해 `pipefail`로 스크립트가 끝남(첫 설치). `apt-cache … | grep -q`가 `pipefail`에서 SIGPIPE로 실패. 둘 다 고침.
 
 결과: l19 9개 통과.
+
+### 25.3 세 번째 리뷰 후 수정
+판정: 25.2까지의 수정은 유지됨. Must 없음, Should 5개. 대부분 이미 운영 중인 서버에서만 드러나는 것이었다(테스트는 빈 컨테이너).
+
+| 등급 | 지적 | 고친 것 | 회귀 테스트 |
+|---|---|---|---|
+| Should | 전역 블록을 `{` 한 줄로만 알아봐, `{ # global`이면 블록을 하나 더 붙여 Caddyfile이 깨지고 되돌리기도 실패 | 첫 토큰이 `{`인지 주석·공백을 건너뛰고 판정(python), 한 줄짜리 블록은 손대지 않고 안내. 바꾼 Caddyfile은 실패하면 되돌림 | `t_existing_caddyfile`(고치기 전 코드에서 실패 확인) |
+| Should | 파일 어디든 `admin`으로 시작하는 줄(basicauth 사용자 admin)이 있으면 이미 정했다고 보고 2019를 열어 둠 | 판정을 `caddy adapt` 결과의 `admin`으로 | 같은 테스트 |
+| Should | `admin off`면 reload가 항상 실패 | `admin off`면 restart | 같은 테스트 |
+| Should | `InaccessiblePaths`는 시작 때의 소켓만 가려, docker.socket이 다시 시작되면 렌더러·gateway가 Docker에 닿음 | 계정을 docker 그룹에서 빼고(기존 서버는 `gpasswd -d`) 앱 유닛의 `SupplementaryGroups`로만 | `t_local_accounts_cannot_reach_admin_or_docker`(docker.socket 재시작 뒤 프로세스 그룹 확인. 고치기 전 코드에서 실패 확인) |
+| Should | 시그널 처리 없음: SSH가 끊기면 전환 중간에 멈춤 | 설정 변경부터 전환 끝까지 HUP·INT·TERM 무시, 그 사이 오류로 끝나면 EXIT trap이 되돌림 | `t_hangup_during_switch`(고치기 전 코드는 rc=129) |
+| Nice | 전역 블록을 앞에 붙이면 Caddyfile 권한이 0644로 바뀜 | 그 자리에서 고침(권한·소유자·링크 유지) | `t_existing_caddyfile`(640 root:caddy 유지) |
+| Nice | 원래 없던 파일은 되돌릴 때 안 지움, 첫 설치 실패 시 사이트·유닛이 남음 | 새로 만든 파일은 되돌릴 때 지움, 첫 설치 실패도 같은 정리 | |
+| Nice | 패키지 버전·글꼴 고정 안 됨 | SPEC 한계에 기록 | |
+
+테스트 쪽: 렌더러의 Docker 접근을 root로 확인하고 있었다(root는 권한 검사를 건너뜀). 프로세스의 그룹과 소켓 권한(660 docker)으로 바꿨다. 기존 Caddyfile 사례는 공인 CA에 요청하지 않도록 로컬 인증서만 쓴다. 스냅샷 폴더를 지운다.
+
+결과: l19 11개 통과.

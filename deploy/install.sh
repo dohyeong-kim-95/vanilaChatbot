@@ -36,7 +36,6 @@ SRC=$(cd "$(dirname "$0")/.." && pwd)
 OPT=/opt/vanila HOME_DIR=/var/lib/vanila ETC=/etc/vanila
 DATA=$HOME_DIR/data
 ENV=$ETC/vanila.env GWENV=$ETC/gateway.env
-SETTINGS=("$ENV" "$ETC/tls" "$ETC/email")  # what an install may change; restored when it goes back
 FONTS=/usr/local/share/fonts/vanilachatbot
 CADDY_ADMIN=/var/lib/caddy/admin.sock
 PORTS=(80 2019 8100 8200 8201)  # Caddy's http and admin, the services
@@ -95,7 +94,9 @@ say "user vanila"
 id vanila >/dev/null 2>&1 ||
   useradd --system --user-group --home-dir "$HOME_DIR" --shell /usr/sbin/nologin vanila
 getent group docker >/dev/null || groupadd --system docker
-usermod -aG docker vanila  # needed to start sandboxes; this makes the account as powerful as root (SPEC §9.7)
+# only the app needs Docker (its unit adds the group): docker membership is root on this machine (SPEC 부록 C).
+# Not the account's own group, which every process of it (renderer, gateway, vanila-auth) would get.
+[[ " $(id -nG vanila) " != *" docker "* ]] || gpasswd -d vanila docker >/dev/null
 install -d -o vanila -g vanila -m 0700 "$HOME_DIR" "$DATA"
 install -d -o root -g vanila -m 0750 "$ETC"
 install -d -m 0755 "$OPT" "$OPT/releases"
@@ -141,9 +142,25 @@ if ((START)); then
   docker pull -q "${IMAGE:-python:3.12-slim}" >/dev/null
 fi
 
-# --- settings files: secrets are made once and never overwritten; the rest is kept to go back to ------------------
+# --- from here until the switch is done: what this install changes is kept to put back -----------------------------
+CADDYFILE=$(readlink -f /etc/caddy/Caddyfile || echo /etc/caddy/Caddyfile)  # edited in place: a symlinked Caddyfile stays a symlink
+CHANGED=("$ENV" "$ETC/tls" "$ETC/email" "$CADDYFILE" /etc/caddy/vanila.caddy
+         /etc/systemd/system/vanila-{app,render,gateway}.service)
+NEW=()
+for f in "${CHANGED[@]}"; do if [[ -f $f ]]; then cp -p "$f" "$f.prev"; else NEW+=("$f"); fi; done
+restore() {  # settings, Caddy files and units as they were before this install
+  local f
+  for f in "${CHANGED[@]}"; do
+    if [[ -f $f.prev ]]; then mv -f "$f.prev" "$f"; elif [[ " ${NEW[*]} " == *" $f "* ]]; then rm -f "$f"; fi
+  done
+}
+SWITCHING=1
+trap '' HUP INT TERM  # a closed SSH session or ^C must not stop it halfway (current switched, settings not back)
+trap '((!SWITCHING)) || { echo "install.sh: stopped while switching; settings put back" >&2; restore; }' EXIT
+echo "(interrupts are ignored until the switch is done)"
+
+# --- settings files: secrets are made once and never overwritten ---------------------------------------------------
 say "settings $ETC"
-for f in "${SETTINGS[@]}"; do [[ ! -f $f ]] || cp -p "$f" "$f.prev"; done
 if [[ ! -f $GWENV ]]; then
   ( umask 077; cat >"$GWENV" <<EOF
 # LLM gateway (vanila-gateway.service): OpenAI-compatible API on 127.0.0.1:8100 with the Anthropic API behind it.
@@ -201,14 +218,38 @@ healthy() {  # answering, and still up a few seconds later (a release that dies 
   done
   return 1
 }
-caddy_admin() {  # Caddy's admin API is open to every local account on localhost:2019; a socket only caddy can use
-  local f=/etc/caddy/Caddyfile
-  ! grep -q '^[[:space:]]*admin[[:space:]]' "$f" || return 0  # already chosen by whoever runs this server
-  if [[ $(grep -v '^[[:space:]]*\(#.*\)\?$' "$f" | head -n 1) == "{" ]]; then  # a global options block: add to it
-    sed -i "0,/^{[[:space:]]*\$/s||{\n\tadmin unix/$CADDY_ADMIN|" "$f"
-  else
-    { printf '{\n\tadmin unix/%s\n}\n\n' "$CADDY_ADMIN"; cat "$f"; } >"$f.new" && mv "$f.new" "$f"
-  fi
+caddy_admin() {  # Caddy's admin API listens on localhost:2019 for every local account; a socket only caddy can use
+  local admin
+  admin=$(caddy adapt --config "$CADDYFILE" --adapter caddyfile 2>/dev/null | python3 -c '
+import json, sys
+a = json.load(sys.stdin).get("admin") or {}
+print("off" if a.get("disabled") else a.get("listen", ""))') || return 1
+  case $admin in
+    off) CADDY_RESTART=1; return 0 ;;  # no admin API: only a restart applies a new config
+    "") ;;                              # the default, localhost:2019
+    *) [[ $admin == unix/* ]] || echo "note: Caddy's admin API listens on $admin, which every local account can reach"
+       return 0 ;;                      # chosen by whoever runs this server
+  esac
+  # into the global options block (the first token is `{`), or a new one in front; the file is rewritten in place
+  python3 - "$CADDYFILE" "$CADDY_ADMIN" <<'PY' || return 1
+import re, sys
+path, sock = sys.argv[1:]
+text = open(path).read()
+start = re.match(r"(?:\s|#[^\n]*)*", text).end()
+line = f"\tadmin unix/{sock}\n"
+if text[start:start + 1] == "{":
+    end = text.find("\n", start)
+    end = len(text) if end < 0 else end
+    rest = text[start + 1:end].strip()
+    if rest and not rest.startswith("#"):
+        sys.exit(f"{path}: put `admin unix/{sock}` in the global options block yourself (it is on one line)")
+    new = text[:end] + "\n" + line + text[end + 1:]
+else:
+    new = "{\n" + line + "}\n\n" + text
+with open(path, "r+") as f:
+    f.write(new)
+    f.truncate()
+PY
   CADDY_RESTART=1  # the running Caddy still listens on the old address, so a reload cannot reach it
 }
 activate() {  # every step checked by hand: set -e does not apply inside a function called from `if`
@@ -219,14 +260,13 @@ activate() {  # every step checked by hand: set -e does not apply inside a funct
   sed -e "s|@APP_HOST@|$APP_HOST|" -e "s|@RENDER_HOST@|$RENDER_HOST|" -e "s|@TLS@|$tls_line|" \
     "$rel/deploy/vanila.caddy" >/etc/caddy/vanila.caddy.new || return 1
   mv /etc/caddy/vanila.caddy.new /etc/caddy/vanila.caddy || return 1
-  [[ -f /etc/caddy/Caddyfile ]] || install -m 0644 /dev/null /etc/caddy/Caddyfile || return 1
-  grep -qx 'import vanila.caddy' /etc/caddy/Caddyfile || printf '\nimport vanila.caddy\n' >>/etc/caddy/Caddyfile ||
-    return 1
-  caddy_admin || return 1
+  [[ -f $CADDYFILE ]] || install -m 0644 /dev/null "$CADDYFILE" || return 1
+  grep -qx 'import vanila.caddy' "$CADDYFILE" || printf '\nimport vanila.caddy\n' >>"$CADDYFILE" || return 1
   { ln -sfn "$rel" "$OPT/current.new" && mv -T "$OPT/current.new" "$OPT/current"; } || return 1
   ((START)) || return 0
+  caddy_admin || return 1
   # as the caddy account: root can read files that Caddy itself cannot
-  runuser -u caddy -- caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null || return 1
+  runuser -u caddy -- caddy validate --config "$CADDYFILE" --adapter caddyfile >/dev/null || return 1
   { systemctl daemon-reload && systemctl enable -q vanila-app vanila-render vanila-gateway caddy &&
     systemctl restart vanila-gateway vanila-render vanila-app; } || return 1
   if ((${CADDY_RESTART:-0})); then systemctl restart caddy || return 1; CADDY_RESTART=0
@@ -238,14 +278,21 @@ PREV=$(readlink "$OPT/current" 2>/dev/null || true)
 say "switch to $REL"
 if ! activate "$REL"; then
   ((!START)) || journalctl -u vanila-app -u vanila-render -u vanila-gateway -u caddy -n 40 --no-pager || true
-  [[ -n $PREV ]] || die "the first release did not start (journalctl -u vanila-app)"
   rm -rf "$REL"
-  for f in "${SETTINGS[@]}"; do [[ ! -f $f.prev ]] || mv "$f.prev" "$f"; done  # a new setting may be the cause
+  restore  # a new setting may be the cause
+  SWITCHING=0
+  if [[ -z $PREV ]]; then  # first install: nothing to go back to; leave no half-made site or units behind
+    rm -f "$OPT/current"
+    ((!START)) || { systemctl daemon-reload; systemctl reload-or-restart caddy || true; }
+    die "the first release did not start (journalctl output above)"
+  fi
   APP_HOST=$OLD_APP_HOST RENDER_HOST=$OLD_RENDER_HOST TLS=$OLD_TLS EMAIL=$OLD_EMAIL
   activate "$PREV" || die "the new release did not start, and neither did $PREV after going back"
   die "the new release did not start; back on $PREV with its settings"
 fi
-for f in "${SETTINGS[@]}"; do rm -f "$f.prev"; done
+SWITCHING=0
+trap - HUP INT TERM
+for f in "${CHANGED[@]}"; do rm -f "$f.prev"; done
 
 if ((!START)); then
   say "done (--no-start: nothing started)"
