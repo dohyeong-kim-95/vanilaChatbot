@@ -15,6 +15,7 @@
 # Layout: code in /opt/vanila/releases/<rev> (current -> the running one, the previous ones are kept for
 # rollback), data in /var/lib/vanila/data, settings in /etc/vanila/*.env. Accounts: sudo vanila-auth add <name>.
 set -euo pipefail
+umask 022  # files Caddy and the service account read; a hardened root umask (027/077) would hide them
 
 APP_HOST= RENDER_HOST= TLS= EMAIL= PACKAGES=1 START=1
 usage() { sed -n '2,/^set -e/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 2; }
@@ -42,12 +43,16 @@ getenv() { sed -n "s/^$1=//p" "$2" 2>/dev/null | tail -n 1; }
 secret() { head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
 
 [[ $EUID -eq 0 ]] || die "run as root (sudo)"
+exec 9>/run/vanila-install.lock
+flock -n 9 || die "another install.sh is running"
 git -c safe.directory="$SRC" -C "$SRC" rev-parse --git-dir >/dev/null 2>&1 || die "$SRC is not a git checkout"
 
 # --- settings: from the arguments, else from the last install --------------------------------------------------
 APP_HOST=${APP_HOST:-$(getenv AGENT_APP_ORIGIN "$ENV" | sed 's|^https://||')}
 RENDER_HOST=${RENDER_HOST:-$(getenv AGENT_RENDER_ORIGIN "$ENV" | sed 's|^https://||')}
 TLS=${TLS:-$(cat "$ETC/tls" 2>/dev/null || echo acme)}
+EMAIL=${EMAIL:-$(cat "$ETC/email" 2>/dev/null || true)}
+[[ -z $EMAIL || $EMAIL =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$ ]] || die "--email: name@domain"
 [[ -n $APP_HOST && -n $RENDER_HOST ]] || die "first install: --app-host and --render-host are required"
 for h in "$APP_HOST" "$RENDER_HOST"; do  # the app compares this string with the browser's Origin header
   [[ $h =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?$ ]] || die "$h: lowercase host name, optionally :port"
@@ -145,67 +150,79 @@ else  # hosts given again: the origins follow
   sed -i -e "s|^AGENT_APP_ORIGIN=.*|AGENT_APP_ORIGIN=https://$APP_HOST|" \
          -e "s|^AGENT_RENDER_ORIGIN=.*|AGENT_RENDER_ORIGIN=https://$RENDER_HOST|" "$ENV"
 fi
-chown root:vanila "$ENV" "$GWENV"
-chmod 0640 "$ENV" "$GWENV"
+chown root:vanila "$ENV"
+chmod 0640 "$ENV"
+chown root:root "$GWENV"  # the API key: systemd reads it as root, the services never need the file
+chmod 0600 "$GWENV"
 echo "$TLS" >"$ETC/tls"
+echo "$EMAIL" >"$ETC/email"
 
 cat >/usr/local/bin/vanila-auth <<EOF
 #!/bin/sh
 # accounts: vanila-auth add|passwd|remove|list [name]  (as root)
-set -a; . $ENV; set +a
-cd $OPT/current && exec runuser -u vanila -- .venv/bin/python -m server.auth "\$@"
+root=\$(sed -n 's/^AGENT_ROOT=//p' $ENV | tail -n 1)
+cd $OPT/current && exec runuser -u vanila -- env AGENT_ROOT="\$root" .venv/bin/python -m server.auth "\$@"
 EOF
 chmod 0755 /usr/local/bin/vanila-auth
 
-# --- systemd and Caddy ------------------------------------------------------------------------------------------
-say "systemd units, Caddy site"
-install -m 0644 "$REL"/deploy/vanila-{app,render,gateway}.service /etc/systemd/system/
-install -d -m 0755 /etc/caddy
-tls_line=$([[ $TLS == internal ]] && echo "tls internal" || echo "${EMAIL:+tls $EMAIL}")
-sed -e "s|@APP_HOST@|$APP_HOST|" -e "s|@RENDER_HOST@|$RENDER_HOST|" -e "s|@TLS@|$tls_line|" \
-  "$REL/deploy/vanila.caddy" >/etc/caddy/vanila.caddy
-touch /etc/caddy/Caddyfile
-grep -qx 'import vanila.caddy' /etc/caddy/Caddyfile || printf '\nimport vanila.caddy\n' >>/etc/caddy/Caddyfile
+# --- before touching the running release: what can fail without it ------------------------------------------------
+if ((START)); then
+  say "docker image"
+  systemctl enable -q --now docker  # a fresh docker.io is not always running yet
+  IMAGE=$(getenv SANDBOX_IMAGE "$ENV")
+  docker pull -q "${IMAGE:-python:3.12-slim}" >/dev/null
+fi
+
+# --- switch: units, Caddy site and current from one release; then all three services must answer -----------------
+healthy() {  # app 401 (asks for a login), renderer 404 (no such artifact), gateway any HTTP answer
+  for _ in $(seq 30); do
+    [[ $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8200/me) == 401 &&
+       $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8201/) == 404 &&
+       $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8100/v1/models) != 000 ]] && return 0
+    sleep 1
+  done
+  return 1
+}
+activate() {  # every step checked by hand: set -e does not apply inside a function called from `if`
+  local rel=$1 tls_line
+  install -m 0644 "$rel"/deploy/vanila-{app,render,gateway}.service /etc/systemd/system/ || return 1
+  install -d -m 0755 /etc/caddy || return 1
+  tls_line=$([[ $TLS == internal ]] && echo "tls internal" || echo "${EMAIL:+tls $EMAIL}")
+  sed -e "s|@APP_HOST@|$APP_HOST|" -e "s|@RENDER_HOST@|$RENDER_HOST|" -e "s|@TLS@|$tls_line|" \
+    "$rel/deploy/vanila.caddy" >/etc/caddy/vanila.caddy.new || return 1
+  mv /etc/caddy/vanila.caddy.new /etc/caddy/vanila.caddy || return 1
+  [[ -f /etc/caddy/Caddyfile ]] || install -m 0644 /dev/null /etc/caddy/Caddyfile || return 1
+  grep -qx 'import vanila.caddy' /etc/caddy/Caddyfile || printf '\nimport vanila.caddy\n' >>/etc/caddy/Caddyfile ||
+    return 1
+  { ln -sfn "$rel" "$OPT/current.new" && mv -T "$OPT/current.new" "$OPT/current"; } || return 1
+  ((START)) || return 0
+  # as the caddy account: root can read files that Caddy itself cannot
+  runuser -u caddy -- caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null || return 1
+  { systemctl daemon-reload && systemctl enable -q vanila-app vanila-render vanila-gateway caddy &&
+    systemctl restart vanila-gateway vanila-render vanila-app && systemctl reload-or-restart caddy; } || return 1
+  healthy
+}
 
 PREV=$(readlink "$OPT/current" 2>/dev/null || true)
-switch() { ln -sfn "$1" "$OPT/current.new" && mv -T "$OPT/current.new" "$OPT/current"; }
-switch "$REL"
+say "switch to $REL"
+if ! activate "$REL"; then
+  ((!START)) || journalctl -u vanila-app -u vanila-render -u vanila-gateway -u caddy -n 40 --no-pager || true
+  [[ -n $PREV ]] || die "the first release did not start (journalctl -u vanila-app)"
+  rm -rf "$REL"
+  activate "$PREV" || die "the new release did not start, and neither did $PREV after going back"
+  die "the new release did not start; back on $PREV"
+fi
 
 if ((!START)); then
   say "done (--no-start: nothing started)"
   exit 0
 fi
+touch "$REL/.ok"
 
-say "start"
-systemctl enable -q --now docker  # a fresh docker.io is not always running yet
-docker pull -q python:3.12-slim >/dev/null
-caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
-systemctl daemon-reload
-systemctl enable -q vanila-app vanila-render vanila-gateway caddy
-systemctl restart vanila-gateway vanila-render vanila-app
-systemctl reload-or-restart caddy
-
-healthy() {  # 401 = the app is up and asks for a login
-  for _ in $(seq 30); do
-    [[ $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8200/me) == 401 ]] && return 0
-    sleep 1
-  done
-  return 1
-}
-if ! healthy; then
-  journalctl -u vanila-app -n 30 --no-pager || true
-  if [[ -n $PREV ]]; then
-    switch "$PREV"
-    systemctl restart vanila-gateway vanila-render vanila-app
-    healthy || die "the new release did not start, and neither did $PREV after going back"
-    die "the new release did not start; back on $PREV"
-  fi
-  die "the app did not start (journalctl -u vanila-app)"
-fi
-
-# keep the running release, the one before it and one more
-ls -1d "$OPT"/releases/*/ | sed 's|/$||' | sort -r | tail -n +4 | while read -r old; do
-  [[ $old == "$REL" || $old == "$PREV" ]] || rm -rf "$old"
+# keep the running release and the newest earlier one that ran; failed or half-made ones go
+keep=$(ls -1d "$OPT"/releases/*/.ok 2>/dev/null | sed 's|/\.ok$||' | grep -vx "$REL" | sort -r | head -n 1 || true)
+for old in "$OPT"/releases/*; do
+  [[ $old == "$REL" || $old == "$PREV" || $old == "$keep" ]] || rm -rf "$old"
 done
 
 say "running: https://$APP_HOST"

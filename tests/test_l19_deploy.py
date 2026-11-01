@@ -48,7 +48,7 @@ def curl(method, path, data=None, host=APP, origin=True, extra="", jar=True):
     return int(code), body
 
 
-def snapshot(dest, broken=False):
+def snapshot(dest, broken=None):
     """The working tree (tracked and new files) as one commit in a fresh repo at dest."""
     files = run("git", "-C", str(REPO), "ls-files", "-co", "--exclude-standard", "-z").stdout.split("\0")
     if not (dest / ".git").exists():
@@ -59,15 +59,15 @@ def snapshot(dest, broken=False):
             (dest / f).parent.mkdir(parents=True, exist_ok=True)
             (dest / f).write_bytes(src.read_bytes())
             (dest / f).chmod(src.stat().st_mode & 0o777)
-    if broken:  # a release that cannot start: install.sh must go back to the previous one
-        (dest / "server" / "app.py").write_text("raise SystemExit('broken release')\n")
+    if broken:  # a release whose app or renderer cannot start: install.sh must go back to the previous one
+        (dest / broken).write_text("raise SystemExit('broken release')\n")
     run("git", "-C", str(dest), "add", "-A")
     run("git", "-C", str(dest), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty",
         "-m", "broken" if broken else "snapshot")
 
 
-def install(*args, check=True):
-    return sh("/src/deploy/install.sh " + " ".join(args) + " 2>&1", check=check)
+def install(*args, check=True, umask="022"):
+    return sh(f"umask {umask}; /src/deploy/install.sh " + " ".join(args) + " 2>&1", check=check)
 
 
 def current():
@@ -87,7 +87,7 @@ def t_fresh_install():
     users = sh("ps -o user= -C uvicorn | sort -u").stdout.split()
     assert users == ["vanila"], users
     modes = sh("stat -c '%a %U:%G' /etc/vanila/vanila.env /etc/vanila/gateway.env /var/lib/vanila/data").stdout
-    assert modes.split("\n")[:3] == ["640 root:vanila", "640 root:vanila", "700 vanila:vanila"], modes
+    assert modes.split("\n")[:3] == ["640 root:vanila", "600 root:root", "700 vanila:vanila"], modes
 
 
 def t_login_through_caddy():
@@ -151,7 +151,9 @@ def t_update_keeps_data_and_secrets(tmp):
     env = sh("cat /etc/vanila/vanila.env").stdout
     before = current()
     snapshot(tmp)  # a new commit, like a git pull
-    out = install().stdout  # no arguments: hosts and TLS from the last install
+    # no arguments: hosts and TLS from the last install. A hardened root umask must not hide files from Caddy.
+    sh("rm /etc/caddy/vanila.caddy")  # made anew, as on a first install (an existing file keeps its mode)
+    out = install(umask="077").stdout
     assert "running: https://app.test" in out, out[-2000:]
     after = current()
     assert after != before, after
@@ -159,17 +161,41 @@ def t_update_keeps_data_and_secrets(tmp):
     assert keep(sh("cat /etc/vanila/vanila.env").stdout) == keep(env)  # secrets and settings stay
     assert curl("GET", "/me")[0] == 200  # logins live in the data dir
     assert "tls internal" in sh("cat /etc/caddy/vanila.caddy").stdout
+    assert sh("stat -c %a /etc/caddy/vanila.caddy").stdout.strip() == "644"
+    sh("systemctl restart caddy")  # reads its files as the caddy account
+    assert curl("GET", "/me")[0] == 200
+
+
+def t_failed_pull_keeps_current():
+    """Fails before the switch (sandbox image unavailable): the running release stays, nothing half-switched."""
+    before = current()
+    sh("echo SANDBOX_IMAGE=vanila-test/does-not-exist:0 >> /etc/vanila/vanila.env")
+    try:
+        p = install(check=False)
+    finally:
+        sh("sed -i '/^SANDBOX_IMAGE=/d' /etc/vanila/vanila.env")
+    assert p.returncode != 0, p.stdout[-1000:]
+    assert current() == before, current()
+    assert curl("GET", "/me")[0] == 200
 
 
 def t_broken_release_rolls_back(tmp):
     before = current()
-    snapshot(tmp, broken=True)
-    p = install(check=False)
-    assert p.returncode != 0 and "back on " + before in p.stdout, p.stdout[-2000:]
-    assert current() == before, current()
-    code = curl("GET", "/me")[0]
-    assert code == 200, code  # install.sh returns only after the previous release answers again
-    run("git", "-C", str(tmp), "reset", "-q", "--hard", "HEAD~1")
+    for broken in ("server/app.py", "server/render.py"):
+        snapshot(tmp, broken=broken)
+        p = install(check=False)
+        assert p.returncode != 0 and "back on " + before in p.stdout, (broken, p.stdout[-2000:])
+        assert current() == before, current()
+        code = curl("GET", "/me")[0]
+        assert code == 200, code  # install.sh returns only after the previous release answers again
+        run("git", "-C", str(tmp), "reset", "-q", "--hard", "HEAD~1")
+        run("git", "-C", str(tmp), "clean", "-qfd")
+    # a good install afterwards keeps the last good release to go back to, and only releases that ran
+    snapshot(tmp)
+    install()
+    rels = sh("ls -1 /opt/vanila/releases").stdout.split()
+    assert before.rsplit("/", 1)[1] in rels and len(rels) == 2, rels
+    assert all(sh(f"test -f /opt/vanila/releases/{r}/.ok", check=False).returncode == 0 for r in rels), rels
 
 
 def t_bad_arguments():
@@ -191,9 +217,11 @@ def main():
         "--tmpfs", "/run/lock", *[a for v, d in VOLUMES.items() for a in ("-v", f"{v}:{d}")], "-v", f"{tmp}:/src",
         IMAGE)
     tests = [t_bad_arguments, t_fresh_install, t_login_through_caddy, t_run_in_sandbox, t_renderer_through_caddy,
-             lambda: t_update_keeps_data_and_secrets(tmp), lambda: t_broken_release_rolls_back(tmp)]
+             lambda: t_update_keeps_data_and_secrets(tmp), t_failed_pull_keeps_current,
+             lambda: t_broken_release_rolls_back(tmp)]
     names = ["t_bad_arguments", "t_fresh_install", "t_login_through_caddy", "t_run_in_sandbox",
-             "t_renderer_through_caddy", "t_update_keeps_data_and_secrets", "t_broken_release_rolls_back"]
+             "t_renderer_through_caddy", "t_update_keeps_data_and_secrets", "t_failed_pull_keeps_current",
+             "t_broken_release_rolls_back"]
     passed = failed = 0
     try:
         sh("systemctl is-system-running --wait >/dev/null; true")

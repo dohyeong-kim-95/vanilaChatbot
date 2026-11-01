@@ -861,3 +861,21 @@ Linux 서버 한 대에 여러 사람이 브라우저로 접속하는 경우를 
 | 되돌린 직후 이전 릴리스가 아직 응답하기 전에 스크립트가 끝남 | 되돌린 뒤에도 응답을 기다림 |
 
 결과: l19 7개 통과. 새 설치 약 2분 20초, 업데이트 약 20초.
+
+### 25.1 첫 리뷰 후 수정
+판정: Must 없음, Should 4개. 모두 실패할 때의 경로였다(정상 설치는 리뷰어 재실행에서도 7/7).
+
+| 등급 | 지적 | 고친 것 | 회귀 테스트 |
+|---|---|---|---|
+| Should | `current`를 바꾼 뒤에 이미지 pull·Caddy 검사·systemctl이 실패하면 되돌리지 않고 끝남. 재부팅 때 검증 안 된 코드가 뜸 | pull(`SANDBOX_IMAGE` 따름)은 전환 전에. 전환은 유닛·Caddy·`current`·재시작·확인을 한 함수에서 단계마다 검사하고, 실패하면 이전 릴리스로 같은 함수를 다시 | `t_failed_pull_keeps_current`(고치기 전 코드에서 실패 확인) |
+| Should | root umask 027/077이면 Caddy 설정이 0640 root로 생겨 caddy가 못 읽음. root로 검사해서 통과하고, 재시작 때 사이트 전체가 내려감 | `umask 022`, 검사는 `caddy` 계정으로 | `t_update_keeps_data_and_secrets`(umask 077, 파일을 새로 만듦. `umask 022`를 빼면 실패 확인) |
+| Should | 정리가 시각 순 3개만 남겨, 실패 두 번 뒤 마지막 정상 릴리스가 지워짐 | 성공한 릴리스에 `.ok`. 실패한 릴리스는 바로 지우고, 실행 중인 것과 그 전 정상 릴리스만 남김 | `t_broken_release_rolls_back`(고치기 전 코드에서 실패 확인) |
+| Should | 상태 확인이 앱만 봄 | 렌더러(404)와 gateway(응답)도 | 같은 테스트에 렌더러가 깨진 릴리스 추가 |
+| Nice | 되돌릴 때 유닛·Caddy 설정이 새 릴리스 것으로 남음 | 되돌리기도 같은 전환 함수(이전 릴리스의 파일로) | |
+| Nice | `gateway.env`가 0640 root:vanila | 0600 root | `t_fresh_install` |
+| Nice | `--email` 검증·저장 안 함 | 형식 검사, `/etc/vanila/email`에 저장 | |
+| Nice | `vanila-auth`가 env 파일을 root 셸로 실행 | `AGENT_ROOT`만 읽음 | |
+| Nice | 동시 실행 잠금 없음 | `flock` | |
+| Nice | 테스트에 uid 1000 가정(l2, l9, l11, l12, l15) | 남김: 개발 PC의 uid가 1000일 때만 해당, 운영 코드에는 없음 | |
+
+결과: l19 8개 통과.

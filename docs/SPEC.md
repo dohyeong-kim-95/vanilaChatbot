@@ -580,12 +580,13 @@ git pull && sudo deploy/install.sh   # 업데이트 (호스트·비밀값은 지
 |---|---|---|
 | Caddy | `/etc/caddy/vanila.caddy` (기존 Caddyfile에 `import` 한 줄 추가) | 두 이름에 HTTPS, http→https, 외부의 `X-User` 제거. `--tls acme`(기본, 공인 인증서: 두 이름이 이 서버를 가리키고 80/443이 열려 있어야 함) 또는 `--tls internal`(Caddy 자체 CA, 브라우저에 `root.crt`를 신뢰시켜야 함) |
 | 서비스 | `vanila-app`(8200), `vanila-render`(8201), `vanila-gateway`(8100) | 모두 127.0.0.1에서만, 계정 `vanila`, `ProtectSystem=strict`·`ProtectHome`·`PrivateTmp`·`NoNewPrivileges`, 쓰기는 `/var/lib/vanila`만(렌더러는 읽기만) |
-| 코드 | `/opt/vanila/releases/<시각>-<rev>`, `current` 링크 | 릴리스마다 venv. 새 릴리스가 30초 안에 응답(`/me` = 401)하지 않으면 이전 릴리스로 되돌린다. 최근 3개를 남긴다 |
+| 코드 | `/opt/vanila/releases/<시각>-<rev>`, `current` 링크 | 릴리스마다 venv. sandbox 이미지 pull처럼 실행 중인 릴리스 없이 실패할 수 있는 일은 전환 전에 한다. 전환은 유닛·Caddy 설정·`current`를 한 릴리스에서 함께 바꾸고, 앱(401)·렌더러(404)·gateway가 30초 안에 응답해야 성공이다. 실패하면 그 릴리스를 지우고 이전 릴리스로 같은 방식으로 되돌린다. 성공한 릴리스에만 `.ok`를 남기고, 실행 중인 것과 그 전에 성공한 것 하나만 남긴다 |
 | 데이터 | `/var/lib/vanila/data` (0700) | `AGENT_ROOT`: DB, 사용자 저장 공간 |
-| 설정 | `/etc/vanila/vanila.env`, `gateway.env` (0640 root:vanila) | 처음 한 번 만들고 덮어쓰지 않는다. 렌더러 서명 키와 gateway 공유 키는 임의 생성. `LLM_*`을 바꾸면 다른 OpenAI 호환 서버를 쓴다 |
+| 설정 | `/etc/vanila/vanila.env` (0640 root:vanila), `gateway.env` (0600 root, API 키) | 처음 한 번 만들고 덮어쓰지 않는다. 렌더러 서명 키와 gateway 공유 키는 임의 생성. `LLM_*`을 바꾸면 다른 OpenAI 호환 서버를 쓴다 |
 | 계정 | `sudo vanila-auth add\|passwd\|remove\|list` | `vanila` 계정으로 `python -m server.auth` |
 
 - `--app-host`와 `--render-host`는 소문자 호스트 이름(필요하면 `:포트`, 443은 생략)이고 서로 다른 이름이어야 한다(쿠키는 포트를 구분하지 않음). 같은 등록 도메인으로 보이면 경고한다.
+- 스크립트는 `umask 022`로 돈다(root umask가 027/077인 서버에서도 Caddy가 설정을 읽도록). Caddy 설정 검사는 `caddy` 계정으로 한다. 동시에 두 번 실행할 수 없다(`flock`).
 - 설치하는 것은 checkout의 HEAD(커밋된 코드)뿐이다. 패키지: `python3-venv git caddy curl fontconfig`, Docker가 없으면 `docker.io`, Playwright Chromium(캡처용, `AGENT_CHROME_CHANNEL=""`)과 의존 패키지, 캡처 글꼴(OFL). `--no-packages`면 apt를 쓰지 않는다.
 - **한계**: `vanila` 계정은 sandbox를 띄우려고 `docker` 그룹에 들어가므로 사실상 root와 같은 권한이다(앱이 뚫리면 서버 전체). rootless Docker나 gVisor(§5.2)로 줄일 수 있다. 백업은 하지 않는다(`/var/lib/vanila/data`와 `/etc/vanila`를 백업할 것). 되돌리기는 코드만이다(데이터와 설정은 그대로).
-- 검증(`tests/test_l19_deploy.py`): systemd와 자체 Docker를 가진 새 Ubuntu 24.04 컨테이너에 설치 → 서비스 4개 동작, 8100/8200/8201은 127.0.0.1에서만, 서비스는 `vanila`로 실행 → Caddy를 거쳐 로그인(`__Host-` Secure 쿠키), 다른 출처 403, 외부 `X-User` 무시, http→https → 가짜 LLM으로 run 하나: sandbox가 `vanila` uid로 실행되고 `outputs/` 파일이 저장됨, SSE가 프록시를 거쳐 옴 → 업데이트 후 설정·비밀값·로그인 유지 → 시작하지 못하는 릴리스는 이전 릴리스로 되돌아감 → 잘못된 인자 거부.
+- 검증(`tests/test_l19_deploy.py`): systemd와 자체 Docker를 가진 새 Ubuntu 24.04 컨테이너에 설치 → 서비스 4개 동작, 8100/8200/8201은 127.0.0.1에서만, 서비스는 `vanila`로 실행 → Caddy를 거쳐 로그인(`__Host-` Secure 쿠키), 다른 출처 403, 외부 `X-User` 무시, http→https → 가짜 LLM으로 run 하나: sandbox가 `vanila` uid로 실행되고 `outputs/` 파일이 저장됨, SSE가 프록시를 거쳐 옴 → 업데이트 후 설정·비밀값·로그인 유지 → root umask 077에서도 Caddy가 설정을 읽음 → sandbox 이미지 pull 실패 시 실행 중인 릴리스 유지 → 앱이나 렌더러가 시작하지 못하는 릴리스는 이전 릴리스로 되돌아가고 지워지며, 다음 정상 설치 뒤에도 되돌아갈 정상 릴리스가 남음 → 잘못된 인자 거부.
