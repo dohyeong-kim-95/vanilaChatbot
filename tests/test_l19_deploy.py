@@ -147,6 +147,24 @@ def t_renderer_through_caddy():
     assert f"frame-src https://{RENDER}" in csp, csp
 
 
+def t_local_accounts_cannot_reach_admin_or_docker():
+    """Another account on the server cannot rewrite Caddy's config (it terminates TLS: passwords, cookies), and the
+    renderer and gateway, which share the docker group with the app, cannot reach Docker."""
+    tcp = sh("runuser -u nobody -- curl -s -m 3 -o /dev/null -w '%{http_code}' http://localhost:2019/config/",
+             check=False).stdout
+    assert tcp == "000", tcp
+    sock = sh("runuser -u nobody -- curl -s -m 3 -o /dev/null -w '%{http_code}' --unix-socket "
+              "/var/lib/caddy/admin.sock http://x/config/", check=False).stdout
+    assert sock == "000", sock
+    sh("systemctl reload caddy")  # reload still reaches it, through the socket
+    assert curl("GET", "/me")[0] == 200
+    docker = lambda unit: sh(  # noqa: E731  Docker's API through the socket as the unit's mounts show it
+        f"nsenter -t $(systemctl show -p MainPID --value {unit}) -m -- curl -s -m 3 -o /dev/null -w '%{{http_code}}' "
+        "--unix-socket /run/docker.sock http://x/version", check=False).stdout
+    assert docker("vanila-render") == "000" and docker("vanila-gateway") == "000"  # systemd's inaccessible node
+    assert docker("vanila-app") == "200"
+
+
 def t_update_keeps_data_and_secrets(tmp):
     env = sh("cat /etc/vanila/vanila.env").stdout
     before = current()
@@ -177,17 +195,24 @@ def t_failed_pull_keeps_current():
     assert p.returncode != 0, p.stdout[-1000:]
     assert current() == before, current()
     assert curl("GET", "/me")[0] == 200
+    p = install("--app-host", APP, "--render-host", RENDER, "--no-start", check=False)
+    assert p.returncode != 0 and "unchecked release" in p.stdout, p.stdout[-500:]
 
 
 def t_broken_release_rolls_back(tmp):
     before = current()
     for broken in ("server/app.py", "server/render.py"):
         snapshot(tmp, broken=broken)
-        p = install(check=False)
+        # with a new app host: going back restores the settings too, else the old release gets the new origin
+        p = install("--app-host", "new.test", check=False)
         assert p.returncode != 0 and "back on " + before in p.stdout, (broken, p.stdout[-2000:])
+        assert sh("grep ^AGENT_APP_ORIGIN= /etc/vanila/vanila.env").stdout.strip() == f"AGENT_APP_ORIGIN=https://{APP}"
+        assert "new.test" not in sh("cat /etc/caddy/vanila.caddy").stdout
+        assert not sh("ls /etc/vanila/*.prev 2>/dev/null", check=False).stdout
         assert current() == before, current()
         code = curl("GET", "/me")[0]
         assert code == 200, code  # install.sh returns only after the previous release answers again
+        assert curl("POST", "/projects", {"project_id": "after-rollback"})[0] == 200  # origin check passes
         run("git", "-C", str(tmp), "reset", "-q", "--hard", "HEAD~1")
         run("git", "-C", str(tmp), "clean", "-qfd")
     # a good install afterwards keeps the last good release to go back to, and only releases that ran
@@ -202,6 +227,9 @@ def t_bad_arguments():
     for args, msg in [(f"--app-host {APP} --render-host app.test:8443", "different host names"),
                       (f"--app-host App.test --render-host {RENDER}", "lowercase"),
                       (f"--app-host {APP}:443 --render-host {RENDER}", "leave out :443"),
+                      (f"--app-host {APP}:8200 --render-host {RENDER}", "port 8200 is taken"),
+                      (f"--app-host {APP} --render-host {RENDER}:2019", "port 2019 is taken"),
+                      (f"--app-host {APP} --render-host {RENDER} --email 'a|b@c'", "--email"),
                       (f"--app-host {APP} --render-host {RENDER} --tls self", "acme or internal")]:
         p = install(args, "--no-start", check=False)
         assert p.returncode != 0 and msg in p.stdout, (args, p.stdout[-500:])
@@ -217,10 +245,12 @@ def main():
         "--tmpfs", "/run/lock", *[a for v, d in VOLUMES.items() for a in ("-v", f"{v}:{d}")], "-v", f"{tmp}:/src",
         IMAGE)
     tests = [t_bad_arguments, t_fresh_install, t_login_through_caddy, t_run_in_sandbox, t_renderer_through_caddy,
+             t_local_accounts_cannot_reach_admin_or_docker,
              lambda: t_update_keeps_data_and_secrets(tmp), t_failed_pull_keeps_current,
              lambda: t_broken_release_rolls_back(tmp)]
     names = ["t_bad_arguments", "t_fresh_install", "t_login_through_caddy", "t_run_in_sandbox",
-             "t_renderer_through_caddy", "t_update_keeps_data_and_secrets", "t_failed_pull_keeps_current",
+             "t_renderer_through_caddy", "t_local_accounts_cannot_reach_admin_or_docker",
+             "t_update_keeps_data_and_secrets", "t_failed_pull_keeps_current",
              "t_broken_release_rolls_back"]
     passed = failed = 0
     try:

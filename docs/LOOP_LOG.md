@@ -879,3 +879,22 @@ Linux 서버 한 대에 여러 사람이 브라우저로 접속하는 경우를 
 | Nice | 테스트에 uid 1000 가정(l2, l9, l11, l12, l15) | 남김: 개발 PC의 uid가 1000일 때만 해당, 운영 코드에는 없음 | |
 
 결과: l19 8개 통과.
+
+### 25.2 두 번째 리뷰 후 수정
+판정: 25.1의 수정은 모두 유지됨. Must 없음, Should 3개.
+
+| 등급 | 지적 | 고친 것 | 회귀 테스트 |
+|---|---|---|---|
+| Should | 설정(`vanila.env`·TLS·이메일)을 전환 전에 바꾸고 실패해도 되돌리지 않음. 새 호스트로 실행했다가 실패하면 이전 릴리스가 새 출처로 떠서 POST가 모두 403 | 실패할 수 있는 pull은 설정 변경 전에. 바꾸기 전 파일을 `.prev`로 두고, 되돌릴 때 설정과 변수까지 이전 값으로 | `t_broken_release_rolls_back`(새 호스트를 준 깨진 릴리스: 설정·Caddy가 이전 값, 되돌린 뒤 POST 200) |
+| Should | 호스트의 포트를 검증하지 않아 `:8200`이면 Caddy가 앱 포트를 잡고 되돌리기도 실패 | 80·2019·8100·8200·8201 거부 | `t_bad_arguments` |
+| Should | Caddy 관리 API(`localhost:2019`)가 모든 로컬 계정에 열려 TLS 종단 설정을 바꿀 수 있음 | Caddyfile 전역 옵션에 caddy만 쓸 수 있는 소켓 지정(이미 `admin`이 있으면 그대로), 바꾼 첫 번에는 reload 대신 restart | `t_local_accounts_cannot_reach_admin_or_docker`(소켓 줄을 지우면 nobody가 200을 받는 것 확인) |
+| Nice | 렌더러·gateway도 docker 그룹 | `InaccessiblePaths=-/run/docker.sock` | 같은 테스트(줄을 지우면 렌더러가 Docker API 200 확인) |
+| Nice | 같은 uid라 `/proc/<pid>/environ`으로 API 키를 읽을 수 있음 | SPEC 한계에 기록(서비스별 계정은 남은 일) | |
+| Nice | 상태 확인 curl에 타임아웃 없음, 첫 성공에서 바로 통과 | `-m 3`, 3초 뒤 다시 확인 | |
+| Nice | Ubuntu 22.04·Debian 11에는 caddy 패키지 없음 | 지원 OS 명시, apt에 없으면 시작 전에 알림 | |
+| Nice | 설치된 서버에서 `--no-start`면 검증 안 된 릴리스가 다음 부팅에 뜸 | 첫 설치에만 허용 | `t_failed_pull_keeps_current` |
+| Nice | 상태 확인이 Caddy를 거치지 않음(ACME 실패를 모름) | 끝에 Caddy 경유 확인, 안 되면 경고 | |
+
+함께 찾은 것: 설정 파일이 없을 때 `getenv`의 `sed`가 실패해 `pipefail`로 스크립트가 끝남(첫 설치). `apt-cache … | grep -q`가 `pipefail`에서 SIGPIPE로 실패. 둘 다 고침.
+
+결과: l19 9개 통과.
