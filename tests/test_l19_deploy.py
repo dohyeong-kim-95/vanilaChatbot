@@ -60,7 +60,11 @@ def snapshot(dest, broken=None):
             (dest / f).parent.mkdir(parents=True, exist_ok=True)
             (dest / f).write_bytes(src.read_bytes())
             (dest / f).chmod(src.stat().st_mode & 0o777)
-    if broken:  # a release whose app or renderer cannot start: install.sh must go back to the previous one
+    if isinstance(broken, tuple):  # (file, text appended to it), ...
+        for name, text in zip(broken[::2], broken[1::2]):
+            with open(dest / name, "a") as f:
+                f.write(text)
+    elif broken:  # a release whose app or renderer cannot start: install.sh must go back to the previous one
         (dest / broken).write_text("raise SystemExit('broken release')\n")
     run("git", "-C", str(dest), "add", "-A")
     run("git", "-C", str(dest), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty",
@@ -256,11 +260,14 @@ def t_existing_caddyfile():
 
 
 def t_hangup_during_switch():
-    """A closed SSH session (SIGHUP) or ^C while switching does not leave a half switch behind."""
-    out = sh("/src/deploy/install.sh >/root/hup.log 2>&1 & pid=$!; "
-             "until grep -q '== switch' /root/hup.log; do sleep 0.2; done; kill -HUP $pid; kill -INT $pid; "
-             "wait $pid; echo rc=$?; tail -n 5 /root/hup.log").stdout
-    assert "rc=0" in out and "running: https://app.test" in out, out
+    """The SSH session drops while switching (SIGHUP, then every write to the terminal fails): the install still
+    finishes, with its output in the log, and leaves nothing half done."""
+    before = current()
+    out = sh("python3 /src/tests/deploy/hangup.py '(switching' /src/deploy/install.sh").stdout
+    assert "exit 0" in out, out
+    assert current() != before, current()
+    assert "running: https://app.test" in sh("tail -n 20 /var/log/vanila-install.log").stdout
+    assert sh("stat -c %a /var/log/vanila-install.log").stdout.strip() == "600"
     assert not sh("ls /etc/vanila/*.prev /etc/caddy/*.prev 2>/dev/null", check=False).stdout
 
 
@@ -281,8 +288,14 @@ def t_failed_pull_keeps_current():
 
 def t_broken_release_rolls_back(tmp):
     before = current()
-    for broken in ("server/app.py", "server/render.py"):
+    # cannot start / answers and then dies (crash loop: its units hit systemd's start limit, going back must not)
+    # (a drop-in makes the limit hit at once whatever the timing, and keeps it for the previous release's unit too)
+    dies = ("server/app.py", "\nimport os as _os, threading as _t\n_t.Timer(2, _os._exit, (1,)).start()\n")
+    for broken in ("server/app.py", "server/render.py", dies):
         snapshot(tmp, broken=broken)
+        if broken is dies:
+            sh("mkdir -p /etc/systemd/system/vanila-app.service.d && printf '[Unit]\\nStartLimitIntervalSec=300\\n"
+               "StartLimitBurst=2\\n' > /etc/systemd/system/vanila-app.service.d/limit.conf && systemctl daemon-reload")
         # with a new app host: going back restores the settings too, else the old release gets the new origin
         p = install("--app-host", "new.test", check=False)
         assert p.returncode != 0 and "back on " + before in p.stdout, (broken, p.stdout[-2000:])
@@ -295,6 +308,7 @@ def t_broken_release_rolls_back(tmp):
         assert curl("POST", "/projects", {"project_id": "after-rollback"})[0] == 200  # origin check passes
         run("git", "-C", str(tmp), "reset", "-q", "--hard", "HEAD~1")
         run("git", "-C", str(tmp), "clean", "-qfd")
+        sh("rm -rf /etc/systemd/system/vanila-app.service.d && systemctl daemon-reload")
     # a good install afterwards keeps the last good release to go back to, and only releases that ran
     snapshot(tmp)
     install()

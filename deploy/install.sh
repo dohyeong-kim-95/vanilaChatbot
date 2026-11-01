@@ -40,7 +40,14 @@ FONTS=/usr/local/share/fonts/vanilachatbot
 CADDY_ADMIN=/var/lib/caddy/admin.sock
 PORTS=(80 2019 8100 8200 8201)  # Caddy's http and admin, the services
 say() { printf '\n== %s\n' "$*"; }
-die() { printf 'install.sh: %s\n' "$*" >&2; exit 1; }
+die() { printf 'install.sh: %s\n' "$*" >&2; show_log; exit 1; }
+LOG=/var/log/vanila-install.log LOG_FROM=
+show_log() {  # back to the terminal and what was logged since the switch began; a closed terminal is no error now
+  [[ -n $LOG_FROM ]] || return 0
+  exec 1>&3 2>&4 3>&- 4>&-
+  tail -n +"$LOG_FROM" "$LOG" 2>/dev/null || true
+  LOG_FROM=
+}
 getenv() { [[ ! -f $2 ]] || sed -n "s/^$1=//p" "$2" | tail -n 1; }  # nothing (and no error) without the file
 secret() { head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
 
@@ -148,17 +155,23 @@ NEW=()
 for f in "${CHANGED[@]}"; do
   [[ ! -e $f.prev ]] || die "$f.prev is left from an interrupted install: compare it with $f, keep one, run again"
 done
-for f in "${CHANGED[@]}"; do if [[ -f $f ]]; then cp -p "$f" "$f.prev"; else NEW+=("$f"); fi; done
 restore() {  # settings, Caddy files and units as they were before this install
   local f
   for f in "${CHANGED[@]}"; do
     if [[ -f $f.prev ]]; then mv -f "$f.prev" "$f"; elif [[ " ${NEW[*]} " == *" $f "* ]]; then rm -f "$f"; fi
   done
 }
+# A closed SSH session must not stop it halfway (current switched, settings not back): signals are ignored, and
+# output goes to a file, since writing to a terminal that is gone fails and set -e would end the script there.
+trap '' HUP INT TERM PIPE
+echo "(switching: interrupts are ignored and output goes to $LOG until the end)"
+touch "$LOG" && chmod 0600 "$LOG"
+LOG_FROM=$(($(wc -l <"$LOG") + 1))
+exec 3>&1 4>&2 1>>"$LOG" 2>&1
+echo "== install.sh $(date -Is) $REL"
 SWITCHING=1
-trap '' HUP INT TERM PIPE  # a closed SSH session or ^C must not stop it halfway (current switched, settings not back)
-trap '((!SWITCHING)) || { echo "install.sh: stopped while switching; settings put back" >&2; restore; }' EXIT
-echo "(interrupts are ignored until the switch is done)"
+trap '((!SWITCHING)) || { restore; echo "install.sh: stopped while switching; settings put back" >&2 || true; }; show_log' EXIT
+for f in "${CHANGED[@]}"; do if [[ -f $f ]]; then cp -p "$f" "$f.prev"; else NEW+=("$f"); fi; done
 
 # --- settings files: secrets are made once and never overwritten ---------------------------------------------------
 say "settings $ETC"
@@ -208,11 +221,18 @@ answers() {  # app 401 (asks for a login), renderer 404 (no such artifact), gate
   [[ $(probe http://127.0.0.1:8200/me) == 401 && $(probe http://127.0.0.1:8201/) == 404 &&
      $(probe http://127.0.0.1:8100/v1/models) != 000 ]]
 }
-healthy() {  # answering, and still up a few seconds later (a release that dies right after starting is not good)
+restarted() {  # systemd brought a unit back since our restart (a manual restart sets the count to 0)
+  local u
+  for u in vanila-app vanila-render vanila-gateway; do
+    [[ $(systemctl show -p NRestarts --value "$u") == 0 ]] || return 0
+  done
+  return 1
+}
+healthy() {  # answering, and a few seconds later still the same processes (not answering again after a crash)
   for _ in $(seq 30); do
     if answers; then
       sleep 3
-      systemctl is-active -q vanila-app vanila-render vanila-gateway && answers
+      systemctl is-active -q vanila-app vanila-render vanila-gateway && ! restarted && answers
       return
     fi
     sleep 1
@@ -224,8 +244,8 @@ caddy_admin() {  # Caddy's admin API listens on localhost:2019 for every local a
   json=$(caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile) || return 1
   admin=$(python3 -c '
 import json, sys
-a = json.loads(sys.argv[1]).get("admin") or {}
-print("off" if a.get("disabled") else a.get("listen", ""))' "$json") || return 1
+a = json.load(sys.stdin).get("admin") or {}
+print("off" if a.get("disabled") else a.get("listen", ""))' <<<"$json") || return 1
   case $admin in
     off) CADDY_RESTART=1; return 0 ;;  # no admin API: only a restart applies a new config
     "") ;;                              # the default, localhost:2019
@@ -270,7 +290,9 @@ activate() {  # every step checked by hand: set -e does not apply inside a funct
   caddy_admin || return 1
   # as the caddy account: root can read files that Caddy itself cannot
   runuser -u caddy -- caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null || return 1
+  # reset-failed: a release that crashed in a loop leaves its units start-limited, and going back must still start
   { systemctl daemon-reload && systemctl enable -q vanila-app vanila-render vanila-gateway caddy &&
+    { systemctl reset-failed vanila-app vanila-render vanila-gateway 2>/dev/null || true; } &&
     systemctl restart vanila-gateway vanila-render vanila-app; } || return 1
   if ((${CADDY_RESTART:-0})); then systemctl restart caddy || return 1; CADDY_RESTART=0
   else systemctl reload-or-restart caddy || return 1; fi
@@ -302,10 +324,12 @@ for f in "${CHANGED[@]}"; do rm -f "$f.prev"; done
 # only the app needs Docker (its unit adds the group): docker membership is root on this machine (SPEC 부록 C).
 # Not the account's own group, which every process of it (renderer, gateway, vanila-auth) would get. Only now:
 # a release from before that unit line, gone back to, still needs the account's membership.
-[[ " $(id -nG vanila) " != *" docker "* ]] || gpasswd -d vanila docker >/dev/null
+[[ " $(id -nG vanila) " != *" docker "* ]] || gpasswd -d vanila docker >/dev/null ||
+  echo "warning: could not take vanila out of the docker group (gpasswd -d vanila docker)"
 
 if ((!START)); then
   say "done (--no-start: nothing started)"
+  show_log
   exit 0
 fi
 touch "$REL/.ok"
@@ -326,3 +350,4 @@ host=${APP_HOST%%:*} port=443
   echo "next: ANTHROPIC_API_KEY in $GWENV, then systemctl restart vanila-gateway (or LLM_* in $ENV)"
 [[ -n $(vanila-auth list 2>/dev/null) ]] || echo "next: sudo vanila-auth add <name>"
 [[ $TLS == acme ]] || echo "browsers must trust Caddy's CA: /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt"
+show_log

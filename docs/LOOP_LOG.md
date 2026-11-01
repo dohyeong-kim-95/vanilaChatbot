@@ -932,3 +932,16 @@ Linux 서버 한 대에 여러 사람이 브라우저로 접속하는 경우를 
 | Nice | 유닛 주석이 25.3 이후와 안 맞음 | 고침 | |
 
 결과: l19 12개 통과.
+
+### 25.5 다섯 번째 리뷰 후 수정
+판정: 25.4까지 유지됨. Must 없음, Should 2개.
+
+| 등급 | 지적 | 고친 것 | 회귀 테스트 |
+|---|---|---|---|
+| Should | SSH가 끊기면 터미널 쓰기가 EIO로 실패해 `set -e`로 끝나고, EXIT trap도 echo가 먼저 실패해 되돌리지 않음(`.prev`와 새 설정이 남음). 25.3 테스트는 출력을 파일로 보내고 `kill -HUP`만 보내서 놓침 | 전환 구간부터 출력은 `/var/log/vanila-install.log`로, 끝에 터미널에 보여 줌. 시그널 무시는 그 안내를 찍기 전에. trap은 되돌리기를 먼저, echo 실패는 무시 | `t_hangup_during_switch`(pty를 열고 닫음, `tests/deploy/hangup.py`. 고치기 전 코드에서 실패 확인) |
+| Should | 응답한 뒤 몇 초 만에 죽는 릴리스는 상태 확인을 통과할 수 있고, 되돌릴 때 systemd 시작 제한에 막혀 앱이 멈춘 채로 남음 | 상태 확인에 `NRestarts`=0(그사이 systemd가 다시 띄웠으면 실패), 재시작 전 `reset-failed` | `t_broken_release_rolls_back`에 "응답 후 죽는 릴리스" + 시작 제한 drop-in(`reset-failed`를 빼면 실패 확인) |
+| Nice | `.prev` 백업 중 `cp` 실패 시 남은 `.prev`가 다음 실행을 막음 | 백업은 EXIT trap을 건 뒤에(실패하면 되돌림) | |
+| Nice | `caddy adapt` 결과를 argv로 넘겨 큰 Caddyfile에서 E2BIG | stdin으로 | |
+| Nice | 전환 뒤 `gpasswd` 실패가 설치 실패가 됨 | 경고만 | |
+
+결과: l19 12개 통과.
