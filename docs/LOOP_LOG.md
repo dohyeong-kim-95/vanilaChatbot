@@ -207,7 +207,7 @@
 > 이번 루프부터 API backend 사용 (Haiku 5.5, `GATEWAY_BACKEND=anthropic`, 기본 effort=max). 리서치: [R4](research/R4_tool_selection.md).
 
 ### 11.0 문제 정의
-**상황**: 사내 챗봇에 MCP 서버 23개(GitHub, GitLab, Jira, Linear, Slack, Teams, Gmail, Outlook, GCal, Drive, Notion, Confluence, Postgres, BigQuery, Salesforce, HubSpot, Stripe, Zendesk, Datadog, PagerDuty, AWS, Figma, util)를 연결했다. tool은 126개이고, 같은 일을 하는 tool이 여러 서버에 있다(이슈 생성 4종, 메시지 전송 4종, 메일 2종, 캘린더 2종, 문서 검색 3종, SQL 2종, CRM 2종).
+**상황**: 챗봇에 MCP 서버 23개(GitHub, GitLab, Jira, Linear, Slack, Teams, Gmail, Outlook, GCal, Drive, Notion, Confluence, Postgres, BigQuery, Salesforce, HubSpot, Stripe, Zendesk, Datadog, PagerDuty, AWS, Figma, util)를 연결했다. tool은 126개이고, 같은 일을 하는 tool이 여러 서버에 있다(이슈 생성 4종, 메시지 전송 4종, 메일 2종, 캘린더 2종, 문서 검색 3종, SQL 2종, CRM 2종).
 **질문**: (1) 모든 tool을 매번 넣으면 무엇이 문제인가? (2) 어떤 노출 전략이 정확하고 싸고 빠른가? (3) 이 프로젝트의 전제(OpenAI 호환 API)에서는 무엇을 쓸 수 있나?
 **측정**: 질의 40개(영어 20 / 한국어 20, 대부분 헷갈리기 쉬운 쌍), 정답 tool과 핵심 인자(repo, channel, issue key 등)를 채점. 지표는 정확도, 요청당 입력 토큰, 캐시 적중, LLM 호출 수, 시간.
 **전략** (`tests/experiments/tool_selection.py`)
@@ -246,7 +246,7 @@
 ### 11.3 2라운드 — realistic 카탈로그로 난이도 올리기
 1라운드는 실제 환경보다 쉬웠다. 두 가지를 실제처럼 바꿨다.
 - 실제 MCP처럼 **설명을 길게**(용도, 파라미터 설명, 반환 형식, 에러, 권한, 예시, tool당 약 500 토큰).
-- **같은 제품의 인스턴스 여러 개**: 사내 Slack / 커뮤니티 Slack, 사내 GitHub org / OSS org, Jira Cloud / 레거시 Jira Server → **154 tools, 약 77k 토큰**(Anthropic 사례의 "58 tools ≈ 55k"와 같은 규모). 인스턴스를 구분해야 하는 질의 8개를 추가해 총 48개.
+- **같은 제품의 인스턴스 여러 개**: 팀 Slack / 커뮤니티 Slack, private GitHub org / OSS org, Jira Cloud / 레거시 Jira Server → **154 tools, 약 77k 토큰**(Anthropic 사례의 "58 tools ≈ 55k"와 같은 규모). 인스턴스를 구분해야 하는 질의 8개를 추가해 총 48개.
 
 | 전략 | 정확도(첫 호출) | 입력 토큰/질의 | 캐시 적중 | 시간 |
 |---|---|---|---|---|
@@ -257,7 +257,7 @@
 | hierarchical | 41/48 | 5,471 | 2,652 | 2.9s |
 
 - 캐시 수정 효과: 동시에 들어간 첫 4건을 빼면 모든 요청이 **76,851 토큰을 캐시에서 읽음**(prefix의 92%).
-- **인스턴스 혼동 0건**: 커뮤니티/사내, OSS/사내, 레거시/클라우드를 모든 전략이 맞췄다(긴 설명 첫 줄의 `[인스턴스 요약]`이 효과적).
+- **인스턴스 혼동 0건**: 커뮤니티/팀, OSS/private, 레거시/클라우드를 모든 전략이 맞췄다(긴 설명 첫 줄의 `[인스턴스 요약]`이 효과적).
 - 남은 "오답"은 대부분 사전 조회(`list_teams` → create, `get_issue` → transition)였다. 검색형·계층형이 사전 조회를 더 많이 했다.
 - → 채점을 바꿨다: **조회형 tool(get/list/search/describe…)에는 가짜 결과를 돌려주고 계속 진행**하게 하고, 정답 tool에 도달하면 성공, **다른 상태 변경 tool을 먼저 호출하면 "잘못된 행동"으로 실패** 처리.
 
@@ -610,7 +610,7 @@ sandbox 안에서 한 번에 심고, 저장소로 되돌린 뒤 확인했다.
 
 ## Loop 21 — 다른 팀 에이전트 연결 (mock)
 
-명세 SPEC §4.7. 테스트 `tests/test_l15_agents.py`. 실제 에이전트는 사내 코드라 mock으로 진행(2026-10-30 결정).
+명세 SPEC §4.7. 테스트 `tests/test_l15_agents.py`. 실제 에이전트는 공개할 수 없는 코드라 mock으로 진행(2026-10-30 결정).
 
 - 형태: Python 패키지 + `agent.json`. 에이전트마다 tool 하나. sandbox 안에서 실행하고 JSON 줄로 감독한다. LLM이 필요하면 호스트에 요청하고 호스트가 한도 안에서 대신 호출한다(sandbox에 네트워크가 없으므로).
 - mock: `wafer-yield`(bin CSV → 웨이퍼별 수율, outputs/yield.md, LLM 없음), `text-summary`(호스트 경유 LLM 1회).

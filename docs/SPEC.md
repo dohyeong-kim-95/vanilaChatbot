@@ -166,7 +166,7 @@ for step in range(max_steps):                  # 기본 20, 초과 시 중단 �
 | `use_skill(name)` | 서버 | – | skill 본문 반환, 파일은 sandbox `/skills` (§4.6) |
 | `ask_user(question, options)` | 서버 | 답 필요 | 실행을 멈추고 선택지를 보여 줌 (§9.6) |
 | `artifact`, `show_report`, `show_shmoo` | 호스트 | – | 아티팩트·고정 템플릿 뷰 (§9.4, §9.5) |
-| 도메인 tool (예: `current_time`, 사내 API) | 서버 | 선택 | registry 데코레이터로 추가 |
+| 도메인 tool (예: `current_time`, 내부 API) | 서버 | 선택 | registry 데코레이터로 추가 |
 
 ### 4.2 Registry 규격
 ```python
@@ -241,7 +241,7 @@ docker run -d --network none --read-only --tmpfs /tmp:size=256m
 ```
 - 검증된 성질: 외부 네트워크 불가, rootfs 쓰기 불가, 비root, 명령 timeout, 출력 truncation
 - sandbox는 서버 프로세스와 같은 uid로 돈다(서버가 root면 1000). workspace 파일도 그 uid 소유로 통일한다(호스트 tool이 만든 root 파일 때문에 sandbox 쓰기 실패하는 문제). 같은 uid라야 서버가 sandbox가 만든 파일을 읽고 지울 수 있고, 서버 계정이 uid 1000이 아닌 서버에서도 동작한다(Loop 25, 부록 C). [검증]
-- 이미지는 사전 pull/사내 미러 (Docker Hub rate limit 429 발생) [검증]
+- 이미지는 사전 pull/자체 레지스트리 미러 (Docker Hub rate limit 429 발생) [검증]
 
 ### 5.2 운영 [리서치 R1 C]
 - 멀티테넌트: 공유 커널 Docker는 부족 → **gVisor(runsc)** 또는 Firecracker(E2B 등) 뒤로 `Sandbox` 인터페이스 유지(`exec`, `path`, `close`)
@@ -255,7 +255,7 @@ sandbox ──(--internal docker network: 경로·DNS 없음)──▶ egress pr
 ```
 - sandbox는 `docker network create --internal` 네트워크에 붙는다 → 외부 직접 연결은 `Network is unreachable`, DNS 없음. 나갈 수 있는 길은 프록시 하나뿐. [검증]
 - 프록시 규칙: **CONNECT만**(평문 HTTP 거부), **443만**, hostname은 **엄격한 DNS 정규식**(IP literal, NUL, `#`, `@`, 공백, 끝의 점 거부), `pypi.org` 정확히 일치 또는 `*.example.com`. 결정은 모두 로그에 남김. [검증: 우회 시도 7종 403]
-- 프록시가 직접 접속할 때는 resolve한 IP가 **public인지 확인하고 그 IP로 접속**(검사와 접속 사이의 DNS rebinding 방지, 메타데이터·사내망 SSRF 차단). 회사 upstream proxy로 chaining도 지원. [구현, upstream 모드로만 검증]
+- 프록시가 직접 접속할 때는 resolve한 IP가 **public인지 확인하고 그 IP로 접속**(검사와 접속 사이의 DNS rebinding 방지, 메타데이터·내부망 SSRF 차단). 기존 upstream proxy로 chaining도 지원. [구현, upstream 모드로만 검증]
 - TLS는 복호화하지 않는다 → client가 보낸 hostname을 믿는다(domain fronting 가능). allowlist는 좁게, 쓰기 가능한 범용 서비스(paste, webhook, 패키지 **업로드**)는 넣지 않는다. [리서치 R3 §2]
 - **차단 사실을 모델에게 알린다**: 도구 입장에서는 그냥 "403 Tunnel failed"라서 모델이 원인을 모른다. `bash`가 실행 중 생긴 차단 로그를 출력 뒤에 `[egress] blocked example.com: not in allowlist. ... request_network_access` 형태로 붙인다. [검증]
 - 도메인 추가 = `request_network_access` tool + 사람 승인. 거부하면 해당 도메인은 계속 막혀 있다. [검증, 결과는 LOOP_LOG Loop 8]
@@ -318,7 +318,7 @@ sandbox ──(--internal docker network: 경로·DNS 없음)──▶ egress pr
 | 도청, 서버 내부 포트 노출 | Caddy가 HTTPS를 맡고 앱·렌더러·gateway는 127.0.0.1에서만 받음, 외부의 `X-User` 제거, gateway는 공유 키(부록 C) | [검증: Loop 25] |
 | 과도한 권한 | 모드별 tool 정책(Q&A=read-only), outward=항상 승인, 비신뢰 입력을 읽은 뒤엔 taint 플래그로 위험도 상향 | [리서치] |
 | sandbox egress 우회 (NUL/`#`/`@`/IP literal/포트/평문 HTTP/직접 연결) | internal 네트워크 + CONNECT 전용 엄격 hostname allowlist 프록시 | [검증: 7종 403, 직접 연결 unreachable] |
-| SSRF (메타데이터, 사내망) | 프록시가 resolve한 IP가 public인지 확인하고 그 IP로 접속 | [구현] |
+| SSRF (메타데이터, 내부망) | 프록시가 resolve한 IP가 public인지 확인하고 그 IP로 접속 | [구현] |
 | MCP tool poisoning / rug pull | description hash pinning, 신뢰하지 않는 서버는 read tool도 승인 | [검증] |
 | 승인 중복 실행 | compare-and-set 승인, 결과를 알 수 없는 in-flight tool은 재실행 금지 | [검증] |
 | 위조된 구분자 / 인젝션 보조 방어 | tool 출력을 `<untrusted_tool_output>`로 감싸고 내부 동일 태그 escape (`Context.spotlight`) | [검증: Haiku 5.5에선 on/off 모두 0/5 유출 → 효과 측정 불가, 약한 모델용 옵션] |

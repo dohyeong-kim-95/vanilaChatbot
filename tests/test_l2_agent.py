@@ -78,7 +78,7 @@ def t_fix_bug_in_sandbox():
 
 def t_rag():
     docs = DocStore()
-    docs.add_text("hr_policy.md", "# 사내 규정\n원격근무: 주 2회까지 가능.\n" * 3 +
+    docs.add_text("hr_policy.md", "# 근무 규정\n원격근무: 주 2회까지 가능.\n" * 3 +
                   "Vacation policy: employees of Zephyrine Corp receive 23 days of paid leave per year, "
                   "plus 4 'quiet days' in December.\n" + "기타 문서 내용. " * 200)
     docs.add_text("menu.md", "Cafeteria menu: Monday kimchi stew, Tuesday bibimbap. " * 30)

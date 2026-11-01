@@ -156,7 +156,7 @@ docker run --rm \
   image sleep infinity
 ```
 - user namespace: daemon `userns-remap` 또는 rootless Docker로 컨테이너 root ≠ 호스트 root. Docker socket은 절대 mount 금지. 참고: https://docs.docker.com/engine/security/ , https://docs.docker.com/engine/security/userns-remap/ , https://docs.docker.com/engine/security/rootless/
-- 한계: 커널 공유 → 커널 취약점 시 탈출 가능. 단일 사용자/사내용이면 충분, 멀티테넌트 SaaS는 부족.
+- 한계: 커널 공유 → 커널 취약점 시 탈출 가능. 단일 사용자/소규모 팀용이면 충분, 멀티테넌트 SaaS는 부족.
 
 ### C.2 gVisor (runsc)
 - 사용자공간 application kernel이 syscall을 가로챔. Docker/K8s에 `--runtime=runsc`로 drop-in. syscall-heavy 워크로드(빌드, 파일 I/O 많은 테스트)에서 오버헤드. Modal이 gVisor 기반. https://gvisor.dev/docs/ , [2차] https://www.morphllm.com/comparisons/e2b-vs-modal
