@@ -18,6 +18,7 @@
 | GitHub 연동 (clone → commit → push → PR) | ✅ | `agent/github.py` |
 | 채팅 서버 (durable run, 재접속, 승인=중단/재개, 취소) | ✅ | `server/app.py` |
 | 로그인 (쿠키 세션, 계정 CLI, 잠금) | ✅ | `server/auth.py` |
+| Linux 서버 배포 (HTTPS 프록시, systemd, 설치·업데이트·되돌리기) | ✅ | `deploy/` |
 | OpenAI 호환 gateway | ✅ | `gateway/app.py` |
 | sandbox egress allowlist (도메인 단위, 승인으로 추가) | ✅ | `agent/egress.py` |
 | MCP tool 연동 (stdio, annotation 기반 승인, pinning) | ✅ | `agent/mcp_adapter.py` |
@@ -235,11 +236,11 @@ def name(ctx, **args) -> str
 ```
 docker run -d --network none --read-only --tmpfs /tmp:size=256m
   --cap-drop ALL --security-opt no-new-privileges
-  --pids-limit 256 --memory 1g --cpus 1 --user 1000:1000
+  --pids-limit 256 --memory 1g --cpus 1 --user <서버 uid>:<gid>
   -v <workspace>:/workspace -w /workspace <image> sleep infinity
 ```
 - 검증된 성질: 외부 네트워크 불가, rootfs 쓰기 불가, 비root, 명령 timeout, 출력 truncation
-- workspace 파일은 uid 1000 소유로 통일 (호스트 tool이 만든 root 파일 때문에 sandbox 쓰기 실패하는 문제) [검증]
+- sandbox는 서버 프로세스와 같은 uid로 돈다(서버가 root면 1000). workspace 파일도 그 uid 소유로 통일한다(호스트 tool이 만든 root 파일 때문에 sandbox 쓰기 실패하는 문제). 같은 uid라야 서버가 sandbox가 만든 파일을 읽고 지울 수 있고, 서버 계정이 uid 1000이 아닌 서버에서도 동작한다(Loop 25, 부록 C). [검증]
 - 이미지는 사전 pull/사내 미러 (Docker Hub rate limit 429 발생) [검증]
 
 ### 5.2 운영 [리서치 R1 C]
@@ -314,6 +315,7 @@ sandbox ──(--internal docker network: 경로·DNS 없음)──▶ egress pr
 | write-back 경로 (symlink, `:ro` 우회, git config/filter) | 일반 파일만 복사, 호스트 tool이 ro 경로 거부, 호스트 전용 git-dir | [검증: Loop 12] |
 | 사용자 간 접근 | 서버가 매 요청 소유권 확인(404), run마다 자기 프로젝트만 mount | [검증: Loop 12] |
 | 다른 사용자 사칭, 비밀번호 추측, 다른 사이트에서 요청 위조 | 쿠키 로그인(토큰 해시만 저장), scrypt, 이름별 잠금, Origin 검사(§9.7) | [검증: Loop 24] |
+| 도청, 서버 내부 포트 노출 | Caddy가 HTTPS를 맡고 앱·렌더러·gateway는 127.0.0.1에서만 받음, 외부의 `X-User` 제거, gateway는 공유 키(부록 C) | [검증: Loop 25] |
 | 과도한 권한 | 모드별 tool 정책(Q&A=read-only), outward=항상 승인, 비신뢰 입력을 읽은 뒤엔 taint 플래그로 위험도 상향 | [리서치] |
 | sandbox egress 우회 (NUL/`#`/`@`/IP literal/포트/평문 HTTP/직접 연결) | internal 네트워크 + CONNECT 전용 엄격 hostname allowlist 프록시 | [검증: 7종 403, 직접 연결 unreachable] |
 | SSRF (메타데이터, 사내망) | 프록시가 resolve한 IP가 public인지 확인하고 그 IP로 접속 | [구현] |
@@ -448,7 +450,8 @@ POST /login {user, password}   POST /logout   POST /password {old, new}   GET /m
 - `AGENT_APP_ORIGIN`은 소문자 `scheme://host[:port]`, 기본 포트 생략이어야 한다(아니면 시작하지 않음). 브라우저의 Origin과 문자열로 비교하기 때문이다.
 - **개발 모드**: `AGENT_AUTH=header`면 예전처럼 `X-User`를 믿는다. 포트에 닿는 누구나 아무 사용자가 될 수 있으므로 혼자 쓰는 PC나 테스트에서만 쓴다. API 전용이다(UI는 로그인만 한다). 다른 값을 넣으면 서버가 시작하지 않는다.
 - UI는 쿠키가 없거나 만료되면(401) 로그인 화면으로 돌아가며 화면의 대화·목록·아티팩트·입력 중인 글을 지운다. 로그아웃 요청이 실패하면 로그아웃된 것처럼 보이지 않게 오류만 보여 준다. 로그인과 로그아웃은 페이지를 새로 불러, 이전 사용자에게 가던 늦은 응답도 버린다. 다른 탭에서 다른 사용자로 로그인했으면 창에 포커스가 올 때 새로 불러온다. [검증: 로그아웃 뒤 다른 사용자로 로그인해도 이전 사용자의 프로젝트·입력이 페이지에 없음]
-- 남은 일: HTTPS는 앞단 리버스 프록시(예: Caddy)가 맡는다. 렌더러는 앱과 다른 등록 도메인에 둔다(§9.4). 다중 프로세스로 돌리면 잠금 상태를 DB로 옮겨야 한다.
+- HTTPS는 앞단 Caddy가 맡는다(부록 C). 렌더러는 앱과 다른 호스트 이름이어야 하고(설치 스크립트가 확인), 다른 등록 도메인이면 더 안전하다(§9.4).
+- 남은 일: 다중 프로세스로 돌리면 잠금 상태를 DB로 옮겨야 한다.
 
 ---
 
@@ -501,6 +504,9 @@ server/auth.py          로그인 (계정 CLI, scrypt, 쿠키 세션, 잠금)
 server/render.py        아티팩트 렌더러 (별도 출처, 서명 URL, CSP, WebRTC 제거)
 server/capture.py       리포트 section PNG 캡처 (headless Chrome)
 server/static/          최소 웹 UI (채팅 + 아티팩트 패널)
+deploy/install.sh       Linux 서버 설치·업데이트 (부록 C)
+deploy/*.service        systemd 서비스 (앱, 렌더러, gateway)
+deploy/vanila.caddy     Caddy 사이트 (HTTPS, 앱·렌더러 두 이름)
 tests/test_l1_gateway.py  Loop 1
 tests/test_l2_agent.py    Loop 2
 tests/test_l3_runtime.py  Loop 3
@@ -523,6 +529,8 @@ tests/test_l15_agents.py      Loop 21 (연결된 에이전트: 결과·진행 �
 tests/test_l16_effort.py      Loop 22 (effort 정책: 정정 문구, 정정 시 상향, 연속 tool 오류 시 상향, 모델 분류와 대체 경로)
 tests/eval/correction/run.py  Loop 23.4 (정정 분류기 정확도, 모델 필요)
 tests/test_l17_slides.py      Loop 23 (리뷰 회귀: shmoo 구멍 분리, 축 단위 구분자, 입력한 캡처 제목 초기화, 로그 주석 위치)
+tests/test_l18_auth.py        Loop 24 (로그인, 잠금, 폐기, 출처 검사, UI)
+tests/test_l19_deploy.py      Loop 25 (새 Ubuntu 서버 컨테이너에 설치 → Caddy 거쳐 로그인·run → 업데이트 → 되돌리기)
 tests/eval/logview/gen.py     합성 주문 서비스 로그 (배포 후 새 에러, 15분 장애, 스택 트레이스)
 tests/eval/shmoo/gen.py       합성 ATE shmoo 로그 (장치 24개 × 온도 2 × VDD 16 × 주파수 17, 결함 3종)
 docs/research/          R1–R6 리서치 노트
@@ -558,3 +566,26 @@ python tests/test_l18_auth.py             # 결정적, LLM 없이 몇 초
 python tests/eval/run_eval.py 3 4          # k=3, 동시 4개
 # 실제 OpenAI 호환 모델로: LLM_BASE_URL=https://.../v1 LLM_API_KEY=... LLM_MODEL=... python tests/test_l2_agent.py
 ```
+
+## 부록 C. Linux 서버 배포 [검증: Loop 25]
+Debian/Ubuntu 서버에서 root로, git checkout 안에서 실행한다. 다시 실행하면 업데이트다.
+```bash
+git clone https://github.com/dohyeong-kim-95/vanilaChatbot && cd vanilaChatbot
+sudo deploy/install.sh --app-host chat.example.com --render-host render.example.net   # 처음
+sudo vanila-auth add alice                                                         # 계정
+sudo nano /etc/vanila/gateway.env    # ANTHROPIC_API_KEY=...  → sudo systemctl restart vanila-gateway
+git pull && sudo deploy/install.sh   # 업데이트 (호스트·비밀값은 지난 설치 그대로)
+```
+| 구성 | 위치 | 내용 |
+|---|---|---|
+| Caddy | `/etc/caddy/vanila.caddy` (기존 Caddyfile에 `import` 한 줄 추가) | 두 이름에 HTTPS, http→https, 외부의 `X-User` 제거. `--tls acme`(기본, 공인 인증서: 두 이름이 이 서버를 가리키고 80/443이 열려 있어야 함) 또는 `--tls internal`(Caddy 자체 CA, 브라우저에 `root.crt`를 신뢰시켜야 함) |
+| 서비스 | `vanila-app`(8200), `vanila-render`(8201), `vanila-gateway`(8100) | 모두 127.0.0.1에서만, 계정 `vanila`, `ProtectSystem=strict`·`ProtectHome`·`PrivateTmp`·`NoNewPrivileges`, 쓰기는 `/var/lib/vanila`만(렌더러는 읽기만) |
+| 코드 | `/opt/vanila/releases/<시각>-<rev>`, `current` 링크 | 릴리스마다 venv. 새 릴리스가 30초 안에 응답(`/me` = 401)하지 않으면 이전 릴리스로 되돌린다. 최근 3개를 남긴다 |
+| 데이터 | `/var/lib/vanila/data` (0700) | `AGENT_ROOT`: DB, 사용자 저장 공간 |
+| 설정 | `/etc/vanila/vanila.env`, `gateway.env` (0640 root:vanila) | 처음 한 번 만들고 덮어쓰지 않는다. 렌더러 서명 키와 gateway 공유 키는 임의 생성. `LLM_*`을 바꾸면 다른 OpenAI 호환 서버를 쓴다 |
+| 계정 | `sudo vanila-auth add\|passwd\|remove\|list` | `vanila` 계정으로 `python -m server.auth` |
+
+- `--app-host`와 `--render-host`는 소문자 호스트 이름(필요하면 `:포트`, 443은 생략)이고 서로 다른 이름이어야 한다(쿠키는 포트를 구분하지 않음). 같은 등록 도메인으로 보이면 경고한다.
+- 설치하는 것은 checkout의 HEAD(커밋된 코드)뿐이다. 패키지: `python3-venv git caddy curl fontconfig`, Docker가 없으면 `docker.io`, Playwright Chromium(캡처용, `AGENT_CHROME_CHANNEL=""`)과 의존 패키지, 캡처 글꼴(OFL). `--no-packages`면 apt를 쓰지 않는다.
+- **한계**: `vanila` 계정은 sandbox를 띄우려고 `docker` 그룹에 들어가므로 사실상 root와 같은 권한이다(앱이 뚫리면 서버 전체). rootless Docker나 gVisor(§5.2)로 줄일 수 있다. 백업은 하지 않는다(`/var/lib/vanila/data`와 `/etc/vanila`를 백업할 것). 되돌리기는 코드만이다(데이터와 설정은 그대로).
+- 검증(`tests/test_l19_deploy.py`): systemd와 자체 Docker를 가진 새 Ubuntu 24.04 컨테이너에 설치 → 서비스 4개 동작, 8100/8200/8201은 127.0.0.1에서만, 서비스는 `vanila`로 실행 → Caddy를 거쳐 로그인(`__Host-` Secure 쿠키), 다른 출처 403, 외부 `X-User` 무시, http→https → 가짜 LLM으로 run 하나: sandbox가 `vanila` uid로 실행되고 `outputs/` 파일이 저장됨, SSE가 프록시를 거쳐 옴 → 업데이트 후 설정·비밀값·로그인 유지 → 시작하지 못하는 릴리스는 이전 릴리스로 되돌아감 → 잘못된 인자 거부.

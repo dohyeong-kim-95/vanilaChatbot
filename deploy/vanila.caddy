@@ -1,0 +1,15 @@
+# Rendered by deploy/install.sh into /etc/caddy/vanila.caddy and imported from /etc/caddy/Caddyfile.
+# Two sites: the app and the artifact renderer. Different host names are required (cookies ignore ports), and a
+# different registrable domain is better (SPEC §9.7). Caddy flushes text/event-stream at once, so run events stream.
+https://@APP_HOST@ {
+	@TLS@
+	request_header -X-User # only AGENT_AUTH=header reads it; never from outside, whatever the setting
+	reverse_proxy 127.0.0.1:8200
+	header Strict-Transport-Security "max-age=31536000"
+}
+
+https://@RENDER_HOST@ {
+	@TLS@
+	reverse_proxy 127.0.0.1:8201
+	header Strict-Transport-Security "max-age=31536000"
+}

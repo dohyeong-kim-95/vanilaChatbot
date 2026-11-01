@@ -5,6 +5,8 @@ import os
 import subprocess
 import urllib.request
 
+from .sandbox import OWNER
+
 
 # The workspace is sandbox-writable, so .git/hooks and .git/config are untrusted:
 # disable hooks/fsmonitor whenever the host runs git on it.
@@ -32,7 +34,7 @@ def clone(url, ws, token=None):
     # strip credentials from the stored remote so the sandbox cannot read them
     clean = url.split("@", 1)[-1] if token else url
     git(ws, "remote", "set-url", "origin", clean if "://" in clean or clean.startswith("/") else "https://" + clean)
-    subprocess.run(["chown", "-R", "1000:1000", str(ws)], check=True)  # sandbox user owns the tree
+    subprocess.run(["chown", "-R", OWNER, str(ws)], check=True)  # sandbox user owns the tree
 
 
 def push(ws, branch, token=None, remote_url=None, git_dir=None):

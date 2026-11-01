@@ -841,3 +841,23 @@ Linux 서버 한 대에 여러 사람이 브라우저로 접속하는 경우를 
 | 없는 테스트 이름을 주면 종료 코드 0 | 실패로 처리 |
 | CLI `add`·`passwd`가 확인 뒤 덮어쓰기 | `add`는 새 계정일 때만, `passwd`는 있는 계정일 때만 씀 |
 | 추적이 꽉 차면 잠기지 않은 실패 횟수가 지워짐 | SPEC 한계에 기록 |
+
+## Loop 25 — Linux 서버 배포
+목표: Linux 서버 한 대에 명령 하나로 설치·업데이트하고, HTTPS 뒤에서 로그인과 run이 그대로 동작하게 한다. 명세 SPEC 부록 C. 테스트 `tests/test_l19_deploy.py`.
+
+| 구성 | 내용 |
+|---|---|
+| `deploy/install.sh` | 패키지, 계정 `vanila`, 릴리스 폴더와 venv, Playwright Chromium, 글꼴, 설정 파일(비밀값은 한 번만 생성), systemd, Caddy, 시작 확인. 실패하면 이전 릴리스로 되돌림 |
+| `deploy/*.service` | 앱·렌더러·gateway. 127.0.0.1에서만 받고 `ProtectSystem=strict` 등으로 쓰기 범위를 줄임 |
+| `deploy/vanila.caddy` | 앱·렌더러 두 이름에 HTTPS. 외부의 `X-User` 제거 |
+| `vanila-auth` | `vanila` 계정으로 계정 CLI 실행 |
+
+검증 방법: systemd가 PID 1이고 자체 Docker 데몬이 있는 새 Ubuntu 24.04 컨테이너를 "서버"로 쓴다. 지금 작업 트리를 커밋 하나로 만들어 설치한다. 가짜 LLM으로 run을 하나 돌린다.
+
+| 발견 | 고친 것 |
+|---|---|
+| sandbox가 uid 1000으로 고정이라, 서버 계정 uid가 다르면 `chown`이 실패하고 sandbox가 만든 파일을 서버가 지우지 못함 | sandbox와 workspace 소유자를 서버 프로세스의 uid로(root면 1000). `agent/sandbox.py`의 `OWNER` |
+| 새로 설치한 `docker.io`가 아직 실행 중이 아닐 수 있음 | 설치 스크립트가 `systemctl enable --now docker` |
+| 되돌린 직후 이전 릴리스가 아직 응답하기 전에 스크립트가 끝남 | 되돌린 뒤에도 응답을 기다림 |
+
+결과: l19 7개 통과. 새 설치 약 2분 20초, 업데이트 약 20초.

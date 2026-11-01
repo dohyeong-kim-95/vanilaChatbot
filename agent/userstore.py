@@ -21,6 +21,7 @@ import threading
 from pathlib import Path
 
 from .github import git, git_wt
+from .sandbox import OWNER
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}$")
@@ -198,7 +199,7 @@ class UserStore:
         up.mkdir()
         for name, sha in self._manifest(d / "uploads").items():
             shutil.copyfile(d / "uploads" / "blobs" / sha, up / name)
-        subprocess.run(["chown", "-R", "1000:1000", str(ws)], check=True)
+        subprocess.run(["chown", "-R", OWNER, str(ws)], check=True)
         for f in up.iterdir():  # host-side too; the sandbox also mounts uploads read-only
             f.chmod(0o444)
         return ws, gd

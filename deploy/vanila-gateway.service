@@ -1,0 +1,20 @@
+[Unit]
+Description=vanilaChatbot LLM gateway (OpenAI-compatible, Anthropic API behind it)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=vanila
+Group=vanila
+EnvironmentFile=/etc/vanila/gateway.env
+WorkingDirectory=/opt/vanila/current
+ExecStart=/opt/vanila/current/.venv/bin/uvicorn gateway.app:app --host 127.0.0.1 --port 8100
+Restart=on-failure
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

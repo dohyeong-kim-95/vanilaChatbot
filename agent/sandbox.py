@@ -10,7 +10,11 @@ from pathlib import Path
 IMAGE = os.environ.get("SANDBOX_IMAGE", "python:3.12-slim")
 CA = os.environ.get("EGRESS_CA")  # CA bundle to trust inside the sandbox, if TLS is re-terminated upstream
 MAX_OUT = 10_000  # chars; head+tail kept beyond this (mini-swe-agent style)
-AGENT_OUTPUTS = "size=128m,nr_inodes=4096,uid=1000,gid=1000,mode=0755"  # counts against the container's memory
+# The sandbox runs as the server's own (non-root) user, so the server can read and remove what it writes and a
+# server account that is not uid 1000 still works. A root server keeps uid 1000 for the sandbox.
+UID, GID = (os.getuid(), os.getgid()) if os.getuid() else (1000, 1000)
+OWNER = f"{UID}:{GID}"
+AGENT_OUTPUTS = f"size=128m,nr_inodes=4096,uid={UID},gid={GID},mode=0755"  # counts against the container's memory
 
 
 def truncate(s, limit=MAX_OUT):
@@ -54,7 +58,7 @@ class Sandbox:
         self.readonly = [self.workspace / d for d in readonly]
         self._fresh = dict(readonly=readonly, mounts=mounts)
         self.workspace.mkdir(parents=True, exist_ok=True)
-        os.chown(self.workspace, 1000, 1000)  # sandbox runs as uid 1000
+        os.chown(self.workspace, UID, GID)
         self.name = "sbx-" + (name or uuid.uuid4().hex[:10])
         # orphans of a crashed server: this container and the agent containers made from it (fresh())
         old = subprocess.run(["docker", "ps", "-aq", "--filter", f"name=^{re.escape(self.name)}(-a[0-9a-f]{{8}})?$"],
@@ -73,7 +77,7 @@ class Sandbox:
             "--network", network, "--read-only", "--tmpfs", "/tmp:size=256m",
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--pids-limit", "256", "--memory", "1g", "--cpus", "1",
-            "--user", "1000:1000", "-e", "HOME=/tmp", "-e", "PYTHONDONTWRITEBYTECODE=1",
+            "--user", OWNER, "-e", "HOME=/tmp", "-e", "PYTHONDONTWRITEBYTECODE=1",
             "-v", f"{self.workspace}:/workspace" + (":ro" if agent else ""),
             *(["--tmpfs", f"/workspace/outputs:{AGENT_OUTPUTS}"] if agent else []),
             *[a for d in self.readonly for a in (

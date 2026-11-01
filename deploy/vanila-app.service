@@ -1,0 +1,22 @@
+[Unit]
+Description=vanilaChatbot app
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+User=vanila
+Group=vanila
+SupplementaryGroups=docker
+EnvironmentFile=/etc/vanila/vanila.env
+WorkingDirectory=/opt/vanila/current
+ExecStart=/opt/vanila/current/.venv/bin/uvicorn server.app:app --host 127.0.0.1 --port 8200
+Restart=on-failure
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/vanila
+
+[Install]
+WantedBy=multi-user.target
