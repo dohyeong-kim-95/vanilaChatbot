@@ -16,6 +16,7 @@
 # rollback), data in /var/lib/vanila/data, settings in /etc/vanila/*.env. Accounts: sudo vanila-auth add <name>.
 set -euo pipefail
 umask 022  # files Caddy and the service account read; a hardened root umask (027/077) would hide them
+export LC_ALL=C  # tool output is parsed (apt-cache "Candidate:"); a Korean locale would translate it
 
 APP_HOST= RENDER_HOST= TLS= EMAIL= PACKAGES=1 START=1
 usage() { sed -n '2,/^set -e/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 2; }
@@ -170,7 +171,10 @@ restore() {  # settings, Caddy files and units as they were before this install
 # output goes to a file, since writing to a terminal that is gone fails and set -e would end the script there.
 trap '' HUP INT TERM PIPE
 echo "(switching: interrupts are ignored and output goes to $LOG until the end)"
-install -d -m 0700 "${LOG%/*}" && touch "$LOG" && chmod 0600 "$LOG"
+install -d -m 0700 "${LOG%/*}"
+# /var/log is writable by the syslog group: only a directory that root made, with no link in it
+[[ ! -L ${LOG%/*} && $(stat -c %u "${LOG%/*}") == 0 && ! -L $LOG ]] || die "${LOG%/*}: not root's own directory"
+touch "$LOG" && chmod 0600 "$LOG"
 LOG_FROM=$(($(wc -l <"$LOG") + 1))
 exec 3>&1 4>&2 1>>"$LOG" 2>&1
 echo "== install.sh $(date -Is) $REL"
@@ -221,7 +225,8 @@ echo "$TLS" >"$ETC/tls"
 echo "$EMAIL" >"$ETC/email"
 
 # --- switch: units, Caddy site and current from one release; then all three services must answer -----------------
-probe() { curl -s -m 3 -o /dev/null -w '%{http_code}' "$@" || true; }
+# never through a proxy from the environment (sudo reads /etc/environment): these are this machine's own ports
+probe() { curl -s -m 3 --noproxy '*' -o /dev/null -w '%{http_code}' "$@" || true; }
 answers() {  # app 401 (asks for a login), renderer 404 (no such artifact), gateway any HTTP answer
   [[ $(probe http://127.0.0.1:8200/me) == 401 && $(probe http://127.0.0.1:8201/) == 404 &&
      $(probe http://127.0.0.1:8100/v1/models) != 000 ]]

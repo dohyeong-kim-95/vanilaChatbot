@@ -294,6 +294,21 @@ def t_hangup_during_switch():
     assert not sh("ls /etc/vanila/*.prev /etc/caddy/*.prev 2>/dev/null", check=False).stdout
 
 
+def t_korean_locale_and_proxy_env():
+    """What sudo brings from /etc/default/locale and /etc/environment on a real server: a Korean locale (apt prints
+    "후보:" instead of "Candidate:") and a proxy for http (must not catch the checks on this machine's ports)."""
+    # the container image leaves translations out (dpkg excludes); a real server has apt's Korean messages
+    sh("rm -f /etc/dpkg/dpkg.cfg.d/excludes && apt-get install -y -q --reinstall apt >/dev/null "
+       "&& apt-get install -y -q locales >/dev/null && locale-gen ko_KR.UTF-8 >/dev/null")
+    assert "후보:" in sh("LANG=ko_KR.UTF-8 apt-cache policy caddy").stdout  # the case is real here
+    p = sh("LANG=ko_KR.UTF-8 /src/deploy/install.sh 2>&1", check=False)
+    assert p.returncode == 0 and "running: https://app.test" in p.stdout, p.stdout[-1500:]
+    # nothing listens on :9; apt would use it too, so no packages this time (pip and downloads are https)
+    p = sh("http_proxy=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9 /src/deploy/install.sh --no-packages 2>&1",
+           check=False)
+    assert p.returncode == 0 and "running: https://app.test" in p.stdout, p.stdout[-1500:]
+
+
 def t_failed_pull_keeps_current():
     """Fails before the switch (sandbox image unavailable): the running release stays, nothing half-switched."""
     before = current()
@@ -372,12 +387,12 @@ def main():
              t_renderer_through_caddy,
              t_local_accounts_cannot_reach_admin_or_docker,
              lambda: t_update_keeps_data_and_secrets(tmp), t_existing_caddyfile, t_hangup_during_switch,
-             t_failed_pull_keeps_current,
+             t_korean_locale_and_proxy_env, t_failed_pull_keeps_current,
              lambda: t_broken_release_rolls_back(tmp)]
     names = ["t_bad_arguments", "t_failed_first_install", "t_fresh_install", "t_login_through_caddy", "t_run_in_sandbox",
              "t_restart_with_open_stream", "t_renderer_through_caddy", "t_local_accounts_cannot_reach_admin_or_docker",
              "t_update_keeps_data_and_secrets", "t_existing_caddyfile", "t_hangup_during_switch",
-             "t_failed_pull_keeps_current",
+             "t_korean_locale_and_proxy_env", "t_failed_pull_keeps_current",
              "t_broken_release_rolls_back"]
     passed = failed = 0
     try:

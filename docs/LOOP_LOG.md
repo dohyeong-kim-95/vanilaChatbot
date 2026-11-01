@@ -960,3 +960,16 @@ Linux 서버 한 대에 여러 사람이 브라우저로 접속하는 경우를 
 | Nice | glob import로 이미 `vanila.caddy`를 불러오는 Caddyfile, 전환 전 실패 시 남는 릴리스 폴더, snap Docker | 남김(안전하게 실패하거나 다음 성공 때 정리됨) | |
 
 결과: l19 13개 통과.
+
+### 25.7 일곱 번째 리뷰 후 수정
+판정: 25.6까지 유지됨. Must 없음, Should 2개(둘 다 시험 컨테이너는 통과하고 실제 서버에서 설치가 안 되는 경우).
+
+| 등급 | 지적 | 고친 것 | 회귀 테스트 |
+|---|---|---|---|
+| Should | caddy 패키지 확인이 apt의 영어 출력(`Candidate:`)에 의존: 한국어 locale 서버(sudo가 `/etc/default/locale`을 읽음)에서는 "후보:"라 매번 중단 | `export LC_ALL=C` | `t_korean_locale_and_proxy_env`(컨테이너 이미지가 뺀 apt 번역을 되살려 "후보:"가 나오는 것부터 확인. 고치기 전 코드에서 실패 확인) |
+| Should | 상태 확인 curl이 환경의 `http_proxy`를 따름(sudo가 `/etc/environment`를 읽음): 127.0.0.1 요청이 프록시로 가 첫 설치 실패, 업데이트는 매번 되돌림 | `--noproxy '*'` | 같은 테스트(없는 프록시를 줘도 설치) |
+| Nice | gateway의 5초 제한이 진행 중인 모델 호출을 끊음(재시도로 비용 두 번, 또는 run 오류) | gateway만 60초, `TimeoutStopSec=75` | |
+| Nice | caddy 유닛 환경 변수에 기대는 Caddyfile은 설치 중 검사에서 실패 | SPEC에 기록(기본값 `{$VAR:값}`) | |
+| Nice | `/var/log/vanila`가 미리 만들어져 있으면 소유자·링크를 확인하지 않음 | root 소유이고 링크가 아닐 때만 | |
+
+결과: l19 14개 통과.
