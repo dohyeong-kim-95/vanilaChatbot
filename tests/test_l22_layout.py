@@ -1,6 +1,6 @@
 """Loop 27: layout. The artifact panel's width (drag the divider, arrow keys, double-click resets; kept per browser and
 clamped so the chat keeps its minimum), a full view of the artifact, hiding the sidebar, and reopening a closed
-artifact. Loop 28: prompt history on the arrow keys. No LLM; starts the app on :8306 and the renderer on :8307.
+artifact. Loop 28: prompt history on the arrow keys. Loop 29: heights of the sidebar lists. No LLM; starts the app on :8306 and the renderer on :8307.
 python tests/test_l22_layout.py [test_name ...]"""
 import json
 import os
@@ -294,6 +294,110 @@ def t_prompt_history():
             box.press("ArrowDown")
             assert box.input_value() == ""
             assert page.evaluate("state.history.length") == 4
+            br.close()
+    finally:
+        for p in procs:
+            p.send_signal(signal.SIGKILL); p.wait()
+
+
+def t_sidebar_lists():
+    from playwright.sync_api import sync_playwright
+    procs = servers()
+    try:
+        with sync_playwright() as pw:
+            br = pw.chromium.launch(channel="chrome", headless=True)
+            page = br.new_page(viewport={"width": 1400, "height": 800})
+            errs = []
+            page.on("pageerror", lambda e: errs.append(str(e)))
+            page.goto(APP + "/")
+            page.fill("#login-user", "alice")
+            page.fill("#login-password", PW)
+            page.click("#login button")
+            page.wait_for_selector("#artifacts li")
+            for _ in range(12):  # a long list of conversations
+                page.request.post(APP + "/sessions", data={"project_id": "p"}, headers={"Origin": APP})
+            page.reload()
+            page.wait_for_selector("#sessions li >> nth=11")
+            box = lambda sel: page.locator(sel).bounding_box()
+            h = lambda sel: box(sel)["height"]
+            natural = h("#sessions")
+            assert natural > 300, natural  # as tall as its content by default
+
+            def drag(sel, dy):
+                b = box(sel)
+                x, y = b["x"] + b["width"] / 2, b["y"] + b["height"] / 2
+                page.mouse.move(x, y); page.mouse.down()
+                page.mouse.move(x, y + dy, steps=6); page.mouse.up()
+
+            # drag the divider under the conversations up: the list gets shorter and scrolls, files move up
+            files_y = box("#files")["y"]
+            drag(".split[data-list=sessions]", -200)
+            assert abs(h("#sessions") - (natural - 200)) <= 3, (natural, h("#sessions"))
+            assert abs(box("#files")["y"] - (files_y - 200)) <= 3
+            assert page.eval_on_selector("#sessions", "e => e.scrollHeight > e.clientHeight")
+            # not below its minimum, not above 60% of the window
+            drag(".split[data-list=sessions]", -500)
+            assert abs(h("#sessions") - 48) <= 1, h("#sessions")
+            drag(".split[data-list=sessions]", 700)
+            assert abs(h("#sessions") - 480) <= 1, h("#sessions")
+            # keys
+            page.focus(".split[data-list=sessions]")
+            page.keyboard.press("ArrowUp"); page.keyboard.press("ArrowUp")
+            assert abs(h("#sessions") - 432) <= 1, h("#sessions")
+            # the files list too
+            drag(".split[data-list=files]", 60)
+            files_h = h("#files")
+            # kept after a reload
+            page.reload()
+            page.wait_for_selector("#sessions li >> nth=11")
+            assert abs(h("#sessions") - 432) <= 1 and abs(h("#files") - files_h) <= 1, (h("#sessions"), h("#files"))
+            # a lower window: CSS keeps it within 60%; the saved height comes back when the window grows
+            page.set_viewport_size({"width": 1400, "height": 500})
+            assert h("#sessions") <= 300 + 1, h("#sessions")
+            page.set_viewport_size({"width": 1400, "height": 800})
+            assert abs(h("#sessions") - 432) <= 1, h("#sessions")
+            # also when the page is loaded in the low window
+            page.set_viewport_size({"width": 1400, "height": 500})
+            page.reload()
+            page.wait_for_selector("#sessions li >> nth=11")
+            assert h("#sessions") <= 300 + 1, h("#sessions")
+            page.set_viewport_size({"width": 1400, "height": 800})
+            assert abs(h("#sessions") - 432) <= 1, ("the chosen height was lost", h("#sessions"))
+            # double-click: as tall as its content again, also after a reload
+            page.dblclick(".split[data-list=sessions]")
+            assert abs(h("#sessions") - natural) <= 1, (natural, h("#sessions"))
+            page.reload()
+            page.wait_for_selector("#sessions li >> nth=11")
+            assert abs(h("#sessions") - natural) <= 1
+            # rows in a short list still work (click opens the conversation)
+            drag(".split[data-list=sessions]", -(natural - 100))
+            page.locator("#sessions li").last.scroll_into_view_if_needed()
+            page.locator("#sessions li").last.click()
+            page.wait_for_function("() => document.querySelector('#sessions li:last-child').classList.contains('active')")
+            # opening a conversation brings it into the short list; only the list scrolls, not the sidebar or the page
+            page.reload()
+            page.wait_for_selector("#sessions li.active")
+            page.eval_on_selector("#sessions", "e => { e.scrollTop = e.scrollHeight; }")
+            page.evaluate("openSession(state.session)")
+            assert page.eval_on_selector("#sessions", """e => { const a = e.querySelector('.active').getBoundingClientRect(),
+                b = e.getBoundingClientRect(); return a.top >= b.top - 1 && a.bottom <= b.bottom + 1; }""")
+            page.dblclick(".split[data-list=sessions]")  # a long list as tall as its content: the sidebar scrolls
+            page.set_viewport_size({"width": 1400, "height": 450})
+            page.locator("#sessions li").first.click()
+            page.eval_on_selector("#side", "e => { e.scrollTop = e.scrollHeight; }")  # down to the artifacts
+            side_top = page.eval_on_selector("#side", "e => e.scrollTop")
+            assert page.eval_on_selector("#sessions li.active", "e => e.getBoundingClientRect().bottom < 0"), side_top
+            page.click("#artifacts li:has-text('리포트')")  # (redraws the active marks)
+            page.wait_for_selector("#panel:not([hidden])")
+            page.evaluate("openSession(state.session)")
+            assert page.eval_on_selector("#side", "e => e.scrollTop") == side_top
+            page.set_viewport_size({"width": 1400, "height": 800})
+            # a garbled stored value is ignored
+            page.evaluate("localStorage.setItem('listHeight:sessions', 'abc')")
+            page.reload()
+            page.wait_for_selector("#sessions li >> nth=11")
+            assert page.eval_on_selector("#sessions", "e => !e.classList.contains('sized')")
+            assert not errs, errs
             br.close()
     finally:
         for p in procs:

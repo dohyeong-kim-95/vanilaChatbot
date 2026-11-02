@@ -101,10 +101,21 @@ function markActive() {
   for (const li of $("artifacts").children) li.classList.toggle("active", li.dataset.id === state.artifact?.id);
 }
 
+// A list the user made short scrolls by itself: bring the open conversation into it. Only that list moves
+// (scrollIntoView would also scroll the sidebar or, in the stacked layout, the page away from the chat).
+function showActiveSession() {
+  const list = $("sessions"), li = list.querySelector(".active");
+  if (!li || !list.classList.contains("sized")) return;
+  const a = li.getBoundingClientRect(), b = list.getBoundingClientRect();
+  if (a.top < b.top) list.scrollTop -= b.top - a.top;
+  else if (a.bottom > b.bottom) list.scrollTop += a.bottom - b.bottom;
+}
+
 async function openSession(sid) {
   stopFollow();
   state.session = sid;
   markActive();
+  showActiveSession();
   const s = await api(`/sessions/${sid}`);
   if (state.session !== sid) return;  // the user already switched again; a late answer must not paint over it
   $("messages").replaceChildren();
@@ -802,6 +813,45 @@ function sidebar(show) {
   $("side-toggle").setAttribute("aria-label", label);
   store("sidebar", show ? "1" : "0");
   savedWidth();
+}
+// Sidebar lists (Loop 29): the divider under a list sets its height (drag, ↑/↓, double-click = as tall as its
+// content again). Remembered per browser; CSS keeps it between 48px and 60vh whatever the window.
+// save=true only for the user's own drag/keys: the saved height is set as it is (CSS fits it to a low window), so
+// loading the page in a low window does not lose it.
+const LIST_MIN = 48;
+function listHeight(list, px, save = false) {
+  const key = `listHeight:${list.id}`;
+  if (px === null) { list.classList.remove("sized"); list.style.removeProperty("--h"); store(key, ""); return; }
+  if (save) px = Math.round(Math.min(Math.max(px, LIST_MIN), innerHeight * 0.6));
+  list.classList.add("sized");
+  list.style.setProperty("--h", `${px}px`);
+  if (save) store(key, String(px));
+}
+for (const split of document.querySelectorAll(".split")) {
+  const list = $(split.dataset.list);
+  const saved = Number(store(`listHeight:${list.id}`));
+  if (saved > 0) listHeight(list, saved);  // (NaN or 0 when missing or garbled)
+  split.onpointerdown = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    split.setPointerCapture(e.pointerId);
+    split.classList.add("dragging");
+    $("app").classList.add("resizing-v");
+    const y0 = e.clientY, h0 = list.offsetHeight;
+    split.onpointermove = (m) => listHeight(list, h0 + m.clientY - y0, true);
+    split.onpointerup = split.onpointercancel = () => {
+      split.onpointermove = split.onpointerup = split.onpointercancel = null;
+      split.classList.remove("dragging");
+      $("app").classList.remove("resizing-v");
+    };
+  };
+  split.onkeydown = (e) => {
+    const step = { ArrowUp: -24, ArrowDown: 24 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    listHeight(list, list.offsetHeight + step, true);
+  };
+  split.ondblclick = () => listHeight(list, null);
 }
 $("side-toggle").onclick = () => sidebar($("app").classList.contains("side-hidden"));
 sidebar(store("sidebar") !== "0");

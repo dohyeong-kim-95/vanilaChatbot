@@ -71,6 +71,13 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #a5d8e6; outline-
 }
 #side li:hover { background: #efeeec; }
 #side li.active { background: #e6e4e1; font-weight: 500; }
+/* lists above a divider: as tall as their content until the user drags it (app.js), then that height, own scroll */
+#side ul.sized { flex: none; overflow-y: auto; height: var(--h); min-height: 48px; max-height: 60vh; }
+.split { flex: none; height: 9px; margin: -4px -16px; cursor: row-resize; touch-action: none; position: relative; outline: none; }
+.split::after { content: ""; position: absolute; left: 16px; right: 16px; top: 4px; height: 1px; background: var(--border); }
+.split:hover::after, .split:focus-visible::after, .split.dragging::after { height: 3px; top: 3px; background: var(--primary); }
+#app.resizing-v { cursor: row-resize; user-select: none; }
+#app.resizing-v iframe { pointer-events: none; }
 #side li .meta { color: var(--muted); font-size: 12px; margin-left: 4px; }
 
 #files { min-height: 28px; border-radius: 6px; }
