@@ -82,24 +82,33 @@ def _data(obj):
 # available: frame-src 'none' blocks about:blank/srcdoc children from scripting (also measured).
 PRELUDE = ("<script>for (const k of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCIceTransport', "
            "'RTCDtlsTransport', 'RTCSctpTransport']) { try { Object.defineProperty(window, k, "
-           "{value: undefined, writable: false, configurable: false}); } catch (e) {} }</script>")
+           "{value: undefined, writable: false, configurable: false}); } catch (e) {} }"
+           # keys go to this frame once the user clicks in it: pass Escape up so the app can leave its full view.
+           # Bubbling phase on window: an artifact that handles Escape itself (closing its own dialog) can stop it.
+           "addEventListener('keydown', (e) => { if (e.key === 'Escape') parent.postMessage({type: 'escape'}, '*'); });"
+           "</script>")
 DOCTYPE = re.compile(r"^\s*<!doctype[^>]*>", re.I)
+
+
+def _with_prelude(c):
+    """Keep a leading doctype first (else quirks mode), the prelude right after it."""
+    m = DOCTYPE.match(c)
+    return c[:m.end()] + PRELUDE + c[m.end():] if m else PRELUDE + c
 
 
 def page(a):
     t, c = a["type"], a["content"]
-    if t == "html":  # keep a leading doctype first (else quirks mode), the prelude right after it
-        m = DOCTYPE.match(c)
-        return c[:m.end()] + PRELUDE + c[m.end():] if m else PRELUDE + c
+    if t == "html":
+        return _with_prelude(c)
     head = f'<!doctype html>{PRELUDE}<meta charset="utf-8"><title>{html.escape(a["title"])}</title>' \
            '<style>body{font:15px/1.6 system-ui,sans-serif;margin:24px;max-width:860px;color:#1f2328}' \
            'pre{overflow:auto}table{border-collapse:collapse}td,th{border:1px solid #d0d7de;padding:4px 8px}</style>'
-    if t == "report":  # our template, no scripts; data is escaped there
-        return report.render(json.loads(c))
+    if t == "report":  # our template, no scripts of its own (data is escaped there); the prelude for Escape
+        return _with_prelude(report.render(json.loads(c)))
     if t == "shmoo":  # our template + script; log-derived text only via textContent
-        return PRELUDE + shmoo.render(json.loads(c))
+        return _with_prelude(shmoo.render(json.loads(c)))
     if t == "logview":  # same contract as shmoo
-        return PRELUDE + logview.render(json.loads(c))
+        return _with_prelude(logview.render(json.loads(c)))
     if t == "svg":
         return head + '<style>body{margin:0;max-width:none}svg{max-width:100%;height:auto}</style>' + c
     if t == "code":

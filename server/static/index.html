@@ -46,6 +46,7 @@
   </aside>
 
   <main id="chat">
+    <button id="side-toggle" title="사이드바 숨기기" aria-label="사이드바 숨기기">☰</button>
     <div id="messages"></div>
     <form id="composer">
       <textarea id="input" rows="3" placeholder="메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈)"></textarea>
@@ -53,11 +54,14 @@
     </form>
   </main>
 
+  <div id="resizer" role="separator" aria-orientation="vertical" aria-label="채팅과 아티팩트 폭 조절" tabindex="0"
+       title="끌어서 폭 조절 (← → 키도 됨, 더블클릭하면 처음 폭으로)"></div>
   <section id="panel" hidden>
     <header>
       <h2 id="art-title"></h2>
       <select id="art-version" title="버전"></select>
       <button id="art-source">코드</button>
+      <button id="art-expand" title="크게 보기 (Esc로 돌아오기)">크게</button>
       <button id="art-close" title="닫기">닫기</button>
     </header>
     <div id="art-sections" hidden></div>

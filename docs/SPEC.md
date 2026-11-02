@@ -424,7 +424,7 @@ DELETE /projects/{p}/files?path=…           파일, 또는 폴더와 그 안�
 - **영역별 캡처**: `GET /projects/{p}/artifacts/{a}/sections/{s}.png`. headless Chrome으로 `<section>` 하나를 2배율로 캡처한다(JS 끔, 모든 요청 차단).
   - 각 section에 자체 제목과 고정 폭이 있어서 문서에 붙였을 때 따로 읽힌다.
   - UI에는 section마다 [복사]·[저장] 버튼이 있다.
-- **최소 UI**(`server/static`): 로그인 화면, 사이드바(사용자·로그아웃, 프로젝트, 대화, 파일 트리 §9.3.1, 아티팩트), 채팅(fetch로 SSE를 받고 승인 버튼 표시), 아티팩트 패널(버전 선택, 코드 보기).
+- **최소 UI**(`server/static`): 로그인 화면, 사이드바(사용자·로그아웃, 프로젝트, 대화, 파일 트리 §9.3.1, 아티팩트), 채팅(fetch로 SSE를 받고 승인 버튼 표시), 아티팩트 패널(버전 선택, 코드 보기, [크게]: 창 전체로 덮고(덮인 영역은 inert) Esc로 돌아옴. 아티팩트 안을 클릭한 뒤의 Esc는 렌더러 prelude가 `postMessage({type:"escape"})`로 올려 주고, 앱은 그 iframe의 window에서 온 것만 받는다(할 수 있는 일은 크게 보기 해제뿐), 닫아도 사이드바 목록·채팅의 버튼으로 다시 열림). 채팅과 패널 사이 경계를 끌거나 ←/→ 키로 폭을 바꾸고(더블클릭하면 기본 비율), 사이드바는 ☰로 숨긴다. 폭과 사이드바 상태는 브라우저에 기억하고, 폭은 채팅이 360px 아래로 줄지 않게 창 크기에 맞춰 줄이되(화면에만), 저장값은 사용자가 끌거나 키로 바꿀 때만 바뀐다. 프로젝트를 바꾸면 열린 아티팩트를 닫는다. [검증: Loop 27]
   - 모델·tool 텍스트는 textContent로만 넣는다.
 
 ### 9.5 인터랙티브 템플릿 뷰와 "보이는 그대로" 캡처 [검증: Loop 16]
@@ -550,6 +550,7 @@ tests/test_l17_slides.py      Loop 23 (리뷰 회귀: shmoo 구멍 분리, 축 �
 tests/test_l18_auth.py        Loop 24 (로그인, 잠금, 폐기, 출처 검사, UI)
 tests/test_l19_deploy.py      Loop 25 (새 Ubuntu 서버 컨테이너에 설치 → Caddy 거쳐 로그인·run → 업데이트 → 되돌리기)
 tests/test_l20_gateway_errors.py  Loop 25.9 (gateway 오류: 나아질 수 없는 오류는 재시도 안 함, Retry-After 전달)
+tests/test_l22_layout.py      Loop 27 (패널 폭 끌기·키·기억·창 크기 제한, 크게 보기, 사이드바 숨기기, 닫은 아티팩트 다시 열기)
 tests/test_l21_files.py       Loop 26 (사용자 파일 트리: 경로 규칙, 폴더 작업, 상한, sandbox 읽기 전용, 프롬프트, API, Chrome UI, 모델이 폴더 이름으로 찾기)
 tests/eval/logview/gen.py     합성 주문 서비스 로그 (배포 후 새 에러, 15분 장애, 스택 트레이스)
 tests/eval/shmoo/gen.py       합성 ATE shmoo 로그 (장치 24개 × 온도 2 × VDD 16 × 주파수 17, 결함 3종)
@@ -581,6 +582,7 @@ python tests/test_l11_shmoo.py             # 결정적. LLM: K=1 python tests/te
 K=3 python tests/test_l9_artifacts.py      # Playwright + 시스템 Chrome(AGENT_CHROME_CHANNEL, ""=번들 Chromium)
 python tests/test_l18_auth.py             # 결정적, LLM 없이 몇 초
 python tests/test_l20_gateway_errors.py   # 결정적, 네트워크 없이 몇 초
+python tests/test_l22_layout.py           # Chrome, LLM 없이 몇 초
 python tests/test_l21_files.py            # Docker·Chrome 필요. 마지막 t_model_finds_folder만 LLM(K=2)
 KEEP=1 python tests/test_l19_deploy.py    # 배포: Docker와 인터넷, 약 13분 (부록 C)
 # UI: AGENT_ROOT=/tmp/agent python -m server.auth add alice       # 계정 만들기(비밀번호 10자 이상)

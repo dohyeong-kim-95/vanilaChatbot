@@ -57,6 +57,7 @@ async function loadProjects() {
 }
 
 async function loadProject() {
+  $("art-close").onclick();  // an artifact of the previous project must not stay open
   $("sessions").replaceChildren();
   $("artifacts").replaceChildren();
   $("messages").replaceChildren();
@@ -455,10 +456,13 @@ function showFrame(url) {
 }
 
 async function openArtifact(id, version) {
-  const a = await api(`/projects/${state.project}/artifacts/${id}` + (version ? `?version=${version}` : ""));
+  const project = state.project;
+  const a = await api(`/projects/${project}/artifacts/${id}` + (version ? `?version=${version}` : ""));
+  if (state.project !== project) return;  // switched meanwhile: the old project's artifact must not open over the new one
   state.artifact = a;
   $("app").classList.add("with-panel");
   $("panel").hidden = false;
+  savedWidth();
   $("art-title").textContent = a.title;
   $("art-title").title = `${a.id} · ${a.type}`;
   const sel = $("art-version");
@@ -699,8 +703,71 @@ $("art-source").onclick = () => {
 };
 $("art-close").onclick = () => {
   $("panel").hidden = true;
-  $("app").classList.remove("with-panel");
+  $("app").classList.remove("with-panel", "panel-full");
+  for (const id of ["side", "chat", "resizer"]) $(id).inert = false;
+  $("art-expand").textContent = "크게";
+  $("art-expand").title = "크게 보기 (Esc로 돌아오기)";
   state.artifact = null;
   markActive();
 };
+
+// ---- layout: artifact width (drag the divider, arrow keys, double-click resets), full view, sidebar. Remembered per
+// browser; the width is clamped so the chat keeps its minimum whatever the window size.
+const CHAT_MIN = 360, PANEL_MIN = 320;
+// save=true only for the user's own drag/keys: fitting a smaller window (or the sidebar coming back) must not
+// overwrite the width they chose, so it is there again when the window grows.
+function panelWidth(px, save = false) {
+  const app = $("app");
+  if (px === null) { app.style.removeProperty("--panel"); store("panelWidth", ""); return; }
+  // hidden (login screen) or stacked (narrow window): nothing to measure, and clamping now would lose the saved width
+  if (!app.clientWidth || matchMedia("(max-width: 900px)").matches) return;
+  const side = app.classList.contains("side-hidden") ? 0 : $("side").offsetWidth;
+  const max = Math.max(PANEL_MIN, app.clientWidth - side - CHAT_MIN - 6);
+  px = Math.round(Math.min(Math.max(px, PANEL_MIN), max));
+  app.style.setProperty("--panel", `${px}px`);
+  if (save) store("panelWidth", String(px));
+}
+const savedWidth = () => { if (store("panelWidth")) panelWidth(Number(store("panelWidth"))); };
+$("resizer").onpointerdown = (e) => {
+  e.preventDefault();
+  const r = $("resizer");
+  r.setPointerCapture(e.pointerId);
+  $("app").classList.add("resizing");
+  r.onpointermove = (m) => panelWidth($("app").getBoundingClientRect().right - m.clientX - 3, true);
+  r.onpointerup = r.onpointercancel = () => {
+    r.onpointermove = r.onpointerup = r.onpointercancel = null;
+    $("app").classList.remove("resizing");
+  };
+};
+$("resizer").onkeydown = (e) => {
+  const step = { ArrowLeft: 32, ArrowRight: -32 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  panelWidth($("panel").offsetWidth + step, true);
+};
+$("resizer").ondblclick = () => panelWidth(null);
+addEventListener("resize", savedWidth);
+$("art-expand").onclick = () => {
+  const full = $("app").classList.toggle("panel-full");
+  for (const id of ["side", "chat", "resizer"]) $(id).inert = full;  // covered: out of Tab order too
+  $("art-expand").textContent = full ? "원래대로" : "크게";
+  $("art-expand").title = full ? "원래 크기로 (Esc)" : "크게 보기 (Esc로 돌아오기)";
+};
+const leaveFull = () => { if ($("app").classList.contains("panel-full")) $("art-expand").click(); };
+addEventListener("keydown", (e) => { if (e.key === "Escape") leaveFull(); });
+// Once the user clicks into the artifact, keys go to the frame (another origin), not to us: the renderer's prelude
+// posts Escape up (server/render.py). Only the frame's own window counts; all it can do is leave the full view.
+addEventListener("message", (e) => {
+  if (e.source === $("frame-wrap").querySelector("iframe")?.contentWindow && e.data?.type === "escape") leaveFull();
+});
+function sidebar(show) {
+  $("app").classList.toggle("side-hidden", !show);
+  const label = show ? "사이드바 숨기기" : "사이드바 보이기";
+  $("side-toggle").title = label;
+  $("side-toggle").setAttribute("aria-label", label);
+  store("sidebar", show ? "1" : "0");
+  savedWidth();
+}
+$("side-toggle").onclick = () => sidebar($("app").classList.contains("side-hidden"));
+sidebar(store("sidebar") !== "0");
 api("/me").then(({ user }) => enter(user)).catch(() => showLogin());
