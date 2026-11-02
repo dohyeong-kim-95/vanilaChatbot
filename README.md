@@ -4,6 +4,7 @@
 
 - 📄 명세: [docs/SPEC.md](docs/SPEC.md)
 - 🔁 리서치↔테스트 루프 기록: [docs/LOOP_LOG.md](docs/LOOP_LOG.md)
+- 📝 변경 기록: [docs/CHANGELOG.md](docs/CHANGELOG.md) (Loop별 추가·수정·신경 쓴 점, 리뷰에서 잡은 것)
 - 🔎 리서치 노트: [docs/research/](docs/research/) (R1–R3)
 - 📊 평가 결과: [docs/eval_results.json](docs/eval_results.json)
 
