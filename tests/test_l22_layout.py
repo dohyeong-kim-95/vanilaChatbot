@@ -1,6 +1,7 @@
 """Loop 27: layout. The artifact panel's width (drag the divider, arrow keys, double-click resets; kept per browser and
 clamped so the chat keeps its minimum), a full view of the artifact, hiding the sidebar, and reopening a closed
-artifact. No LLM; starts the app on :8306 and the renderer on :8307. python tests/test_l22_layout.py [test_name ...]"""
+artifact. Loop 28: prompt history on the arrow keys. No LLM; starts the app on :8306 and the renderer on :8307.
+python tests/test_l22_layout.py [test_name ...]"""
 import json
 import os
 import signal
@@ -60,10 +61,15 @@ def setup():
     arts.save("own", "html", "자체 Esc", OWN_ESC)
 
 
+def servers():
+    if not DATA.exists():
+        setup()
+    return [start("server.app:app", 8306), start("server.render:app", 8307)]
+
+
 def t_layout():
     from playwright.sync_api import sync_playwright
-    setup()
-    procs = [start("server.app:app", 8306), start("server.render:app", 8307)]
+    procs = servers()
     try:
         with sync_playwright() as pw:
             br = pw.chromium.launch(channel="chrome", headless=True)
@@ -214,6 +220,80 @@ def t_layout():
             open_artifact()
             assert page.locator("#resizer").is_hidden()
             assert not errs, errs
+            br.close()
+    finally:
+        for p in procs:
+            p.send_signal(signal.SIGKILL); p.wait()
+
+
+def t_prompt_history():
+    from playwright.sync_api import sync_playwright
+    procs = servers()
+    try:
+        with sync_playwright() as pw:
+            br = pw.chromium.launch(channel="chrome", headless=True)
+            page = br.new_page()
+            # no model here: the request after the prompt is dropped (the composer clears and remembers it before that)
+            page.route("**/sessions**", lambda r: r.abort() if r.request.method == "POST" else r.continue_())
+            page.goto(APP + "/")
+            page.fill("#login-user", "alice")
+            page.fill("#login-password", PW)
+            page.click("#login button")
+            page.wait_for_selector("#artifacts li")
+            box = page.locator("#input")
+            for t in ["하나", "둘", "셋", "넷", "다섯", "셋"]:  # "셋" again moves to the newest, not twice
+                box.fill(t)
+                box.press("Enter")
+                page.wait_for_function("() => document.getElementById('input').value === ''")
+            pos = lambda: page.evaluate("document.getElementById('input').selectionStart")
+            box.fill("쓰던 중")
+            box.press("ArrowUp")  # caret at the end of one row: the browser moves it to the start first
+            assert box.input_value() == "쓰던 중" and pos() == 0
+            seen = []
+            for _ in range(5):
+                box.press("ArrowUp"); seen.append(box.input_value())
+            assert seen == ["셋", "다섯", "넷", "둘", "둘"], seen  # 4 kept; at the oldest it stays
+            assert pos() == 0  # so ↑ keeps stepping
+            box.press("ArrowDown")  # to the end of the row first
+            seen = []
+            for _ in range(4):
+                box.press("ArrowDown"); seen.append(box.input_value())
+            assert seen == ["넷", "다섯", "셋", "쓰던 중"], seen  # and back to what was being typed
+            # several lines: ↑ moves the caret up to the start of the first line before recalling
+            box.fill("첫 줄\n둘째 줄")
+            box.press("ArrowUp"); box.press("ArrowUp")
+            assert box.input_value() == "첫 줄\n둘째 줄"
+            box.press("ArrowUp")
+            assert box.input_value() == "셋"
+            # an edited recall is not replaced by ↓ (the caret moves); emptied, ↑ starts over from the newest
+            box.press("End"); box.type("!")
+            box.press("ArrowDown")
+            assert box.input_value() == "셋!"
+            box.press("Control+a"); box.press("Delete")
+            box.press("ArrowUp")
+            assert box.input_value() == "셋", box.input_value()
+            box.press("ArrowDown"); box.press("ArrowDown")
+            assert box.input_value() == ""
+            # a recalled prompt of several lines: ↑/↓ move between its lines first
+            box.fill("위\n아래"); box.press("Enter")
+            page.wait_for_function("() => document.getElementById('input').value === ''")
+            box.press("ArrowUp")
+            assert box.input_value() == "위\n아래" and pos() == 0
+            box.press("ArrowDown"); box.press("ArrowDown")  # to 아래, then its end: same prompt
+            assert box.input_value() == "위\n아래"
+            box.press("ArrowDown")  # at the end: forward, to the (empty) text being typed
+            assert box.input_value() == ""
+            # one long paragraph wrapped over several rows: ↑ from its end only moves the caret
+            long = "가나다라마바사 " * 60
+            box.fill(long)
+            for _ in range(3):
+                box.press("ArrowUp")
+            assert box.input_value() == long and 0 < pos() < len(long), pos()
+            # ↓ with nothing recalled does nothing
+            box.fill("")
+            box.press("ArrowDown")
+            assert box.input_value() == ""
+            assert page.evaluate("state.history.length") == 4
             br.close()
     finally:
         for p in procs:

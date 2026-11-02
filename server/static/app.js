@@ -4,7 +4,8 @@
 
 const $ = (id) => document.getElementById(id);
 const state = { user: "", project: "", session: "", artifact: null, streaming: false, follow: null,
-                files: [], folder: "", closed: new Set() };  // folder: where uploads and new folders go ("" = top)
+                files: [], folder: "", closed: new Set(),  // folder: where uploads and new folders go ("" = top)
+                history: [], recall: -1, draft: "" };  // last prompts sent (newest last); recall: index shown, -1 = none
 
 // One followed run at a time: switching conversation/project stops the old stream (else its events land here).
 function stopFollow() { state.follow?.abort(); state.follow = null; }
@@ -321,6 +322,33 @@ async function send(text) {
   await follow(run_id);
 }
 
+// Prompt history like a shell. ↑ with the caret at the very start brings back earlier prompts, ↓ at the very end goes
+// forward and finally back to what was being typed. Elsewhere the arrows only move the caret: on the top (bottom) row,
+// wrapped or not, the browser first moves it to the start (end), so a long draft is never swapped out by one press.
+// A recalled prompt that was edited becomes the new "being typed".
+const HISTORY = 4;
+function remember(text) {
+  state.history = state.history.filter((t) => t !== text).concat(text).slice(-HISTORY);
+  state.recall = -1;
+}
+
+function recall(step) {
+  const box = $("input"), h = state.history, { value, selectionStart: a, selectionEnd: b } = box;
+  if (state.recall >= 0 && value !== h[state.recall]) state.recall = -1;  // edited: start over from this text
+  if (a !== b || a !== (step < 0 ? 0 : value.length)) return false;
+  if (state.recall < 0) {
+    if (step > 0 || !h.length) return false;
+    state.draft = value;
+    state.recall = h.length;
+  }
+  const next = state.recall + step;
+  if (next < 0) return true;  // at the oldest: stay
+  box.value = next < h.length ? h[next] : state.draft;
+  state.recall = next < h.length ? next : -1;
+  box.selectionStart = box.selectionEnd = step < 0 ? 0 : box.value.length;  // the same key keeps stepping
+  return true;
+}
+
 // SSE over fetch (EventSource cannot send Last-Event-ID on the first request). Resumes with Last-Event-ID.
 async function follow(rid, after = 0) {
   stopFollow();
@@ -614,6 +642,9 @@ function showLogin() {
   $("art-code").textContent = $("art-title").textContent = $("whoami").textContent = $("input").value = "";
   state.user = state.project = state.session = state.folder = "";
   state.files = [];
+  state.history = [];  // memory only (never stored in the browser): gone with the user
+  state.recall = -1;
+  state.draft = "";
   $("app").hidden = true;
   $("login").hidden = false;
   $("login-password").value = "";
@@ -689,10 +720,14 @@ $("composer").onsubmit = (e) => {
   const text = $("input").value.trim();
   if (!text || state.streaming || !state.project) return;
   $("input").value = "";
+  remember(text);
   send(text).catch((err) => addMsg("error", String(err)));
 };
 $("input").onkeydown = (e) => {
-  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("composer").requestSubmit(); }
+  if (e.isComposing || e.keyCode === 229) return;  // a Hangul syllable being composed (Safari: keyCode only)
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("composer").requestSubmit(); }
+  if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey
+      && recall(e.key === "ArrowUp" ? -1 : 1)) e.preventDefault();
 };
 $("art-version").onchange = () => openArtifact(state.artifact.id, $("art-version").value);
 $("art-source").onclick = () => {
