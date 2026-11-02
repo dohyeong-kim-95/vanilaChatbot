@@ -366,12 +366,12 @@ users/{u}/CLAUDE.md                          사용자 지시사항 (사용자�
 users/{u}/.claude/settings.json              권한·허용 도메인·MCP                  ← sandbox에 mount 안 함
 users/{u}/.claude/memory.md                  agent 메모리 (승인된 remember만, 출처 기록)
 users/{u}/projects/{p}/CLAUDE.md, .claude/settings.json
-users/{u}/projects/{p}/uploads/              blobs/{sha256} + manifest (이름당 1회, 불변)
+users/{u}/projects/{p}/uploads/              blobs/{sha256} + manifest {경로: sha256, 폴더: null} (§9.3.1)
 users/{u}/projects/{p}/repo.git              코드 (bare git)
 users/{u}/projects/{p}/outputs/              결과물
 ```
 - **API**: `POST /projects {project_id}`, `PUT /instructions`·`/projects/{p}/instructions {text}`, `PUT /settings`·`/projects/{p}/settings {settings}`,
-  `POST /projects/{p}/uploads {name,text}`, `GET /memory`, `POST /sessions {project_id}`. 남의 리소스는 **404**(존재 여부도 숨김). [검증]
+  `POST /projects/{p}/uploads {name,text}`, 파일 트리 API(§9.3.1), `GET /memory`, `POST /sessions {project_id}`. 남의 리소스는 **404**(존재 여부도 숨김). [검증]
 - **run 수명**: 메시지 → `checkout`(repo clone, outputs 복사, uploads 생성) → 컨테이너(`/workspace/{repo,outputs}` rw, `uploads` ro) →
   끝/승인 대기 → `commit`(repo push --all, 체크아웃된 브랜치가 기본, outputs 미러) → 컨테이너·작업 폴더 삭제 → `run_finished`(저장 **후** 발행). [검증]
 - **동시성**: 프로젝트당 active run 1개(원자적 INSERT … WHERE NOT EXISTS, 아니면 409). 대화별 브랜치 + 병합은 미구현. [검증]
@@ -387,6 +387,24 @@ users/{u}/projects/{p}/outputs/              결과물
   - git은 §7.2.
 - **운영**(미검증): 로컬 디렉터리 → 오브젝트 스토리지(사용자 prefix + 요청마다 서버 권한 검사, 저장소 키는 sandbox에 넣지 않음),
   대화·이벤트·문서 인덱스는 DB, 업로드 용량·악성코드 검사, outputs 보관 기간, 계정 삭제 시 일괄 삭제, 조직 공용 skill/MCP.
+
+### 9.3.1 사용자 파일 트리 [검증: Loop 26]
+사용자가 올린 파일을 **폴더로 정리**하고, 채팅에서 "카드 폴더의 9월 파일 참고해서 …"처럼 이름으로 가리킨다. 프로젝트마다 따로 둔다.
+```
+GET    /projects/{p}/files                 -> {files: [{path, type: file|folder, size}]}
+PUT    /projects/{p}/files?path=카드/9월.csv  본문 = 파일 바이트(어떤 형식이든)   있으면 409, 상위 폴더는 자동 생성
+POST   /projects/{p}/folders {path}         있는 폴더면 그대로
+POST   /projects/{p}/files/move {src, dst}  이름 바꾸기·옮기기(폴더는 안의 것까지)
+DELETE /projects/{p}/files?path=…           파일, 또는 폴더와 그 안의 모든 것
+```
+- **저장**: 내용 해시 blob + manifest `{경로: sha256 | null(폴더)}`. 모든 항목의 상위 폴더는 폴더 항목으로 있다. 덮어쓰지 않는다(지우고 다시 올림). 아무 경로도 쓰지 않는 blob은 지운다. 바꾸는 작업은 한 lock 안에서 manifest를 원자적으로 바꾼다. 폴더 이전의 평평한 manifest도 그대로 읽힌다.
+- **경로 규칙**: 한글 등 어떤 언어든(NFC로 맞춤: macOS가 끌어 놓은 파일은 NFD), 8단계까지, 이름 하나 200바이트까지. `.`·`..`, 제어 문자, `\`, 그리고 `.`(숨김)·`-`(명령 옵션으로 읽힘)·공백으로 시작하는 이름은 거부(422).
+- **상한**: 파일 5MB, 프로젝트당 2,000개(폴더 포함)·200MB(같은 내용은 한 번). 넘으면 413. 본문은 읽으면서 5MB에서 끊는다.
+- **run**: checkout이 트리를 `/workspace/uploads`에 그대로 만든다(읽기 전용 마운트, 파일 0444). run 도중 트리를 바꿔도 그 run에는 영향이 없다.
+- **모델에게 보이기**: 새 메시지마다 지시사항(§9.3)에 `## Uploaded files` 절로 트리(들여쓰기, 크기)를 넣는다. 300개를 넘으면 `find`를 쓰라고 적는다. 이름도 내용처럼 데이터이지 지시가 아니라고 적고, 모든 줄을 4칸 이상 들여써 `## …` 같은 이름이 절 제목처럼 보이지 않게 한다. 측정: 같은 폴더의 8월 파일과 다른 폴더의 9월 파일을 섞어 두고 경로 없이 "카드 폴더에 있는 9월 파일들"로 물었을 때 2/2 정답.
+- **UI**(사이드바 "파일"): 맨 위 행 + 트리. 행 클릭 = 선택(올리기·새 폴더가 들어갈 곳, 새 폴더를 만들어도 선택은 그대로), 선택한 폴더를 다시 클릭 = 접기. [올리기], [새 폴더], 행마다 [이름](이름만 쓰면 같은 폴더, `/`로 시작하는 경로면 그리로 옮김)·[삭제](확인). 행을 폴더나 맨 위 행에 끌어 놓으면 옮기고, 컴퓨터의 파일·폴더를 끌어 놓으면 그 폴더에 올린다(숨김 파일 제외). 행은 Tab으로 갈 수 있고 포커스가 있으면 버튼이 보인다. 이름은 textContent로만 넣는다.
+- 예전 `POST /projects/{p}/uploads {name,text}`도 같은 트리에 들어간다: 폴더 경로·한글 이름을 받고, 5MB 초과는 413(전에는 422).
+- 남은 일: 프로젝트 수 상한(지금은 사용자당 200MB × 프로젝트 수), 파일 내용 미리보기·내려받기, 덮어쓰기(새 버전), 여러 개 선택해 옮기기, 큰 트리에서 checkout 복사 비용.
 
 ### 9.4 아티팩트와 고정 리포트 [검증: Loop 14, 리서치 R6]
 - **아티팩트**(Claude 방식): `artifact` tool, command는 `create`, `update`(`old_str`을 `new_str`로 바꿈, 최신 버전에서 정확히 1회 일치해야 함), `rewrite` 세 가지.
@@ -406,7 +424,7 @@ users/{u}/projects/{p}/outputs/              결과물
 - **영역별 캡처**: `GET /projects/{p}/artifacts/{a}/sections/{s}.png`. headless Chrome으로 `<section>` 하나를 2배율로 캡처한다(JS 끔, 모든 요청 차단).
   - 각 section에 자체 제목과 고정 폭이 있어서 문서에 붙였을 때 따로 읽힌다.
   - UI에는 section마다 [복사]·[저장] 버튼이 있다.
-- **최소 UI**(`server/static`): 로그인 화면, 사이드바(사용자·로그아웃, 프로젝트, 대화, 아티팩트), 채팅(fetch로 SSE를 받고 승인 버튼 표시), 아티팩트 패널(버전 선택, 코드 보기).
+- **최소 UI**(`server/static`): 로그인 화면, 사이드바(사용자·로그아웃, 프로젝트, 대화, 파일 트리 §9.3.1, 아티팩트), 채팅(fetch로 SSE를 받고 승인 버튼 표시), 아티팩트 패널(버전 선택, 코드 보기).
   - 모델·tool 텍스트는 textContent로만 넣는다.
 
 ### 9.5 인터랙티브 템플릿 뷰와 "보이는 그대로" 캡처 [검증: Loop 16]
@@ -532,6 +550,7 @@ tests/test_l17_slides.py      Loop 23 (리뷰 회귀: shmoo 구멍 분리, 축 �
 tests/test_l18_auth.py        Loop 24 (로그인, 잠금, 폐기, 출처 검사, UI)
 tests/test_l19_deploy.py      Loop 25 (새 Ubuntu 서버 컨테이너에 설치 → Caddy 거쳐 로그인·run → 업데이트 → 되돌리기)
 tests/test_l20_gateway_errors.py  Loop 25.9 (gateway 오류: 나아질 수 없는 오류는 재시도 안 함, Retry-After 전달)
+tests/test_l21_files.py       Loop 26 (사용자 파일 트리: 경로 규칙, 폴더 작업, 상한, sandbox 읽기 전용, 프롬프트, API, Chrome UI, 모델이 폴더 이름으로 찾기)
 tests/eval/logview/gen.py     합성 주문 서비스 로그 (배포 후 새 에러, 15분 장애, 스택 트레이스)
 tests/eval/shmoo/gen.py       합성 ATE shmoo 로그 (장치 24개 × 온도 2 × VDD 16 × 주파수 17, 결함 3종)
 docs/research/          R1–R6 리서치 노트
@@ -562,6 +581,7 @@ python tests/test_l11_shmoo.py             # 결정적. LLM: K=1 python tests/te
 K=3 python tests/test_l9_artifacts.py      # Playwright + 시스템 Chrome(AGENT_CHROME_CHANNEL, ""=번들 Chromium)
 python tests/test_l18_auth.py             # 결정적, LLM 없이 몇 초
 python tests/test_l20_gateway_errors.py   # 결정적, 네트워크 없이 몇 초
+python tests/test_l21_files.py            # Docker·Chrome 필요. 마지막 t_model_finds_folder만 LLM(K=2)
 KEEP=1 python tests/test_l19_deploy.py    # 배포: Docker와 인터넷, 약 13분 (부록 C)
 # UI: AGENT_ROOT=/tmp/agent python -m server.auth add alice       # 계정 만들기(비밀번호 10자 이상)
 #     AGENT_ROOT=/tmp/agent uvicorn server.app:app --port 8200 & AGENT_ROOT=/tmp/agent uvicorn server.render:app --port 8201 &

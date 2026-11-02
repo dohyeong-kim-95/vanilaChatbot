@@ -7,7 +7,12 @@ POST /login {user, password} | /logout | /password {old, new}    GET /me
 PUT  /instructions | /projects/{p}/instructions   {text}      user / project CLAUDE.md
 PUT  /settings     | /projects/{p}/settings       {settings}  never visible to the sandbox
 POST /projects                          {project_id}
-POST /projects/{p}/uploads              {name, text}           (immutable, read-only in the sandbox)
+POST /projects/{p}/uploads              {name, text}           (a text file; read-only in the sandbox)
+GET  /projects/{p}/files                -> {files: [{path, type, size}]}   the user's file tree (agent/userstore.py)
+PUT  /projects/{p}/files?path=a/b.csv   raw bytes              new file; parent folders are made (409 if it exists)
+POST /projects/{p}/folders              {path}
+POST /projects/{p}/files/move           {src, dst}             rename or move a file or a folder
+DELETE /projects/{p}/files?path=a       a file, or a folder with everything in it
 POST /sessions                          {project_id} -> {session_id}
 POST /sessions/{id}/documents           {name, text}           (RAG upload)
 POST /sessions/{id}/messages            {content}  -> {run_id}  (409 if a run is active in the project)
@@ -44,7 +49,7 @@ from agent.loop import SYSTEM, Context, Interrupt, run
 from agent.rag import DocStore
 from agent.sandbox import Sandbox
 from agent.tools import REGISTRY, schemas
-from agent.userstore import ID_RE, UserStore
+from agent.userstore import ID_RE, MAX_UPLOAD, TooLarge, UserStore
 from server import auth, capture, render
 
 ROOT = Path(os.environ.get("AGENT_ROOT", "/tmp/agent-sessions"))
@@ -374,14 +379,65 @@ def get_memory(user=Depends(caller)):
     return {"memory": STORE.memory(user)}
 
 
-@app.post("/projects/{pid}/uploads")
-def upload(pid: str, u: Upload, user=Depends(caller)):
+def files_op(fn, *args):
     try:
-        return {"sha256": STORE.upload(user, own_project(pid, user), u.name, u.text.encode())}
+        return fn(*args)
+    except TooLarge as e:
+        raise HTTPException(413, str(e))
     except FileExistsError as e:
         raise HTTPException(409, str(e))
+    except KeyError:
+        raise HTTPException(404, "no such file or folder")
     except ValueError as e:
         raise HTTPException(422, str(e))
+
+
+class FolderReq(BaseModel):
+    path: str
+
+
+class MoveReq(BaseModel):
+    src: str
+    dst: str
+
+
+@app.post("/projects/{pid}/uploads")
+def upload(pid: str, u: Upload, user=Depends(caller)):
+    return {"sha256": files_op(STORE.upload, user, own_project(pid, user), u.name, u.text.encode())}
+
+
+@app.get("/projects/{pid}/files")
+def list_files(pid: str, user=Depends(caller)):
+    return {"files": STORE.uploads(user, own_project(pid, user))}
+
+
+@app.put("/projects/{pid}/files")
+async def put_file(pid: str, path: str, request: Request, user=Depends(caller)):
+    project = await asyncio.to_thread(own_project, pid, user)
+    data = bytearray()
+    async for chunk in request.stream():  # stop reading at the limit instead of holding whatever was sent
+        data += chunk
+        if len(data) > MAX_UPLOAD:
+            raise HTTPException(413, f"upload exceeds {MAX_UPLOAD} bytes")
+    return {"sha256": await asyncio.to_thread(files_op, STORE.upload, user, project, path, bytes(data))}
+
+
+@app.post("/projects/{pid}/folders")
+def make_folder(pid: str, f: FolderReq, user=Depends(caller)):
+    files_op(STORE.make_folder, user, own_project(pid, user), f.path)
+    return {"ok": True}
+
+
+@app.post("/projects/{pid}/files/move")
+def move_file(pid: str, m: MoveReq, user=Depends(caller)):
+    files_op(STORE.move, user, own_project(pid, user), m.src, m.dst)
+    return {"ok": True}
+
+
+@app.delete("/projects/{pid}/files")
+def delete_file(pid: str, path: str, user=Depends(caller)):
+    files_op(STORE.delete_upload, user, own_project(pid, user), path)
+    return {"ok": True}
 
 
 @app.post("/sessions")

@@ -32,6 +32,15 @@
       <button id="new-session">새 대화</button>
     </div>
     <ul id="sessions"></ul>
+    <div class="row between">
+      <span class="label">파일</span>
+      <span class="row">
+        <button id="file-upload" title="선택한 폴더에 파일 올리기">올리기</button>
+        <button id="file-folder" title="선택한 폴더 안에 새 폴더">새 폴더</button>
+      </span>
+    </div>
+    <input id="file-input" type="file" multiple hidden>
+    <ul id="files" title="파일을 끌어 폴더에 놓으면 옮겨져요. 컴퓨터의 파일·폴더를 끌어 놓으면 올라가요."></ul>
     <span class="label">아티팩트</span>
     <ul id="artifacts"></ul>
   </aside>
