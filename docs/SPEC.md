@@ -419,6 +419,9 @@ DELETE /projects/{p}/files?path=…           파일, 또는 폴더와 그 안�
 - `ingest_log(paths, format=stdf|text, dataset, pattern, time_column, time_format)`: `/workspace/cache/<dataset>/`에 Parquet. STDF 표: parts(file, lot, wafer, head, site, part, part_id, x, y, hard_bin, soft_bin, passed, part_flg, test_t), results(file, part, test_num, result, failed, test_flg), tests(test_num, name, lo, hi, units). 원본(경로·크기·mtime)·옵션·표 버전이 같으면 재사용.
 - `log_query(sql, max_rows)`: DuckDB, 데이터셋마다 스키마·표마다 뷰, memory_limit 600MB, threads 1, `cache/.tmp`로 넘침.
 - 벤치마크: `bench/stdf_gen.py`(mock, 정답 분리), `bench/t1.py`(R7 T1).
+- `show_dashboard(id, title, charts)` [검증: Loop 33]: 차트마다 kind(bar, line, scatter, wafer_map, table)와 SQL. 서버가 sandbox에서 SQL을 실행해(kind별 행 상한 60/5000/5000/20000/100, 넘으면 잘렸다고 모델에게 알림) 고정 템플릿(`agent/dashboard.py`, 서버에서 그린 SVG, 스크립트 없음, 데이터는 비활성 JSON)으로 아티팩트 저장.
+- `export_spotfire(name, tables, template)`: 표마다 SBDF(spotfire-python), 사용자가 올린 템플릿 .dxp 복사, Automation Services job 개요(job.xml, 요소 이름은 우리 것), README를 `/workspace/outputs/spotfire/<name>/`에. .dxp 자체는 만들지 않는다(R7 §4).
+- 결과 파일: `GET /projects/{p}/outputs`(목록, 일반 파일만), `…/outputs/file?path=`(항상 첨부 다운로드, nosniff, 링크 거부). 사이드바 "결과 파일", run이 끝나면 새로 고침.
 
 ### 9.4 아티팩트와 고정 리포트 [검증: Loop 14, 리서치 R6]
 - **아티팩트**(Claude 방식): `artifact` tool, command는 `create`, `update`(`old_str`을 `new_str`로 바꿈, 최신 버전에서 정확히 1회 일치해야 함), `rewrite` 세 가지.
@@ -570,6 +573,7 @@ tests/test_l17_slides.py      Loop 23 (리뷰 회귀: shmoo 구멍 분리, 축 �
 tests/test_l18_auth.py        Loop 24 (로그인, 잠금, 폐기, 출처 검사, UI)
 tests/test_l19_deploy.py      Loop 25 (새 Ubuntu 서버 컨테이너에 설치 → Caddy 거쳐 로그인·run → 업데이트 → 되돌리기)
 tests/test_l20_gateway_errors.py  Loop 25.9 (gateway 오류: 나아질 수 없는 오류는 재시도 안 함, Retry-After 전달)
+tests/test_l26_dashboard.py   Loop 33 (대시보드 렌더·이스케이프, 정답과 같은 수치, Spotfire 번들, 결과 파일 다운로드)
 tests/test_l25_ingest.py      Loop 32 (STDF 리더: 바이트 순서·스펙 레코드·잘린 파일, cache 재사용, 텍스트 정규식, ingest_log·log_query)
 tests/test_l24_bigdata.py     Loop 31 (조각 업로드·할당량·디스크, 하드링크 run 준비, cache, 긴 작업 슬롯·진행·취소, Chrome 업로드·상태 줄)
 tests/test_l23_plan.py        Loop 30 (update_plan 검사, 요약을 지나는 계획, 새로고침 뒤 카드, Chrome에서 실시간 카드·상태 줄; LLM: t_llm_uses_plan)
@@ -607,6 +611,7 @@ python tests/test_l18_auth.py             # 결정적, LLM 없이 몇 초
 python tests/test_l20_gateway_errors.py   # 결정적, 네트워크 없이 몇 초
 python tests/test_l22_layout.py           # Chrome, LLM 없이 몇 초
 python tests/test_l24_bigdata.py          # Docker·Chrome, LLM 없이 1분 정도
+python tests/test_l26_dashboard.py        # Docker(sandbox 이미지)·Chrome, 몇 초
 python tests/test_l25_ingest.py           # Docker(sandbox 이미지), 몇 초. 모델 벤치마크: python bench/t1.py --k 3
 python tests/test_l23_plan.py             # Docker·Chrome, LLM 없이. LLM: python tests/test_l23_plan.py t_llm_uses_plan (K=3)
 python tests/test_l21_files.py            # Docker·Chrome 필요. 마지막 t_model_finds_folder만 LLM(K=2)

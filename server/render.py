@@ -24,7 +24,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 
-from agent import logview, report, shmoo
+from agent import dashboard, logview, report, shmoo
 from agent.artifacts import ArtifactStore
 from agent.userstore import UserStore
 
@@ -105,6 +105,8 @@ def page(a):
            'pre{overflow:auto}table{border-collapse:collapse}td,th{border:1px solid #d0d7de;padding:4px 8px}</style>'
     if t == "report":  # our template, no scripts of its own (data is escaped there); the prelude for Escape
         return _with_prelude(report.render(json.loads(c)))
+    if t == "dashboard":  # our template, SVG drawn on the server, no scripts (the data JSON is inert)
+        return _with_prelude(dashboard.render(json.loads(c)))
     if t == "shmoo":  # our template + script; log-derived text only via textContent
         return _with_prelude(shmoo.render(json.loads(c)))
     if t == "logview":  # same contract as shmoo

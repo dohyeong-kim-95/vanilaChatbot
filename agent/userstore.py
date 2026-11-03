@@ -529,6 +529,35 @@ class UserStore:
                        check=True)
         return ws, gd
 
+    def outputs(self, user, project):
+        """[{path, size}] of the deliverables (regular files; commit() never copies links back)."""
+        d = self.project_dir(user, project) / "outputs"
+        out = []
+        for top, dirs, files in os.walk(d, followlinks=False):
+            dirs.sort()
+            for f in sorted(files):
+                p = Path(top) / f
+                st = p.lstat()
+                if stat.S_ISREG(st.st_mode):
+                    out.append({"path": p.relative_to(d).as_posix(), "size": st.st_size})
+        return out
+
+    def output_file(self, user, project, rel):
+        """Host path of one deliverable, for download: inside outputs, a regular file, no link on the way."""
+        d = (self.project_dir(user, project) / "outputs").resolve()
+        parts = [x for x in str(rel).split("/") if x]
+        if not parts or any(x in (".", "..") for x in parts):
+            raise KeyError(rel)
+        p = d.joinpath(*parts)
+        cur = d
+        for x in parts:  # lstat each step: a symlink anywhere is refused (commit() skips them anyway)
+            cur = cur / x
+            if not cur.exists() or cur.is_symlink():
+                raise KeyError(rel)
+        if not stat.S_ISREG(p.lstat().st_mode):
+            raise KeyError(rel)
+        return p
+
     def cache_dir(self, user, project):
         """Derived data kept between conversations, mounted read-write at /workspace/cache."""
         c = self.project_dir(user, project) / "cache"

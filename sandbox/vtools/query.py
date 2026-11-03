@@ -1,7 +1,7 @@
 """SQL over the Parquet datasets in /workspace/cache (Loop 32), with DuckDB inside the sandbox's limits.
 Every dataset (a folder with meta.json) is a schema, every table in it a view: SELECT ... FROM lots.parts.
 
-  python /vtools/query.py [--max-rows N] "SQL"
+  python /vtools/query.py [--max-rows N] [--json FILE] "SQL"     (--json: {"columns", "rows", "truncated"} to FILE)
   python /vtools/query.py --tables          the datasets, their tables, columns and row counts
 """
 import argparse
@@ -45,6 +45,7 @@ def main():
     ap.add_argument("sql", nargs="?")
     ap.add_argument("--max-rows", type=int, default=200)
     ap.add_argument("--tables", action="store_true")
+    ap.add_argument("--json", metavar="FILE", help="write {columns, rows, truncated} to FILE (for our views)")
     a = ap.parse_args()
     con, views = connect()
     if a.tables or not a.sql:
@@ -62,6 +63,21 @@ def main():
         return
     names = [d[0] for d in cur.description]
     rows = cur.fetchmany(a.max_rows + 1)
+    if a.json:
+        import decimal
+        import json
+
+        def cell(v):
+            if isinstance(v, float):
+                return v if v == v and abs(v) != float("inf") else None  # NaN/inf are not JSON
+            if isinstance(v, decimal.Decimal):  # 100.0*sum(...) is a DECIMAL in DuckDB: a number for charts
+                return float(v)
+            return v if v is None or isinstance(v, (bool, int, str)) else str(v)  # dates, times
+        with open(a.json, "w") as f:
+            json.dump({"columns": names, "rows": [[cell(v) for v in r] for r in rows[:a.max_rows]],
+                       "truncated": len(rows) > a.max_rows}, f, ensure_ascii=False, allow_nan=False, default=str)
+        print(f"{min(len(rows), a.max_rows)} rows -> {a.json}")
+        return
     print("\t".join(names))
     for r in rows[:a.max_rows]:
         print("\t".join("" if v is None else (f"{v:.6g}" if isinstance(v, float) else str(v)) for v in r))

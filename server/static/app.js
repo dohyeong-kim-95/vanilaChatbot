@@ -64,6 +64,7 @@ async function loadProject() {
   $("artifacts").replaceChildren();
   $("messages").replaceChildren();
   $("files").replaceChildren();
+  $("outputs").replaceChildren();
   stopFollow();
   state.session = "";
   state.files = [];
@@ -78,8 +79,25 @@ async function loadProject() {
     li.dataset.id = s;
     $("sessions").append(li);
   }
-  await Promise.all([loadArtifacts(), loadFiles()]);
+  await Promise.all([loadArtifacts(), loadFiles(), loadOutputs()]);
   if (sessions.length) await openSession(sessions[0]);
+}
+
+// Deliverables the agent left in /workspace/outputs (saved when a run ends): download links.
+async function loadOutputs() {
+  const project = state.project;
+  const { files } = await api(`/projects/${project}/outputs`);
+  if (project !== state.project) return;
+  const ul = $("outputs");
+  ul.replaceChildren(...files.map((f) => {
+    const li = el("li");
+    const a = el("a", null, f.path);
+    a.href = `/projects/${project}/outputs/file?path=${encodeURIComponent(f.path)}`;
+    a.download = baseName(f.path);
+    li.append(a, el("span", "meta", fmtSize(f.size)));
+    return li;
+  }));
+  if (!files.length) ul.append(el("li", "empty", "아직 없어요"));
 }
 
 async function loadArtifacts() {
@@ -438,6 +456,7 @@ async function follow(rid, after = 0) {
   } finally {
     clearInterval(tick);
     status.remove();
+    if (state.project) loadOutputs().catch(() => {});  // the run's outputs are saved when it ends
     if (state.follow === ctl) {
       state.follow = null;
       state.streaming = false;
@@ -756,7 +775,7 @@ function showLogin() {
   if (!$("login").hidden) return;  // already shown (api() and its caller both react to a 401): keep what was typed
   stopFollow();
   $("art-close").onclick();
-  for (const id of ["messages", "sessions", "artifacts", "files", "project", "frame-wrap", "art-sections", "art-version"]) $(id).replaceChildren();
+  for (const id of ["messages", "sessions", "artifacts", "files", "outputs", "project", "frame-wrap", "art-sections", "art-version"]) $(id).replaceChildren();
   $("art-code").textContent = $("art-title").textContent = $("whoami").textContent = $("input").value = "";
   state.user = state.project = state.session = state.folder = "";
   state.files = [];

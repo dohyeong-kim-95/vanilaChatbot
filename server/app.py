@@ -17,6 +17,7 @@ POST /projects/{p}/files/uploads        {path, size} -> {upload_id, received, pa
 PUT  .../files/uploads/{id}?offset=N    raw bytes (one part, from where it stands; 409 {received} otherwise)
 POST .../files/uploads/{id}/finish      -> {sha256, path}   (GET status, DELETE cancel)
 GET|DELETE /projects/{p}/cache          size of / clear the project's derived data (/workspace/cache)
+GET  /projects/{p}/outputs[/file?path=] the deliverables (/workspace/outputs): list, download (attachment)
 POST /sessions                          {project_id} -> {session_id}
 POST /sessions/{id}/documents           {name, text}           (RAG upload)
 POST /sessions/{id}/messages            {content}  -> {run_id}  (409 if a run is active in the project)
@@ -85,7 +86,8 @@ CANCEL = {}  # process-local
 _read = lambda env: Path(os.environ[env]).read_text() if os.environ.get(env) else ""
 STORE = UserStore(ROOT, org_policy=_read("AGENT_ORG_POLICY"), org_settings=json.loads(_read("AGENT_ORG_SETTINGS") or "{}"))
 STORE.sweep_uploads()  # unfinished uploads past a day, from before a restart
-TOOLS = [t["function"]["name"] for t in schemas()] + ["remember", "artifact", "show_report", "show_shmoo", "show_logview", "use_skill", "ask_user"]
+TOOLS = [t["function"]["name"] for t in schemas()] + ["remember", "artifact", "show_report", "show_shmoo", "show_logview",
+                                                      "show_dashboard", "use_skill", "ask_user"]
 AGENTS = delegate.discover()
 TOOLS += [delegate.tool_name(n) for n in AGENTS]
 SKILLS = skills.discover()
@@ -447,6 +449,22 @@ def cancel_upload(pid: str, uid: str, user=Depends(caller)):
     return {"ok": True}
 
 
+@app.get("/projects/{pid}/outputs")
+def list_outputs(pid: str, user=Depends(caller)):
+    return {"files": STORE.outputs(user, own_project(pid, user))}
+
+
+@app.get("/projects/{pid}/outputs/file")
+def get_output(pid: str, path: str, user=Depends(caller)):
+    try:
+        f = STORE.output_file(user, own_project(pid, user), path)
+    except KeyError:
+        raise HTTPException(404, "no such file")
+    # always a download (a deliverable may be HTML the agent wrote: never rendered on the app's origin)
+    return FileResponse(f, media_type="application/octet-stream", filename=f.name,
+                        headers={"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox"})
+
+
 @app.get("/projects/{pid}/cache")
 def cache_info(pid: str, user=Depends(caller)):
     return {"size": STORE.cache_size(user, own_project(pid, user))}
@@ -644,7 +662,7 @@ def get_session(sid: str, user=Depends(caller)):
         for tc in m.get("tool_calls") or []:  # in call order, as they appeared live
             if tc["function"]["name"] == "update_plan" and i in plans:
                 show_plan(i)
-            if tc["function"]["name"] in ("artifact", "show_report", "show_shmoo", "show_logview"):
+            if tc["function"]["name"] in ("artifact", "show_report", "show_shmoo", "show_logview", "show_dashboard"):
                 try:
                     out.append({"role": "artifact", "id": json.loads(tc["function"]["arguments"])["id"]})
                 except (ValueError, KeyError, TypeError):

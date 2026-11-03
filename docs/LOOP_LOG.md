@@ -1262,3 +1262,26 @@ Linux 서버 한 대에 여러 사람이 브라우저로 접속하는 경우를 
 
 결과: `tests/test_l25_ingest.py` 5개, 기존 테스트 98개(새 이미지) 통과. MIR·TEST_FLG·cache 키 수정은 되돌리면 실패함을 확인.
 
+## Loop 33 — 대시보드, Spotfire 번들, 결과 파일 받기
+| 구성 | 내용 |
+|---|---|
+| `show_dashboard` | 차트마다 kind(bar, line, scatter, wafer_map, table)와 SQL. 서버가 sandbox에서 SQL을 돌리고(kind별 행 상한, 잘리면 모델에게 알림, 그리는 열만 보관) `agent/dashboard.py`가 서버에서 SVG로 그림. 스크립트 없음, 데이터는 비활성 JSON(차트를 수치로 채점 가능, R7 §5 DA-Code 방식) |
+| `export_spotfire` | 표마다 SBDF(spotfire-python, BSD-3), 사용자 템플릿 .dxp 복사, Automation Services job 개요(job.xml, 요소 이름은 우리 것이라고 명시), README(한국어 사용법). .dxp 자체는 만들지 않음 |
+| 결과 파일 | `GET /projects/{p}/outputs`, `…/outputs/file?path=`(첨부, nosniff, CSP sandbox, 링크·`..` 거부). 사이드바 "결과 파일", run이 끝나면 새로 고침 |
+| 이미지 | spotfire-python, procps(시간 초과된 명령을 끝내는 pkill이 이미지에 없었음) |
+
+### 33.1 리뷰: Must 2, Should 4 (모두 이번에 고침, 싸서)
+| 지적 | 수정 |
+|---|---|
+| **Must**: 결과 폴더 상한(50MB)을 넘는 번들을 만들면 run 끝의 저장이 통째로 실패(다른 결과 파일도) | 내보내기 전에 결과 폴더의 남은 용량을 계산해 넘치면 거부, 기본 행 상한 100만 |
+| **Must**: NULL 있는 작은·부호 없는 정수 열(LEFT JOIN)에서 내보내기 실패 | NULL 가능 정수는 `Int64`, uint64는 실수 |
+| Should: 실패한 내보내기의 `.building`이 결과 파일로 남음 | 실패 시 정리 |
+| Should: DuckDB DECIMAL이 차트에서 숫자가 아님 | float로 |
+| Should: 시간 초과된 질의가 계속 돎(이미지에 pkill 없음, 셸이 python을 fork) | procps, `exec python`, 차트 사이 취소 확인 |
+| Should: 모든 열을 저장해 1MB 상한에 늦게·이유 없이 걸림 | 그리는 열만, 넘으면 차트별 크기와 함께 거부 |
+| (Nit, 같이) SQL 끝의 `;`·`--` 주석, README 표의 `|`, 파일 인코딩 | 반영 |
+
+**남긴 Nit (마지막에)**: 13번째 이후 series를 말없이 버림, 아주 큰 범위의 눈금 OverflowError, 결과 파일 행에 전체 경로 툴팁, commit 중 다운로드가 잠깐 404.
+
+결과: `tests/test_l26_dashboard.py` 4개(정답과 같은 수치, 이스케이프, SBDF 왕복, NULL·상한·잔여물, 다운로드 보안), 기존 21개 통과. Must 수정은 되돌리면 실패함을 확인.
+

@@ -7,13 +7,14 @@ import json
 import os
 import re
 import shlex
+import uuid
 import tempfile
 from pathlib import Path
 
-from . import delegate, github, logview, report, shmoo
+from . import dashboard, delegate, github, logview, report, shmoo
 from .artifacts import MAX_SIZE as ARTIFACT_MAX
 from .sandbox import JOB_MAX
-from .userstore import DISK_RESERVE
+from .userstore import DISK_RESERVE, MAX_OUTPUTS
 
 CACHE_MAX = int(os.environ.get("AGENT_CACHE_MAX", 20 * 2**30))  # one project's /workspace/cache
 
@@ -46,7 +47,7 @@ def _host_copy(ctx, rel):
     """A private host copy of a workspace file (streamed through the container, capped) for server-side parsers."""
     with tempfile.TemporaryDirectory(prefix="view-") as d:
         yield ctx.sandbox.copy_out(rel, Path(d) / "data", VIEW_MAX)
-TEMPLATES = {"report": "show_report", "shmoo": "show_shmoo", "logview": "show_logview"}  # our pages, data only
+TEMPLATES = {"report": "show_report", "shmoo": "show_shmoo", "logview": "show_logview", "dashboard": "show_dashboard"}  # our pages, data only
 
 
 @tool("Run a bash command in the isolated sandbox (cwd=/workspace; network only to allowlisted HTTPS domains, "
@@ -124,6 +125,81 @@ def log_query(ctx, sql, max_rows=200):
     if not sql.strip():
         return ctx.sandbox.exec("python /vtools/query.py --tables", timeout=120)
     return ctx.sandbox.exec(f"python /vtools/query.py --max-rows {n} {shlex.quote(sql)}", timeout=300)
+
+
+@tool("Show the user a dashboard of charts over the datasets made by ingest_log. Each chart is a kind and the SQL "
+      "(as for log_query) that gives its data; the server runs the SQL and draws it in a fixed layout. kinds: bar "
+      "(x = a category column, y = a number column), line (x = number or time, y, optional series column; ORDER BY "
+      "x), scatter (x, y), wafer_map (x, y = die coordinates of one wafer, value = a number or a category such as "
+      "hard_bin), table. Aggregate in SQL: at most 60 rows for bar, 5000 for line/scatter, 20000 for wafer_map, 100 "
+      "for table. Calling it again with the same id makes a new version.",
+      {"id": S, "title": S, "charts": {"type": "array", "items": {"type": "object", "properties": {
+          "title": S, "kind": {"type": "string", "enum": sorted(dashboard.KINDS)}, "sql": S, "x": S, "y": S,
+          "value": S, "series": S, "note": {"type": "string", "description": "one line under the chart title"}},
+          "required": ["kind", "sql"]}}})
+def show_dashboard(ctx, id, title, charts):
+    title, specs = dashboard.validate_spec(title, charts)
+    ctx.sandbox.exec("mkdir -p /workspace/cache/.tmp", timeout=30)
+    sizes = []
+    for c in specs:
+        if ctx.cancel.is_set():
+            raise ValueError("cancelled by the user")
+        f = f"cache/.tmp/dash-{uuid.uuid4().hex[:8]}.json"
+        try:  # exec: the timeout kill reaches python itself, not a shell around it
+            out = ctx.sandbox.exec(f"exec python /vtools/query.py --max-rows {dashboard.MAX_ROWS[c['kind']]} "
+                                   f"--json /workspace/{f} {shlex.quote(c['sql'])}", timeout=300)
+            if not out.startswith("exit_code=0"):
+                raise ValueError(f"chart {c['title']!r}: the SQL failed: {out[-1500:]}")
+            try:
+                r = json.loads(ctx.sandbox.read_bytes(f, 8 * 2**20))
+            except FileNotFoundError:
+                raise ValueError(f"chart {c['title']!r}: the SQL gave no rows to draw (a SELECT is needed)")
+        finally:
+            ctx.sandbox.exec(f"rm -f /workspace/{f}", timeout=30)
+        if not (isinstance(r, dict) and isinstance(r.get("columns"), list) and isinstance(r.get("rows"), list)):
+            raise ValueError(f"chart {c['title']!r}: unreadable result")
+        for k in ("x", "y", "value", "series"):
+            if k in c and c[k] not in r["columns"]:
+                raise ValueError(f"chart {c['title']!r}: {k}={c[k]!r} is not a column of its result {r['columns']}")
+        keep = list(range(len(r["columns"]))) if c["kind"] == "table" else \
+            [r["columns"].index(c[k]) for k in ("x", "y", "value", "series") if k in c]  # only what is drawn
+        c.update(columns=[r["columns"][i] for i in keep], rows=[[row[i] for i in keep] for row in r["rows"]],
+                 truncated=bool(r.get("truncated")))
+        sizes.append(len(json.dumps(c["rows"], ensure_ascii=False)))
+    if sum(sizes) > ARTIFACT_MAX - 64 * 1024:
+        raise ValueError("the dashboard's data is too big for one page (" + ", ".join(
+            f"{c['title']}: {n // 1024} KB" for c, n in zip(specs, sizes)) + f"; limit about {ARTIFACT_MAX // 1024} KB): "
+            "aggregate more or split it")
+    store = ctx.artifacts
+    meta = store.save(id, "dashboard", title, json.dumps({"title": title, "charts": specs}, ensure_ascii=False),
+                      command="rewrite" if store.versions(id) else "create")
+    return f"dashboard {meta['id']} saved as version {meta['version']}: " + "; ".join(
+        f"{c['title']}: {len(c['rows'])} rows" + (" (cut: aggregate more)" if c["truncated"] else "") for c in specs)
+
+
+@tool("Export query results for Spotfire: one SBDF file (Spotfire data file) per table, plus an Automation Services "
+      "job outline and a README, in /workspace/outputs/spotfire/<name>/ (the user downloads it). A .dxp analysis "
+      "cannot be made without Spotfire: if the user uploaded their analysis template (.dxp), pass it as template "
+      "and it goes into the bundle. Tables are SQL over the datasets (as for log_query); aggregate to what the "
+      "analysis needs (at most 1 million rows per table; the whole bundle must fit in what is left of the outputs, "
+      "50 MB by default).",
+      {"name": S, "tables": {"type": "array", "items": {"type": "object", "properties": {"name": S, "sql": S},
+                                                         "required": ["name", "sql"]}},
+       "template": {"type": "string", "description": "optional: a .dxp under /workspace/uploads"}},
+      required=["name", "tables"])
+def export_spotfire(ctx, name, tables, template=None):
+    if not isinstance(tables, list) or not 1 <= len(tables) <= 20 or not all(isinstance(t, dict) for t in tables):
+        raise ValueError("tables: 1-20 {name, sql}")
+    # what is left for outputs: the run's outputs are saved only as a whole, under MAX_OUTPUTS
+    du = ctx.sandbox.exec("du -sb /workspace/outputs | cut -f1", timeout=60).split("\n")[-1].strip()
+    budget = MAX_OUTPUTS - (int(du) if du.isdigit() else 0)
+    if budget <= 0:
+        raise ValueError(f"/workspace/outputs is full ({MAX_OUTPUTS:,} bytes): remove something first")
+    cmd = ["python", "/vtools/export.py", str(name), f"--budget={budget}"] + \
+        [f"--table={t.get('name')}={t.get('sql')}" for t in tables]
+    if template:
+        cmd.append(f"--template={ctx.sandbox.cpath(template)}")
+    return run_long(ctx, " ".join(shlex.quote(c) for c in cmd), f"Spotfire 내보내기: {name}")
 
 
 @tool("Ask the user to allow HTTPS access to one more domain from the sandbox. Requires human approval.",
@@ -401,7 +477,7 @@ def schemas(names=None):
     # request_network_access an egress proxy, agent__* connected agents (ctx.agents); callers that have them name them
     return [t["schema"] for n, t in REGISTRY.items()
             if (n in names if names is not None else
-                n not in ("search_tools", "remember", "artifact", "show_report", "show_shmoo", "show_logview",
+                n not in ("search_tools", "remember", "artifact", "show_report", "show_shmoo", "show_logview", "show_dashboard",
                           "use_skill", "ask_user", "request_network_access") and not n.startswith("agent__"))]
 
 
