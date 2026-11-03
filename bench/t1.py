@@ -85,7 +85,8 @@ def check_cite(final, arts, truth):
             continue
         if d["type"] == "dashboard" and re.fullmatch(r"c(\d+)", ref or "") and 1 <= int(ref[1:]) <= len(json.loads(d["content"])["charts"]):
             valid.add((aid, ref))
-    return {"worst_wafer": truth["worst_wafer"].replace("/", "") in final.replace("/", "").replace(" ", ""),
+    lot, wafer = truth["worst_wafer"].split("/")  # "L007A/W04", "L007A W04", "L007A의 W04"
+    return {"worst_wafer": bool(re.search(rf"{lot}\s*(/|의)?\s*{wafer}", final)),
             "cites_2_charts": len(valid) >= 2, "no_broken_cites": len(valid) == len({(c[0], c[2]) for c in cites})}
 
 
