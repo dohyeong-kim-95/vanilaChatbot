@@ -128,6 +128,12 @@ def main():
     if missing:
         raise SystemExit(f"no such file: {missing}")
     out = os.path.join(CACHE, a.dataset)
+    import fcntl
+    lock = open(os.path.join(CACHE, f".{a.dataset}.lock"), "w")
+    try:  # one build of a dataset at a time (two would share <name>.building)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit(f"{a.dataset} is being built by another job; wait for it, or use another name")
     src = sources(a.files)
     meta_f = os.path.join(out, "meta.json")
     key = {"version": VERSION, "format": a.format, "pattern": a.pattern, "time": a.time, "time_format": a.time_format,

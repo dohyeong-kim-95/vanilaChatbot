@@ -94,6 +94,7 @@ async function loadOutputs() {
     const a = el("a", null, f.path);
     a.href = `/projects/${project}/outputs/file?path=${encodeURIComponent(f.path)}`;
     a.download = baseName(f.path);
+    li.title = f.path;
     li.append(a, el("span", "meta", fmtSize(f.size)));
     return li;
   }));
@@ -325,10 +326,19 @@ async function uploadFiles(project, files, folders = []) {
 // or a dropped connection costs one part, not the file. Gives up (and frees the space) after repeated failures.
 async function bigUpload(project, path, file, show) {
   const base = `/projects/${project}/files/uploads`;
-  const begun = await api(base, { method: "POST", body: JSON.stringify({ path, size: file.size }) });
+  // the same file again after a reload or a dropped connection: go on with the upload already there (1 day)
+  const key = `upload:${state.user}:${project}:${path}:${file.size}:${file.lastModified}`;
+  let begun = null;
+  const known = store(key);
+  if (known) begun = await api(`${base}/${known}`).catch(() => null);
+  if (!begun) {
+    begun = await api(base, { method: "POST", body: JSON.stringify({ path, size: file.size }) });
+    store(key, begun.upload_id);
+  }
   const id = begun.upload_id, part = begun.part_max;
   let received = begun.received, fails = 0;
-  const retryable = (e) => e.name === "TypeError" || /^(409|5\d\d)/.test(String(e.message));  // network, offset, server
+  const retryable = (e) => e.name === "TypeError" || /^(408|409|5\d\d)/.test(String(e.message));  // network, offset, server
+  const keep = (e) => /^401/.test(String(e.message));  // logged out: keep the id, the same file goes on after login
   while (received < file.size) {
     show(received / file.size);
     try {
@@ -338,16 +348,29 @@ async function bigUpload(project, path, file, show) {
       received = r.received;
       fails = 0;
     } catch (e) {
-      if (!retryable(e) || ++fails > 6) {
-        api(`${base}/${id}`, { method: "DELETE" }).catch(() => {});
+      if (!retryable(e)) {
+        if (!keep(e)) {
+          api(`${base}/${id}`, { method: "DELETE" }).catch(() => {});
+          store(key, "");
+        }
         throw e;
       }
+      if (++fails > 6) throw e;  // still down: kept, the same file picks it up later
       await new Promise((ok) => setTimeout(ok, 500 * 2 ** fails));
       try { received = (await api(`${base}/${id}`)).received; } catch (e2) { /* still down: try again */ }
     }
   }
   show(1);
-  await api(`${base}/${id}/finish`, { method: "POST" });
+  try {
+    await api(`${base}/${id}/finish`, { method: "POST" });
+  } catch (e) {
+    if (!/^5\d\d/.test(String(e.message)) && e.name !== "TypeError") {  // e.g. the name was taken meanwhile
+      api(`${base}/${id}`, { method: "DELETE" }).catch(() => {});
+      store(key, "");
+    }
+    throw e;
+  }
+  store(key, "");
 }
 
 async function moveFile(src, dst) {

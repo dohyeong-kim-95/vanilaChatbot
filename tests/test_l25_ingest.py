@@ -152,6 +152,11 @@ def t_text_log():
         out = sb.exec(f"python /vtools/ingest.py text tools uploads/tool.log --pattern={json.dumps(pat)}", timeout=300)
         assert "already in the cache" not in out and '"rows": 20000' in out, out
         assert q(sb, "SELECT DISTINCT typeof(ts) FROM tools.rows") == [["VARCHAR"]]
+        # one build of a dataset at a time
+        out = sb.exec("python -c \"import fcntl, time; f = open('/workspace/cache/.tools.lock', 'w'); "
+                      "fcntl.flock(f, fcntl.LOCK_EX); time.sleep(4)\" & sleep 1; "
+                      f"python /vtools/ingest.py text tools uploads/tool.log --pattern={json.dumps(pat)} --time ts; wait")
+        assert "being built by another job" in out, out
         # a half-built dataset is not a schema
         sb.exec("mkdir -p /workspace/cache/x.building && echo {} > /workspace/cache/x.building/meta.json")
         assert "x.building" not in sb.exec("python /vtools/query.py --tables")

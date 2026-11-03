@@ -34,6 +34,13 @@ def t_render():
          "rows": [[0, 0, 1], [1, 0, 2], [0, 1, 1]], "truncated": True},
         {"title": "tbl", "kind": "table", "columns": ["a", evil], "rows": [[evil, 1.23456789]]},
         {"title": "bad", "kind": "bar", "x": "nope", "y": "y", "columns": ["w", "y"], "rows": [["a", 1]]}]}
+    d["charts"].append({"title": "many", "kind": "line", "x": "t", "y": "v", "series": "s", "columns": ["t", "v", "s"],
+                        "rows": [[i, 1.0, f"S{i}"] for i in range(15)]})
+    d["charts"].append({"title": "huge", "kind": "scatter", "x": "a", "y": "b", "columns": ["a", "b"],
+                        "rows": [[-1e308, 1.7e308], [1e308, -1.7e308]]})
+    page = render.page({"type": "dashboard", "title": "t", "content": json.dumps(d)})
+    assert "series 3개는 색이 모자라 뺐어요" in page and page.count("<section") == 8, "too many series must be said"
+    d["charts"] = d["charts"][:-2]
     page = render.page({"type": "dashboard", "title": "t", "content": json.dumps(d)})
     assert page.count("<script>") == 1, "only the renderer's prelude may be a script"  # the prelude
     assert "<script>alert" not in page and evil not in page.split('id="data">')[0], "unescaped text"

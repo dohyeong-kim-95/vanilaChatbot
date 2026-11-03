@@ -305,10 +305,14 @@ class UserStore:
     def _sweep_uploads(self):
         """Drop expired unfinished uploads of every project (else a project that never uploads again keeps them
         forever); returns the bytes the open ones will still write. Caller holds UPLOAD_LOCK."""
-        owed = 0
+        owed, alive = 0, set()
         for part in self.root.glob("users/*/projects/*/uploads/partial"):
             for uid, meta in self._partials(part.parent).items():
-                owed += max(0, meta["size"] - (part / f"{uid}.data").stat().st_size)
+                alive.add(uid)
+                with contextlib.suppress(OSError):
+                    owed += max(0, meta["size"] - (part / f"{uid}.data").stat().st_size)
+        for uid in [u for u in _PART_LOCKS if u not in alive]:  # expired or done: their locks go too
+            _PART_LOCKS.pop(uid, None)
         return owed
 
     def sweep_uploads(self):
@@ -347,12 +351,16 @@ class UserStore:
         if len(data) > PART_MAX:
             raise TooLarge(f"a part is at most {PART_MAX} bytes")
         with _PART_LOCKS.setdefault(uid, threading.Lock()):
+            if not f.exists() or not f.with_suffix(".json").exists():  # cancelled or expired meanwhile
+                raise KeyError(uid)
             at = f.stat().st_size
             if offset != at:
                 raise Conflict(at)
             if at + len(data) > meta["size"]:
                 raise ValueError(f"more than the {meta['size']} bytes announced")
-            with open(f, "ab") as fh:
+            # no O_CREAT: a sweep that removed the file just now must not get an orphan back
+            fd = os.open(f, os.O_WRONLY | os.O_APPEND)
+            with os.fdopen(fd, "ab") as fh:
                 fh.write(data)
             return {"received": at + len(data), "size": meta["size"]}
 
@@ -360,6 +368,8 @@ class UserStore:
         """All parts in: hash, move into blobs, add to the tree (the same checks as a small upload)."""
         meta, f = self._partial(user, project, uid)
         with _PART_LOCKS.setdefault(uid, threading.Lock()):
+            if not f.exists():  # cancelled or expired meanwhile
+                raise KeyError(uid)
             if f.stat().st_size != meta["size"]:
                 raise ValueError(f"incomplete: {f.stat().st_size} of {meta['size']} bytes")
             h = hashlib.sha256()
@@ -377,6 +387,8 @@ class UserStore:
                     raise TooLarge(f"more than {MAX_UPLOAD_ENTRIES} files and folders")
                 blob = d / "blobs" / sha
                 blob.parent.mkdir(parents=True, exist_ok=True)
+                if not f.exists():  # expired by a sweep while it was hashed
+                    raise KeyError(uid)
                 if blob.exists():  # the same content is there already: never rewrite a blob others use
                     f.unlink()
                 else:
@@ -389,7 +401,7 @@ class UserStore:
 
     def cancel_upload(self, user, project, uid):
         _, f = self._partial(user, project, uid)
-        with UPLOAD_LOCK:
+        with _PART_LOCKS.setdefault(uid, threading.Lock()), UPLOAD_LOCK:  # not under a part being written
             f.unlink(missing_ok=True)
             f.with_suffix(".json").unlink(missing_ok=True)
         _PART_LOCKS.pop(uid, None)

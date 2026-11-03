@@ -82,9 +82,16 @@ def t_parts_store():
     s.create_project("bob", "p")
     b = s.begin_upload("bob", "p", "secret.log", 4)
     expect(KeyError, s.upload_part, "alice", "p", b["upload_id"], 0, b"evil")
-    # cancel frees it
+    # cancel frees it; a part or a finish that comes after it finds nothing (no orphan file, no 500)
     s.cancel_upload("bob", "p", b["upload_id"])
     expect(KeyError, s.upload_status, "bob", "p", b["upload_id"])
+    c = s.begin_upload("bob", "p", "late.log", 4)
+    meta = s.project_dir("bob", "p") / "uploads" / "partial" / f"{c['upload_id']}.json"
+    meta.unlink()  # as a sweep or a cancel between our lookup and the lock would
+    expect(KeyError, s.upload_part, "bob", "p", c["upload_id"], 0, b"late")
+    assert not (meta.with_suffix(".data")).exists() or (meta.with_suffix(".data")).stat().st_size == 0
+    s.sweep_uploads()
+    assert c["upload_id"] not in userstore._PART_LOCKS and b["upload_id"] not in userstore._PART_LOCKS
     print("    parts in order, conflicts say where, same content keeps the blob, ids are per project")
 
 
@@ -291,11 +298,15 @@ def fake_llm():
 
 def t_api_and_ui():
     UserStore(l9.DATA).create_project("alice", "big")
+    stale = l9.DATA / "work" / "old-run"  # a kept workspace of a finished run, days old: dropped at start
+    (stale / "ws").mkdir(parents=True)
+    os.utime(stale, (time.time() - 4 * 86400,) * 2)
     srv = fake_llm()
     ps = l9.servers()
     pw, b = l9.browser()
     try:
         a = l9.client("alice")
+        assert not stale.exists(), "an old run workspace was kept"
         # API: a part from the wrong place says where to go on
         r = a.post("/projects/big/files/uploads", json={"path": "api.bin", "size": 6}).json()
         uid = r["upload_id"]
@@ -340,6 +351,24 @@ def t_api_and_ui():
             time.sleep(0.1)
         page.wait_for_selector("#files li:not(.busy):has-text('big.log')")
         assert failed, "the flaky part was never sent"
+        # a reload in the middle of an upload: choosing the same file again goes on where it stood
+        g = TMP / "again.log"
+        g.write_bytes(os.urandom(48 * 1024 * 1024))
+        page.unroute("**/files/uploads/**")
+        page.set_input_files("#file-input", str(g))
+        page.wait_for_function("() => /again.log [3-9]\\d%/.test(document.querySelector('#files .busy')?.textContent || '')",
+                               timeout=30000)
+        page.reload()
+        page.wait_for_function("() => document.querySelector('#project option[value=big]')")
+        page.select_option("#project", "big")
+        offsets = []
+        page.route("**/files/uploads/**", lambda r: (offsets.append(r.request.url), r.continue_()))
+        page.set_input_files("#file-input", str(g))
+        page.wait_for_selector("#files li:not(.busy):has-text('again.log')", timeout=30000)
+        puts = [u for u in offsets if "offset=" in u]
+        assert puts and not puts[0].endswith("offset=0"), puts[:3]
+        files = {x["path"]: x for x in a.get("/projects/big/files").json()["files"]}
+        assert files["again.log"]["size"] == g.stat().st_size
         assert any("big.log" in p and "MB" in p for p in progress), progress
         files = {x["path"]: x for x in a.get("/projects/big/files").json()["files"]}
         assert files["big.log"]["size"] == len(data), files

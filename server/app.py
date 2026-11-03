@@ -35,6 +35,7 @@ message, so a server restart resumes `running` runs and keeps `awaiting_approval
 store; a run checks the project out, and writes repo/outputs back when it ends or pauses for approval.
 """
 import asyncio
+import contextlib
 import json
 import os
 import re
@@ -55,7 +56,7 @@ from agent.loop import ACK, LATEST, PLAN_HINT, SUMMARY, SYSTEM, Context, Interru
 from agent.rag import DocStore
 from agent.sandbox import VTOOLS, Sandbox
 from agent.tools import REGISTRY, schemas
-from agent.userstore import ID_RE, MAX_UPLOAD, PART_MAX, Conflict, TooLarge, UserStore
+from agent.userstore import ID_RE, MAX_UPLOAD, PART_MAX, Conflict, TooLarge, UserStore, _writable
 from server import auth, capture, render
 
 ROOT = Path(os.environ.get("AGENT_ROOT", "/tmp/agent-sessions"))
@@ -86,6 +87,18 @@ CANCEL = {}  # process-local
 _read = lambda env: Path(os.environ[env]).read_text() if os.environ.get(env) else ""
 STORE = UserStore(ROOT, org_policy=_read("AGENT_ORG_POLICY"), org_settings=json.loads(_read("AGENT_ORG_SETTINGS") or "{}"))
 STORE.sweep_uploads()  # unfinished uploads past a day, from before a restart
+
+
+def sweep_runs(days=3):
+    """Workspaces kept after a failed save (for inspection) hold links to blobs the user may have deleted since:
+    drop those of finished runs after a few days. Paused runs keep theirs (they resume in it)."""
+    work = ROOT / "work"
+    for d in work.iterdir() if work.exists() else ():
+        r = q("SELECT status FROM runs WHERE id=?", d.name)
+        if (not r or r[0][0] not in ("running", "awaiting_approval")) and time.time() - d.stat().st_mtime > days * 86400:
+            with contextlib.suppress(OSError):
+                _writable(d)  # the sandbox (same uid) may have made a dir unreadable
+            shutil.rmtree(d, ignore_errors=True)
 TOOLS = [t["function"]["name"] for t in schemas()] + ["remember", "artifact", "show_report", "show_shmoo", "show_logview",
                                                       "show_dashboard", "use_skill", "ask_user"]
 AGENTS = delegate.discover()
@@ -154,6 +167,8 @@ def _work(rid, task, decisions):
             # shortcut: an approval/question never answered keeps its run dir; add cleanup by age when disk matters
             shutil.rmtree(run_dir)
     except Exception as e:  # keep run_dir for inspection; storage is unchanged
+        with contextlib.suppress(OSError):
+            os.utime(run_dir)  # kept from now: sweep_runs counts its days from this failure, not from the checkout
         emit(rid, {"type": "error", "message": f"saving workspace failed: {type(e).__name__}: {e}"})
     finish()
     return paused
@@ -206,6 +221,7 @@ def recover():
               "(API only: the web UI needs login)")
     elif not q("SELECT 1 FROM users LIMIT 1"):
         print("No accounts yet: python -m server.auth add <user>")
+    sweep_runs()
     for rid, sid, inflight in q("SELECT id, session_id, inflight FROM runs WHERE status='running'"):
         if inflight:
             msgs = json.loads(q("SELECT history FROM sessions WHERE id=?", sid)[0][0])
@@ -426,15 +442,31 @@ def upload_status(pid: str, uid: str, user=Depends(caller)):
     return files_op(STORE.upload_status, user, own_project(pid, user), uid)
 
 
+PARTS_IN_FLIGHT = asyncio.Semaphore(8)  # parts held in memory at once (16 MB each): many parallel PUTs wait
+PARTS_PER_USER, PART_SECONDS = 2, 120  # one user cannot take all of them; a stalled body gives its place back
+_user_parts = {}
+
+
 @app.put("/projects/{pid}/files/uploads/{uid}")
 async def upload_part(pid: str, uid: str, offset: int, request: Request, user=Depends(caller)):
     project = await asyncio.to_thread(own_project, pid, user)
-    data = bytearray()
-    async for chunk in request.stream():
-        data += chunk
-        if len(data) > PART_MAX:
-            raise HTTPException(413, f"a part is at most {PART_MAX} bytes")
-    return await asyncio.to_thread(files_op, STORE.upload_part, user, project, uid, offset, bytes(data))
+    if _user_parts.get(user, 0) >= PARTS_PER_USER:
+        raise HTTPException(503, "too many parts at once; send them one after another")  # the client retries
+    _user_parts[user] = _user_parts.get(user, 0) + 1
+    try:
+        async with PARTS_IN_FLIGHT:
+            data = bytearray()
+            try:
+                async with asyncio.timeout(PART_SECONDS):
+                    async for chunk in request.stream():
+                        data += chunk
+                        if len(data) > PART_MAX:
+                            raise HTTPException(413, f"a part is at most {PART_MAX} bytes")
+            except TimeoutError:
+                raise HTTPException(408, "the part came too slowly; send it again")
+            return await asyncio.to_thread(files_op, STORE.upload_part, user, project, uid, offset, data)
+    finally:
+        _user_parts[user] -= 1
 
 
 @app.post("/projects/{pid}/files/uploads/{uid}/finish")

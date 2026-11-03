@@ -51,8 +51,12 @@ def fmt(v):
 
 
 def ticks(lo, hi, n=5):
+    if not (math.isfinite(hi - lo) and abs(lo) < 1e300 and abs(hi) < 1e300):
+        return [lo, hi]  # a range too wide for nice steps
     if hi <= lo:
-        hi = lo + 1
+        hi = lo + max(1, abs(lo) * 1e-9)  # a constant: a small range around it (lo + 1 == lo past ~9e15)
+        if hi == lo:
+            return [lo]
     step = 10 ** math.floor(math.log10((hi - lo) / n))
     for m in (1, 2, 5, 10):
         if (hi - lo) / (step * m) <= n:
@@ -127,6 +131,8 @@ def _series(c):
     else:  # times or labels: in the order they come (ORDER BY in the SQL)
         order = {v: i for i, v in enumerate(dict.fromkeys(str(x) for x in xs))}
         conv = lambda v: order[str(v)]  # noqa: E731
+    if len(groups) > len(PALETTE):
+        c["dropped"] = len(groups) - len(PALETTE)  # said under the chart
     return {k: [(conv(x), y) for x, y in g] for k, g in list(groups.items())[:len(PALETTE)]}, conv is float
 
 
@@ -219,9 +225,10 @@ def render(d):
     for i, c in enumerate(d["charts"]):
         try:
             drawn = DRAW[c["kind"]](c)
-        except ValueError as ex:
+        except (ValueError, TypeError, OverflowError) as ex:  # a shape we cannot draw: say so, keep the page
             drawn = f"<p class='note'>{e(str(ex))}</p>"
-        note = (c.get("note") or "") + (" (행이 많아 일부만 그렸어요)" if c.get("truncated") else "")
+        note = (c.get("note") or "") + (" (행이 많아 일부만 그렸어요)" if c.get("truncated") else "") \
+            + (f" (series {c['dropped']}개는 색이 모자라 뺐어요)" if c.get("dropped") else "")
         body.append(f'<section id="sec-c{i}"><h2>{e(c["title"])}</h2>'
                     + (f'<p class="note">{e(note.strip())}</p>' if note.strip() else "") + drawn + "</section>")
     return (f'<!doctype html><html lang="ko"><meta charset="utf-8"><title>{e(d["title"])}</title><style>{CSS}</style>'
