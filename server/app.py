@@ -36,6 +36,7 @@ import re
 import shutil
 import sqlite3
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -45,7 +46,7 @@ from pydantic import BaseModel
 
 from agent import delegate, report, skills
 from agent.artifacts import ArtifactStore
-from agent.loop import SYSTEM, Context, Interrupt, run
+from agent.loop import ACK, LATEST, PLAN_HINT, SUMMARY, SYSTEM, Context, Interrupt, _user_text, run, shown_plans
 from agent.rag import DocStore
 from agent.sandbox import Sandbox
 from agent.tools import REGISTRY, schemas
@@ -61,6 +62,11 @@ CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, user_id TEXT, project_i
 CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, session_id TEXT, status TEXT, inflight TEXT, pending TEXT);
 CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, type TEXT, data TEXT);
 """)
+try:  # Loop 30: a DB from before keeps working (two processes starting at once: the second finds it there)
+    DB.execute("ALTER TABLE runs ADD COLUMN started REAL")
+except sqlite3.OperationalError as e:
+    if "duplicate column" not in str(e):
+        raise
 auth.init(DB)
 AUTH = os.environ.get("AGENT_AUTH", "login")
 if AUTH not in ("login", "header"):
@@ -114,7 +120,7 @@ def _work(rid, task, decisions):
     msgs = json.loads(history)
     if task is not None:  # instructions/memory may have changed since the last message; fixed during a run
         msgs[0] = {"role": "system", "content": "\n\n".join(
-            filter(None, [SYSTEM, skills.prompt(SKILLS), STORE.instructions(user, project)]))}
+            filter(None, [SYSTEM + PLAN_HINT, skills.prompt(SKILLS), STORE.instructions(user, project)]))}
     run_dir = ROOT / "work" / rid
     if not run_dir.exists():  # else: a crashed worker's uncommitted workspace, keep it
         STORE.checkout(user, project, run_dir)
@@ -445,7 +451,7 @@ def create_session(r: SessionReq, user=Depends(caller)):
     own_project(r.project_id, user)
     sid = uuid.uuid4().hex[:12]
     q("INSERT INTO sessions(id, user_id, project_id, history) VALUES (?,?,?,?)", sid, user, r.project_id,
-      json.dumps([{"role": "system", "content": SYSTEM}]))
+      json.dumps([{"role": "system", "content": SYSTEM + PLAN_HINT}]))
     return {"session_id": sid}
 
 
@@ -460,9 +466,9 @@ def message(sid: str, m: Msg, user=Depends(caller)):
     project = own_session(sid, user)
     rid = uuid.uuid4().hex[:12]
     # one active run per project: two runs would each check out the repo and the later write-back would win
-    row = q("""INSERT INTO runs(id, session_id, status) SELECT ?, ?, 'running' WHERE NOT EXISTS (
+    row = q("""INSERT INTO runs(id, session_id, status, started) SELECT ?, ?, 'running', ? WHERE NOT EXISTS (
                SELECT 1 FROM runs JOIN sessions s ON s.id = runs.session_id WHERE s.user_id=? AND s.project_id=?
-               AND runs.status IN ('running','awaiting_approval')) RETURNING id""", rid, sid, user, project)
+               AND runs.status IN ('running','awaiting_approval')) RETURNING id""", rid, sid, time.time(), user, project)
     if not row:
         raise HTTPException(409, "a run is already active in this project")
     start(rid, task=m.content)
@@ -548,22 +554,45 @@ def get_session(sid: str, user=Depends(caller)):
     """Chat as the user saw it: their messages, the assistant's text, and which artifacts were saved."""
     project = own_session(sid, user)
     msgs, out = json.loads(q("SELECT history FROM sessions WHERE id=?", sid)[0][0]), []
-    for m in msgs[1:]:
-        if m["role"] in ("user", "assistant") and isinstance(m.get("content"), str) and m["content"]:
-            out.append({"role": m["role"], "content": m["content"]})
-        for tc in m.get("tool_calls") or []:
+    plans = dict(shown_plans(msgs))  # message index -> plan the user saw there (last one wins)
+    plan = None  # index in out of this turn's plan card: later plans change it in place (as live)
+
+    def show_plan(i):
+        nonlocal plan
+        if plan is None:
+            plan = len(out)
+            out.append({"role": "plan"})
+        out[plan]["steps"] = plans[i]
+
+    def is_summary(m):  # ours always has both markers
+        c = str(m.get("content", ""))
+        return m["role"] == "user" and c.startswith(SUMMARY) and LATEST in c
+
+    for i, m in enumerate(msgs[1:], 1):
+        summary = is_summary(m)
+        text = _user_text(m) if summary else m.get("content")  # a summary shows only the user message it carries
+        if m["role"] == "user" and text:  # a turn starts (a summary without one continues the first turn)
+            plan = None
+        if m["role"] in ("user", "assistant") and isinstance(text, str) and text and not (is_summary(msgs[i - 1]) and text == ACK):
+            out.append({"role": m["role"], "content": text})
+        if summary and i in plans:
+            show_plan(i)
+        for tc in m.get("tool_calls") or []:  # in call order, as they appeared live
+            if tc["function"]["name"] == "update_plan" and i in plans:
+                show_plan(i)
             if tc["function"]["name"] in ("artifact", "show_report", "show_shmoo", "show_logview"):
                 try:
                     out.append({"role": "artifact", "id": json.loads(tc["function"]["arguments"])["id"]})
                 except (ValueError, KeyError, TypeError):
                     pass
-    active = q("""SELECT runs.id, runs.status, runs.pending FROM runs WHERE session_id=?
+    active = q("""SELECT runs.id, runs.status, runs.pending, runs.started FROM runs WHERE session_id=?
                   AND status IN ('running','awaiting_approval') ORDER BY rowid DESC LIMIT 1""", sid)
     run = None
     if active:  # history already holds what was said; the UI follows only events after `seq`
-        rid, status, pending = active[0]
+        rid, status, pending, started = active[0]
         pending = json.loads(pending) if status == "awaiting_approval" and pending else None
         run = {"run_id": rid, "status": status, "seq": q("SELECT COALESCE(MAX(seq), 0) FROM events WHERE run_id=?", rid)[0][0],
+               "elapsed": max(0.0, time.time() - started) if started else None,  # seconds: no clock skew
                "pending": pending and {**pending, "type": "question" if REGISTRY[pending["tool"]].get("ask")
                                        else "approval_request"}}
     return {"session_id": sid, "project_id": project, "messages": out, "active_run": run}

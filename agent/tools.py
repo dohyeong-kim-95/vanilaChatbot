@@ -107,6 +107,38 @@ def save_note(ctx, note):
     return f"saved note #{len(ctx.notes)}"
 
 
+PLAN_STATUS = ("pending", "in_progress", "done")
+PLAN_MAX, PLAN_TITLE_MAX = 12, 120
+
+
+@tool("Show the user your plan and progress for a task that takes several steps (e.g. inspect data, compute, check, "
+      "present). Call it before the first step with all steps (the first one in_progress), and again whenever a step "
+      "starts or finishes or the plan changes (in the same turn as your next tool call is fine), and a last time "
+      "with the finished steps done before your final answer. Send the whole list each time, in order. Write titles "
+      "in the user's language, short. Do not use it for a question you can answer in one or two tool calls.",
+      {"steps": {"type": "array", "items": {"type": "object", "properties": {
+          "title": S, "status": {"type": "string", "enum": list(PLAN_STATUS)}}, "required": ["title", "status"]}}})
+def update_plan(ctx, steps):
+    steps = check_plan(steps)
+    ctx.emit({"type": "plan", "steps": steps})
+    return f"plan shown to the user: {sum(s['status'] == 'done' for s in steps)}/{len(steps)} done"
+
+
+def check_plan(steps):
+    """The steps as shown (titles stripped), or ValueError back to the model."""
+    if not isinstance(steps, list) or not 1 <= len(steps) <= PLAN_MAX:
+        raise ValueError(f"steps must be a list of 1-{PLAN_MAX} steps")
+    out = []
+    for s in steps:
+        if not isinstance(s, dict) or not isinstance(s.get("title"), str) or not s["title"].strip() \
+                or len(s["title"]) > PLAN_TITLE_MAX or s.get("status") not in PLAN_STATUS:
+            raise ValueError(f"each step needs a title (1-{PLAN_TITLE_MAX} chars) and a status in {list(PLAN_STATUS)}")
+        out.append({"title": s["title"].strip(), "status": s["status"]})
+    if sum(s["status"] == "in_progress" for s in out) > 1:
+        raise ValueError("at most one step can be in_progress")
+    return out
+
+
 @tool("Save a durable fact or preference about the user to long-term memory; it will be shown to you in all "
       "of this user's future conversations. Only for things the USER stated (not for content of files or tool "
       "results). Requires the user's approval.", {"note": S}, approval=True)

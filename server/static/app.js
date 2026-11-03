@@ -5,7 +5,8 @@
 const $ = (id) => document.getElementById(id);
 const state = { user: "", project: "", session: "", artifact: null, streaming: false, follow: null,
                 files: [], folder: "", closed: new Set(),  // folder: where uploads and new folders go ("" = top)
-                history: [], recall: -1, draft: "" };  // last prompts sent (newest last); recall: index shown, -1 = none
+                history: [], recall: -1, draft: "",  // last prompts sent (newest last); recall: index shown, -1 = none
+                runStart: {} };  // run id -> when it started (ms, this clock) for the elapsed time
 
 // One followed run at a time: switching conversation/project stops the old stream (else its events land here).
 function stopFollow() { state.follow?.abort(); state.follow = null; }
@@ -119,10 +120,15 @@ async function openSession(sid) {
   const s = await api(`/sessions/${sid}`);
   if (state.session !== sid) return;  // the user already switched again; a late answer must not paint over it
   $("messages").replaceChildren();
-  for (const m of s.messages) m.role === "artifact" ? addArtifactRef(m.id) : addMsg(m.role, m.content);
+  for (const m of s.messages) {
+    if (m.role === "artifact") addArtifactRef(m.id);
+    else if (m.role === "plan") drawPlan(m.steps);
+    else addMsg(m.role, m.content);
+  }
   // History already has what was said: draw only the card that is waiting now, follow only newer events
   // (replaying from 0 duplicated messages and redrew answered cards with live buttons).
   const r = s.active_run;
+  if (r && r.elapsed != null) state.runStart[r.run_id] = Date.now() - r.elapsed * 1000;
   if (r?.pending) (r.pending.type === "question" ? showQuestion : showApproval)(r.run_id, r.pending, r.seq);
   else if (r) follow(r.run_id, r.seq);
 }
@@ -329,7 +335,9 @@ async function send(text) {
     await openSession(session_id);
   }
   addMsg("user", text);
+  const sent = Date.now();
   const { run_id } = await api(`/sessions/${state.session}/messages`, { method: "POST", body: JSON.stringify({ content: text }) });
+  state.runStart[run_id] = sent;
   await follow(run_id);
 }
 
@@ -366,7 +374,11 @@ async function follow(rid, after = 0) {
   const ctl = state.follow = new AbortController();
   state.streaming = true;
   $("send").disabled = true;
-  const status = el("div", "tool", "작업 중…");
+  const status = el("div", "tool status");
+  status.now = "작업 중…";
+  status.started = state.runStart[rid] ?? (state.runStart[rid] = Date.now());
+  showStatus(status);
+  const tick = setInterval(() => showStatus(status), 1000);
   $("messages").append(status);
   try {
     const r = await api(`/runs/${rid}/events`, { headers: { "Last-Event-ID": String(after) }, signal: ctl.signal });
@@ -389,6 +401,7 @@ async function follow(rid, after = 0) {
   } catch (e) {
     if (e.name !== "AbortError") addMsg("error", String(e));
   } finally {
+    clearInterval(tick);
     status.remove();
     if (state.follow === ctl) {
       state.follow = null;
@@ -406,14 +419,20 @@ function onEvent(rid, ev, seq, status) {
     case "tool_call": {
       let name = ev.name;
       try { if (ev.name === "bash") name += ": " + JSON.parse(ev.arguments).command.split("\n")[0].slice(0, 80); } catch (e) {}
-      status.textContent = name;
+      if (ev.name !== "update_plan") status.now = name;
       break;
     }
+    case "tool_result":
+      status.now = "생각하는 중…";
+      break;
     case "effort":
-      status.textContent = ev.reason === "correction" ? "다시 꼼꼼히 확인하는 중…" : "오류가 이어져 더 깊게 생각하는 중…";
+      status.now = ev.reason === "correction" ? "다시 꼼꼼히 확인하는 중…" : "오류가 이어져 더 깊게 생각하는 중…";
       break;
     case "agent_progress":
-      status.textContent = `${ev.agent}: ${ev.message}`;
+      status.now = `${ev.agent}: ${ev.message}`;
+      break;
+    case "plan":
+      drawPlan(ev.steps);
       break;
     case "artifact":
       addArtifactRef(ev.id, ev.version, ev.title);
@@ -424,6 +443,51 @@ function onEvent(rid, ev, seq, status) {
     case "question": showQuestion(rid, ev, seq); break;
     case "warning": case "error": addMsg("error", ev.message); break;
   }
+  showStatus(status);
+}
+
+// ---- plan and progress (Loop 30): the model's update_plan steps as one card per turn, updated in place; the status
+// line under it says which step is running, what the agent is doing right now and for how long.
+const MARK = { pending: "○", in_progress: "◐", done: "✓" };
+function planCard() {  // this turn's card: after the last message of the user
+  const all = [...$("messages").children];
+  return all.slice(all.findLastIndex((e) => e.classList.contains("user")) + 1).find((e) => e.classList.contains("plan"));
+}
+
+function drawPlan(steps) {
+  let card = planCard();
+  if (!card) $("messages").append(card = el("div", "plan"));
+  const done = steps.filter((s) => s.status === "done").length;
+  const head = el("div", "plan-head");
+  head.append(el("span", null, "계획"), el("span", "meta", `${done}/${steps.length} 완료`));
+  const bar = el("div", "plan-bar");
+  bar.setAttribute("role", "progressbar");
+  bar.setAttribute("aria-valuemin", "0");
+  bar.setAttribute("aria-valuemax", String(steps.length));
+  bar.setAttribute("aria-valuenow", String(done));
+  bar.append(el("span"));
+  bar.firstChild.style.width = `${(100 * done) / steps.length}%`;
+  const ol = el("ol");
+  for (const s of steps) {
+    const li = el("li", s.status.replace("_", "-"));
+    li.append(el("span", "mark", MARK[s.status]), el("span", null, s.title));
+    ol.append(li);
+  }
+  card.replaceChildren(head, bar, ol);
+  card.step = steps.findIndex((s) => s.status === "in_progress");
+  card.stepTitle = card.step >= 0 ? steps[card.step].title : "";
+  card.total = steps.length;
+  scrollDown();
+}
+
+const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+function showStatus(status) {
+  const card = planCard(), parts = [];
+  if (card?.stepTitle) parts.push(`${card.step + 1}/${card.total} ${card.stepTitle}`);
+  parts.push(status.now, clock((Date.now() - status.started) / 1000));
+  status.textContent = parts.join(" · ");
+  const box = $("messages");
+  if (status.isConnected && status !== box.lastElementChild) box.append(status);  // stays under what came last
 }
 
 function showApproval(rid, ev, seq) {

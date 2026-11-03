@@ -142,6 +142,7 @@ for step in range(max_steps):                  # 기본 20, 초과 시 중단 �
 - truncation은 bash만이 아니라 **모든 tool 출력**에 공통 적용 [검증]
 - clearing은 모델이 아직 추출하지 않은 정보를 지운다. thinking 모델은 메모를 **보이지 않는 thinking에** 남기므로 "본문에 메모하라" 지시로는 부족했다 [검증: Loop 6, 20단계 thrashing].
   → **`save_note` tool**: 메모가 tool_call 인자에 남아 clearing과 thinking drop 양쪽에서 살아남는다. 요약 시 `[Saved notes]`로 다시 넣는다 [검증: 3/3 PASS].
+- 계획(`update_plan`): 요약은 현재 질문의 끝나지 않은 계획을 모델에게 텍스트로 다시 알려 주고, 그 질문의 마지막 계획을 우리만 보는 `x_plan` 키에 둔다(채팅 화면용, `_wire`가 `x_*`를 빼고 보냄). 텍스트는 다시 읽지 않는다: 요약된 파일·메모가 계획을 흉내 낼 수 없다. [검증: Loop 30]
 - clearing은 **한 번에 budget/2까지 몰아서**(hysteresis): history를 고칠 때마다 캐시와 thinking이 손실되므로 수정 횟수를 최소화 [검증]
 - 비용 지표: 한 번 고칠 때마다 thinking drop 수와 cache read 감소를 로깅해 compaction 정책을 튜닝
 
@@ -158,6 +159,7 @@ for step in range(max_steps):                  # 기본 20, 초과 시 중단 �
 | `edit_file(path, old, new)` | 호스트 | – | `old`가 정확히 1회 일치해야 함, read-before-edit 강제 |
 | `search_documents(query, k)` | 서버 | – | RAG |
 | `save_note(note)` | 서버 | – | 핵심 사실 메모. clearing/thinking drop 후에도 남음 |
+| `update_plan(steps)` | 서버 | – | 여러 단계 작업의 계획·진행(`pending`/`in_progress`/`done`, 1–12단계, 진행 중은 최대 1개)을 사용자에게 보여 줌. 매번 전체 목록 (§9.8) |
 | `git_commit(branch, message)` | 호스트 git (hooks 비활성) | – | |
 | `open_pull_request(branch, title, body)` | 서버 | **필수** | 토큰은 서버만 보유 |
 | `request_network_access(domain, reason)` | 서버(egress proxy) | **필수** | 승인되면 allowlist에 도메인 추가 (§5.3) |
@@ -453,6 +455,12 @@ DELETE /projects/{p}/files?path=…           파일, 또는 폴더와 그 안�
   - 흐름: 훑기 → 질문 한 번(첫 문장에서 파일이 무엇인지 구체적인 수치로 말함, 파일 종류에 맞는 선택지) → 맞는 skill과 뷰.
   - 사용자가 이미 초점을 말했으면 묻지 않는다.
 
+### 9.8 계획과 진행 표시 [검증: Loop 30]
+- 모델은 여러 단계 작업에서 `update_plan`으로 계획을 보여 주고 단계가 시작·끝날 때마다 갱신한다(다음 tool 호출과 같은 턴에 보내도 됨, 최종 답 전에 마지막으로 완료 표시). 이 지시는 `update_plan`을 주는 run에만 시스템 프롬프트에 붙는다(`PLAN_HINT`).
+- UI: 질문마다 계획 카드 하나(○ 대기 / ◐ 진행 중 / ✓ 완료, 진행 막대, "n/m 완료")를 제자리에서 갱신한다. 맨 아래 상태 줄은 "단계 i/n 제목 · 지금 하는 일 · 경과"를 1초마다 보여 준다. 경과는 run의 `started`(서버 시각)에서 계산해 새로고침해도 이어진다(승인·질문 대기 시간 포함).
+- 새로고침: `GET /sessions/{id}`가 사용자에게 실제로 보인 계획만(결과가 "plan shown to the user"로 시작하는 호출과 요약의 `x_plan`) 질문마다 카드 하나로, 실시간과 같은 순서로 다시 그린다. 요약 메시지는 그것이 담은 사용자 질문만 보이고, 요약 뒤 우리 응답("Understood, continuing.")은 숨긴다.
+- 실측(Haiku 5.5): 여러 단계 작업 3/3에서 4–5단계 계획, 4–5번 갱신, 끝에 전부 완료. 계획 갱신은 대개 실제 작업 호출과 같은 턴에 보내 step 수를 거의 늘리지 않았다. 단순 질문에는 계획 없음.
+
 ### 9.7 로그인 [검증: Loop 24]
 여러 사람이 Linux 서버 하나에 브라우저로 접속하는 경우를 위한 것이다. 가입 화면은 없고 서버를 운영하는 사람이 계정을 만든다.
 ```
@@ -550,11 +558,12 @@ tests/test_l17_slides.py      Loop 23 (리뷰 회귀: shmoo 구멍 분리, 축 �
 tests/test_l18_auth.py        Loop 24 (로그인, 잠금, 폐기, 출처 검사, UI)
 tests/test_l19_deploy.py      Loop 25 (새 Ubuntu 서버 컨테이너에 설치 → Caddy 거쳐 로그인·run → 업데이트 → 되돌리기)
 tests/test_l20_gateway_errors.py  Loop 25.9 (gateway 오류: 나아질 수 없는 오류는 재시도 안 함, Retry-After 전달)
+tests/test_l23_plan.py        Loop 30 (update_plan 검사, 요약을 지나는 계획, 새로고침 뒤 카드, Chrome에서 실시간 카드·상태 줄; LLM: t_llm_uses_plan)
 tests/test_l22_layout.py      Loop 27 (패널 폭 끌기·키·기억·창 크기 제한, 크게 보기, 사이드바 숨기기, 닫은 아티팩트 다시 열기), Loop 28 (프롬프트 히스토리), Loop 29 (사이드바 목록 높이)
 tests/test_l21_files.py       Loop 26 (사용자 파일 트리: 경로 규칙, 폴더 작업, 상한, sandbox 읽기 전용, 프롬프트, API, Chrome UI, 모델이 폴더 이름으로 찾기)
 tests/eval/logview/gen.py     합성 주문 서비스 로그 (배포 후 새 에러, 15분 장애, 스택 트레이스)
 tests/eval/shmoo/gen.py       합성 ATE shmoo 로그 (장치 24개 × 온도 2 × VDD 16 × 주파수 17, 결함 3종)
-docs/research/          R1–R6 리서치 노트
+docs/research/          R1–R7 리서치 노트 (R7: GB 로그 → 시각화 → Spotfire 벤치마크)
 docs/LOOP_LOG.md        루프별 실험 기록
 ```
 
@@ -583,6 +592,7 @@ K=3 python tests/test_l9_artifacts.py      # Playwright + 시스템 Chrome(AGENT
 python tests/test_l18_auth.py             # 결정적, LLM 없이 몇 초
 python tests/test_l20_gateway_errors.py   # 결정적, 네트워크 없이 몇 초
 python tests/test_l22_layout.py           # Chrome, LLM 없이 몇 초
+python tests/test_l23_plan.py             # Docker·Chrome, LLM 없이. LLM: python tests/test_l23_plan.py t_llm_uses_plan (K=3)
 python tests/test_l21_files.py            # Docker·Chrome 필요. 마지막 t_model_finds_folder만 LLM(K=2)
 KEEP=1 python tests/test_l19_deploy.py    # 배포: Docker와 인터넷, 약 13분 (부록 C)
 # UI: AGENT_ROOT=/tmp/agent python -m server.auth add alice       # 계정 만들기(비밀번호 10자 이상)
