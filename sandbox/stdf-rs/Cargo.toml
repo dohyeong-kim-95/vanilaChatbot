@@ -1,0 +1,14 @@
+[package]
+name = "stdf2parquet"
+version = "0.1.0"
+edition = "2021"
+description = "STDF V4 -> Parquet (parts, results, tests), the same tables as sandbox/vtools/stdf.py (Loop 34)"
+
+[dependencies]
+arrow = { version = "60.1.0", default-features = false }
+parquet = { version = "60.1.0", default-features = false, features = ["arrow", "zstd"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

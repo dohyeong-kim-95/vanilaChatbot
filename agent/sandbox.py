@@ -14,7 +14,10 @@ from pathlib import Path
 # Our analysis image (sandbox/Dockerfile: polars, duckdb, pyarrow). Its tag is the Dockerfile's hash, so a changed
 # Dockerfile means a new image (deploy/install.sh builds it; locally: docker build -t <IMAGE> sandbox/).
 _DOCKERFILE = Path(__file__).resolve().parents[1] / "sandbox" / "Dockerfile"
-DEFAULT_IMAGE = "vanilachatbot/sandbox:" + hashlib.sha256(_DOCKERFILE.read_bytes()).hexdigest()[:12]
+# what goes into the image, in this order (deploy/install.sh hashes the same files the same way)
+_IMAGE_SOURCES = [_DOCKERFILE, _DOCKERFILE.parent / "stdf-rs" / "Cargo.toml", _DOCKERFILE.parent / "stdf-rs" / "Cargo.lock",
+                  *sorted((_DOCKERFILE.parent / "stdf-rs" / "src").glob("*.rs"), key=lambda p: p.name.encode())]  # C order
+DEFAULT_IMAGE = "vanilachatbot/sandbox:" + hashlib.sha256(b"".join(p.read_bytes() for p in _IMAGE_SOURCES)).hexdigest()[:12]
 IMAGE = os.environ.get("SANDBOX_IMAGE") or DEFAULT_IMAGE
 VTOOLS = _DOCKERFILE.parent / "vtools"  # our scripts for big logs, mounted read-only at /vtools
 CA = os.environ.get("EGRESS_CA")  # CA bundle to trust inside the sandbox, if TLS is re-terminated upstream

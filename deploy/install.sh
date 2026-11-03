@@ -146,7 +146,8 @@ if ((START)); then
   systemctl enable -q --now docker  # a fresh docker.io is not always running yet
   IMAGE=$(getenv SANDBOX_IMAGE "$ENV")
   if [[ -z $IMAGE ]]; then  # ours: tagged by the Dockerfile's hash (agent/sandbox.py), built here once per change
-    IMAGE=vanilachatbot/sandbox:$(sha256sum "$SRC/sandbox/Dockerfile" | cut -c1-12)
+    IMAGE=vanilachatbot/sandbox:$(cd "$SRC/sandbox" && LC_ALL=C cat Dockerfile stdf-rs/Cargo.toml stdf-rs/Cargo.lock \
+                                  $(LC_ALL=C ls stdf-rs/src/*.rs) | sha256sum | cut -c1-12)  # ls sorts (C order)
     if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
       say "building the sandbox image $IMAGE (a few minutes, needs the network once)"
       # pip in the build does not see the host's proxy or pip.conf: pass them on when they are set
@@ -155,7 +156,7 @@ if ((START)); then
         [[ -n ${!v:-} ]] && args+=(--build-arg "$v=${!v}")
       done
       docker build -q "${args[@]}" -t "$IMAGE" "$SRC/sandbox" >/dev/null \
-        || die "sandbox image $IMAGE: build failed (behind a proxy? set HTTPS_PROXY / PIP_INDEX_URL, or SANDBOX_IMAGE)"
+        || die "sandbox image $IMAGE: build failed (behind a proxy? set HTTPS_PROXY / PIP_INDEX_URL; Docker Hub must give python:3.12-slim and rust:1.94; or set SANDBOX_IMAGE)"
     fi
   elif ! docker pull -q "$IMAGE" >/dev/null; then  # a locally built image, or the registry is down or rate-limited
     docker image inspect "$IMAGE" >/dev/null 2>&1 || die "sandbox image $IMAGE: cannot pull it and it is not here"

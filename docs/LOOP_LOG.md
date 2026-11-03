@@ -1285,3 +1285,25 @@ Linux 서버 한 대에 여러 사람이 브라우저로 접속하는 경우를 
 
 결과: `tests/test_l26_dashboard.py` 4개(정답과 같은 수치, 이스케이프, SBDF 왕복, NULL·상한·잔여물, 다운로드 보안), 기존 21개 통과. Must 수정은 되돌리면 실패함을 확인.
 
+## Loop 34 — Rust STDF 리더
+| 항목 | 내용 |
+|---|---|
+| `stdf2parquet` | `sandbox/stdf-rs`(arrow·parquet 60.1, std만으로 레코드 해석). Python 리더와 같은 레코드·플래그·NULL 규칙·열 타입·파일별 part 번호·처음 것이 이기는 tests·잘린 끝 안내. `PROGRESS` 줄과 마지막 JSON 한 줄 |
+| 이미지 | rust:1.94 단계에서 빌드해 바이너리만 복사. 빌드가 안 되면(crates.io에 못 닿음) 바이너리 없이 이미지를 만들고 Python 리더로 동작. 태그 해시 = Dockerfile + stdf-rs 소스(Python과 bash가 같은 순서로) |
+| ingest | 바이너리가 있으면 Rust, `VTOOLS_STDF=python`이면 Python. meta에 실제로 쓴 리더 기록 |
+
+실측(1 CPU·1GB 컨테이너, 611MB, die 33만, PTR 3,923만): **Rust 4.0초 · Python 112초 (약 28배)**. 89MB는 Rust 0.66초(호스트 1코어), Python 16초. 2GB면 Rust 약 13초, Python 약 6분.
+
+### 34.1 리뷰: Must 0, Should 2 (모두 이번에 고침)
+리뷰어가 무작위 입력 1,500개(두 바이트 순서, 바이트 순서가 바뀌는 연결 파일, 쓰레기·길이 0 레코드, PIR 없는 PRR, latin-1·비 UTF-8 문자열, 무작위 뒤집기·자르기)와 8MB 경계 주변 파일로 두 리더를 비교해 표·타입·안내가 모두 같음을 확인.
+
+| 지적 | 수정 |
+|---|---|
+| Should: 파일 이름의 탭·줄바꿈이 마지막 JSON 줄을 깨뜨림(에이전트가 직접 만든 파일 이름은 검사되지 않음) | 0x20 미만을 `\u00XX`로, 테스트 추가(옛 이스케이프면 실패 확인) |
+| Should: 이미지 빌드에 crates.io가 필수가 되어 PyPI 미러만 되는 서버에서는 sandbox 자체를 못 만듦 | Rust 단계가 실패해도 이미지는 만들고 Python 리더로 |
+| (Nit, 같이) 빈 tests 표의 열 타입 차이, 비 UTF-8 파일 이름 인자에서 panic, 해시 정렬의 locale, 리더 판단 중복 | Python 쪽 명시 타입, `args_os`(여는 것은 원래 이름), C 순서, 실제 리더 전달 |
+
+**남긴 Nit (마지막에)**: PIR 뒤에 PRR 없이 PTR만 이어지는 조작된 파일은 메모리를 계속 씀(Python도 같음, sandbox 안에서만), 바이너리 실패 시 Python으로 자동 재시도는 하지 않음(문서에 적음).
+
+결과: `tests/test_l27_rust.py`(행 단위 동등, 이상한 파일 이름), Loop 32·33 테스트(이제 Rust로) 통과. Rust를 바꾸면(TEST_FLG 규칙, 이스케이프) 테스트가 실패함을 확인.
+

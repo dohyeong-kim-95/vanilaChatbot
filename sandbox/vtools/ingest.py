@@ -29,7 +29,26 @@ def sources(files):
     return [{"path": os.path.abspath(f), "size": os.path.getsize(f), "mtime": int(os.path.getmtime(f))} for f in files]
 
 
+def stdf_rust(files, out):
+    """The same tables from sandbox/stdf-rs (about 25x faster); its progress lines pass through. A failure of the
+    binary is reported, not retried in Python (VTOOLS_STDF=python chooses the Python reader)."""
+    import subprocess
+    p = subprocess.Popen(["stdf2parquet", out, *files], stdout=subprocess.PIPE, text=True)
+    last = ""
+    for line in p.stdout:
+        if line.startswith("PROGRESS "):
+            print(line, end="", flush=True)
+        elif line.strip():
+            last = line
+    if p.wait() != 0:
+        raise SystemExit(f"stdf2parquet failed (exit {p.returncode})")
+    r = json.loads(last)
+    return {"parts": r["parts"], "results": r["results"], "tests": r["tests"]}, r["notes"], "rust"
+
+
 def stdf(files, out):
+    if os.environ.get("VTOOLS_STDF") != "python" and shutil.which("stdf2parquet"):
+        return stdf_rust(files, out)
     import pyarrow as pa
     import pyarrow.parquet as pq
     sys.path.insert(0, os.path.dirname(__file__))
@@ -61,12 +80,12 @@ def stdf(files, out):
         for w in writers.values():
             w.close()
     tn = sorted(tests)
-    pq.write_table(pa.table({"test_num": pa.array(tn, pa.uint32()), "name": [tests[t][0] for t in tn],
+    pq.write_table(pa.table({"test_num": pa.array(tn, pa.uint32()), "name": pa.array([tests[t][0] for t in tn], pa.string()),
                              "lo": pa.array([tests[t][1] for t in tn], pa.float32()),
                              "hi": pa.array([tests[t][2] for t in tn], pa.float32()),
-                             "units": [tests[t][3] for t in tn]}), os.path.join(out, "tests.parquet"))
+                             "units": pa.array([tests[t][3] for t in tn], pa.string())}), os.path.join(out, "tests.parquet"))
     counts["tests"] = len(tn)
-    return counts, notes
+    return counts, notes, "python"
 
 
 def text(files, out, pattern, time_col=None, time_format=None):
@@ -123,16 +142,17 @@ def main():
     os.makedirs(tmp)
     t = time.time()
     if a.format == "stdf":
-        counts, notes = stdf(a.files, tmp)
+        counts, notes, reader = stdf(a.files, tmp)
     else:
         if not a.pattern:
             raise SystemExit("text needs --pattern with named groups")
-        counts, notes = text(a.files, tmp, a.pattern, a.time, a.time_format)
-    meta = {**key, "counts": counts, "built": time.strftime("%Y-%m-%d %H:%M:%S"), "seconds": round(time.time() - t, 1)}
+        (counts, notes), reader = text(a.files, tmp, a.pattern, a.time, a.time_format), "polars"
+    meta = {**key, "counts": counts, "built": time.strftime("%Y-%m-%d %H:%M:%S"), "seconds": round(time.time() - t, 1),
+            "reader": reader}
     json.dump(meta, open(os.path.join(tmp, "meta.json"), "w"), indent=1)
     shutil.rmtree(out, ignore_errors=True)
     os.replace(tmp, out)  # a dataset is either the whole new one or the old one
-    print(f"dataset {a.dataset}: {json.dumps(counts)} in {meta['seconds']}s; tables: "
+    print(f"dataset {a.dataset}: {json.dumps(counts)} in {meta['seconds']}s ({meta['reader']}); tables: "
           + ", ".join(sorted(f.split('.')[0] for f in os.listdir(out) if f != "meta.json")))
     for n in notes:
         print("note:", n)
