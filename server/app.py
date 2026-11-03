@@ -763,6 +763,6 @@ def ui():
 @app.get("/static/{name}")
 def static(name: str):
     f = STATIC / name
-    if name not in ("app.js", "app.css") or not f.exists():
+    if name not in ("app.js", "md.js", "app.css") or not f.exists():
         raise HTTPException(404)
     return FileResponse(f, headers={"Content-Security-Policy": UI_CSP, "X-Content-Type-Options": "nosniff"})

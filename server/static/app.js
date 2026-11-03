@@ -34,7 +34,12 @@ function el(tag, cls, text) {
 function scrollDown() { const m = $("messages"); m.scrollTop = m.scrollHeight; }
 
 function addMsg(role, text) {
-  $("messages").append(el("div", `msg ${role}`, text));
+  // the model's answers as markdown (md.js builds nodes, never HTML); what the user typed and errors stay plain text
+  const m = role === "assistant" ? el("div", "msg assistant md") : el("div", `msg ${role}`, text);
+  if (role === "assistant") {
+    try { m.append(MD.render(text)); } catch (e) { m.className = "msg assistant"; m.textContent = text; }  // never lose the rest of the history
+  }
+  $("messages").append(m);
   scrollDown();
 }
 

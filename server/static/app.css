@@ -102,6 +102,33 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #a5d8e6; outline-
 .msg.user { align-self: flex-end; background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
 .msg.assistant { align-self: flex-start; }
 .msg.error { color: var(--danger); }
+.md { white-space: normal; min-width: 0; max-width: min(760px, 100%); }  /* a long code line scrolls in its block */
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md blockquote, .md .code, .md .table { margin: 0 0 10px; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 16px 0 8px; line-height: 1.35; }
+.md h1 { font-size: 20px; } .md h2 { font-size: 18px; } .md h3 { font-size: 16px; }
+.md h4, .md h5, .md h6 { font-size: 15px; }
+.md ul, .md ol { padding-left: 24px; }
+.md li > ul, .md li > ol { margin: 2px 0; }
+.md li.task { list-style: none; margin-left: -20px; }
+.md li.task input { margin: 0 6px 0 0; vertical-align: -1px; }
+.md blockquote { border-left: 3px solid var(--border); padding-left: 12px; color: var(--muted); }
+.md hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
+.md a { color: var(--primary); }
+.md code { font: 13px Consolas, "Liberation Mono", monospace; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+.md .code, .md .table { border: 1px solid var(--border); border-radius: 6px; background: var(--surface); overflow: hidden; }
+.md .md-bar { display: flex; justify-content: space-between; align-items: center; padding: 3px 6px 3px 10px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+.md .md-bar button { font-size: 12px; padding: 1px 8px; }
+.md pre { margin: 0; padding: 10px 12px; overflow-x: auto; }
+.md pre code { border: 0; padding: 0; background: none; white-space: pre; }
+.md .table-wrap { overflow-x: auto; }
+.md .table { width: fit-content; max-width: 100%; }
+.md table { border-collapse: collapse; font-size: 14px; background: var(--white); }
+.md tr + tr > *, .md thead + tbody > tr > * { border-top: 1px solid var(--border); }
+.md th + th, .md td + td { border-left: 1px solid var(--border); }
+.md th, .md td { padding: 5px 10px; text-align: left; vertical-align: top; }
+.md th { background: var(--surface); font-weight: bold; }
 .tool { font: 13px Consolas, "Liberation Mono", monospace; color: var(--muted); }
 .artifact-ref {
   align-self: flex-start; display: flex; gap: 10px; align-items: center; background: var(--white);
