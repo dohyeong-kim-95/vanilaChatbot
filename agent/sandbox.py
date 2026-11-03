@@ -1,9 +1,12 @@
 """Isolated execution: one hardened Docker container per session, workspace bind-mounted."""
+import collections
 import contextlib
 import os
+import queue
 import re
 import subprocess
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -32,11 +35,14 @@ class _Cap(threading.Thread):
 
     def run(self):
         for chunk in iter(lambda: self.stream.read(65536), b""):
-            self.total += len(chunk)
-            take = max(0, self.n - len(self.head))
-            self.head += chunk[:take]
-            self.tail += chunk[take:]
-            del self.tail[:max(0, len(self.tail) - self.n)]
+            self.feed(chunk)
+
+    def feed(self, chunk):
+        self.total += len(chunk)
+        take = max(0, self.n - len(self.head))
+        self.head += chunk[:take]
+        self.tail += chunk[take:]
+        del self.tail[:max(0, len(self.tail) - self.n)]
 
     @property
     def dropped(self):
@@ -48,11 +54,55 @@ class _Cap(threading.Thread):
         return self.head.decode(errors="replace") + mid + self.tail.decode(errors="replace")
 
 
+class Slots:
+    """At most n long jobs at once on this server (each takes a CPU), first come first served. A waiting job hears
+    how many are ahead of it."""
+    def __init__(self, n):
+        self.n, self.running, self.queue, self.cv = n, 0, collections.deque(), threading.Condition()
+
+    def acquire(self, cancel=None, waiting=lambda ahead: None):
+        ticket = object()
+        with self.cv:
+            self.queue.append(ticket)
+            try:
+                last = None
+                while self.queue[0] is not ticket or self.running >= self.n:
+                    ahead = self.queue.index(ticket)  # waiting before this one (0: next when a slot frees)
+                    if ahead != last:
+                        last = ahead
+                        self.cv.release()  # the callback writes an event: not while holding up every other job
+                        try:
+                            waiting(ahead)
+                        finally:
+                            self.cv.acquire()
+                        continue
+                    if cancel is not None and cancel.is_set():
+                        return False
+                    self.cv.wait(0.5)
+                self.running += 1
+                return True
+            finally:
+                self.queue.remove(ticket)
+                self.cv.notify_all()
+
+    def release(self):
+        with self.cv:
+            self.running -= 1
+            self.cv.notify_all()
+
+
+JOBS = Slots(int(os.environ.get("AGENT_JOB_SLOTS", max(1, (os.cpu_count() or 2) - 1))))
+JOB_MAX = 3600  # seconds, one long job
+PROGRESS = re.compile(r"^PROGRESS (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)(?: (.*))?$")  # "PROGRESS done total [note]"
+
+
 class Sandbox:
-    def __init__(self, workspace, network="none", egress=None, readonly=(), name=None, mounts=None, agent=False):
+    def __init__(self, workspace, network="none", egress=None, readonly=(), name=None, mounts=None, agent=False,
+                 rw_mounts=None):
         """egress: an EgressProxy -> internal network whose only way out is that proxy's allowlist.
         readonly: workspace subdirs mounted read-only.
         mounts: {host dir: container path}, read-only, outside /workspace (e.g. skills).
+        rw_mounts: {host dir: container path}, read-write (the project's cache). Never given to fresh().
         agent: workspace read-only, /workspace/outputs an empty tmpfs (fresh())."""
         self.workspace = Path(workspace).resolve()
         self.readonly = [self.workspace / d for d in readonly]
@@ -82,7 +132,8 @@ class Sandbox:
             *(["--tmpfs", f"/workspace/outputs:{AGENT_OUTPUTS}"] if agent else []),
             *[a for d in self.readonly for a in (
                 "-v", f"{d}:/workspace/{d.relative_to(self.workspace)}:ro")],
-            *[a for h, c in (mounts or {}).items() for a in ("-v", f"{Path(h).resolve()}:{c}:ro")], "-w", "/workspace",
+            *[a for h, c in (mounts or {}).items() for a in ("-v", f"{Path(h).resolve()}:{c}:ro")],
+            *[a for h, c in (rw_mounts or {}).items() for a in ("-v", f"{Path(h).resolve()}:{c}")], "-w", "/workspace",
             IMAGE, "sleep", "infinity"], check=True, capture_output=True)
 
     def exec(self, command, timeout=60):
@@ -106,6 +157,70 @@ class Sandbox:
         out, err = (c.text() for c in caps)
         out = (out + (("\n[stderr]\n" + err) if err else "")).strip()
         return f"exit_code={rc}\n{out if any(c.dropped for c in caps) else truncate(out)}"
+
+    def job(self, command, timeout=JOB_MAX, progress=lambda done, total, note: None, waiting=lambda ahead: None,
+            cancel=None, started=lambda: None):
+        """A long command (minutes): waits for a free slot (JOBS), runs in its own process group, reports each
+        `PROGRESS done total [note]` line it prints, stops on cancel or timeout. Returns like exec()."""
+        if not JOBS.acquire(cancel, waiting):
+            return "exit_code=130\n[cancelled while waiting for a free slot]"
+        jid = uuid.uuid4().hex[:8]
+        pidf = f"/tmp/job-{jid}.pid"
+        try:
+            started()
+            # setsid: the job and everything it starts form one group, killed together (kill -- -pgid). -w: setsid
+            # forks when it already leads a group, and without -w docker exec would end (and lose the output) at once
+            p = subprocess.Popen(["docker", "exec", self.name, "setsid", "-w", "bash", "-c", 'echo $$ > "$1"; exec bash -lc "$2"',
+                                  "_", pidf, command], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            err = _Cap(p.stderr)
+            err.start()
+            lines, out = queue.Queue(), _Cap(None)
+
+            def read():
+                for raw in iter(lambda: p.stdout.readline(65536), b""):  # a line without \n is cut, not held
+                    lines.put(raw)
+                lines.put(None)
+            threading.Thread(target=read, daemon=True).start()
+            start = time.time()
+            deadline, stopped, last, held = start + timeout, None, 0.0, None
+            while True:
+                try:
+                    raw = lines.get(timeout=0.5)
+                except queue.Empty:
+                    raw = ""
+                if raw is None:
+                    break
+                if raw:
+                    m = PROGRESS.match(raw.decode(errors="replace").strip())
+                    if m:
+                        held = (float(m[1]), float(m[2]), (m[3] or "")[:200])
+                        if time.time() - last >= 2:  # each report is an event row: a tight loop must not flood them
+                            last = time.time()
+                            progress(*held)
+                            held = None
+                    else:
+                        out.feed(raw)
+                if stopped is None and (time.time() > deadline or (cancel is not None and cancel.is_set())):
+                    stopped = "timeout" if time.time() > deadline else "cancelled"
+                    subprocess.run(["docker", "exec", self.name, "bash", "-c", 'kill -TERM -- -"$(cat "$1")"', "_", pidf],
+                                   capture_output=True)
+                    deadline = time.time() + 5  # then hard
+                if stopped and time.time() > deadline:
+                    subprocess.run(["docker", "exec", self.name, "bash", "-c", 'kill -KILL -- -"$(cat "$1")"', "_", pidf],
+                                   capture_output=True)
+                    p.kill()
+                    break
+            rc = p.wait()
+            err.join(5)
+            if held and not stopped:  # the last report (often 100%) came within 2 s of the one before
+                progress(*held)
+            text = (out.text() + (("\n[stderr]\n" + err.text()) if err.total else "")).strip()
+            if stopped:
+                return f"exit_code={124 if stopped == 'timeout' else 130}\n[{stopped} after {int(time.time() - start)}s]\n{text}"
+            return f"exit_code={rc}\n{text}"
+        finally:
+            subprocess.run(["docker", "exec", self.name, "rm", "-f", pidf], capture_output=True)
+            JOBS.release()
 
     # Host-side tools (read_file, write_file, artifact file=, views) go through the container, never through the
     # host path: a process in the sandbox can swap a directory for a symlink between a host-side check and open

@@ -408,6 +408,12 @@ DELETE /projects/{p}/files?path=…           파일, 또는 폴더와 그 안�
 - 예전 `POST /projects/{p}/uploads {name,text}`도 같은 트리에 들어간다: 폴더 경로·한글 이름을 받고, 5MB 초과는 413(전에는 422).
 - 남은 일: 프로젝트 수 상한(지금은 사용자당 200MB × 프로젝트 수), 파일 내용 미리보기·내려받기, 덮어쓰기(새 버전), 여러 개 선택해 옮기기, 큰 트리에서 checkout 복사 비용.
 
+### 9.3.2 큰 파일과 긴 작업 [검증: Loop 31]
+- **조각 업로드**: `POST /projects/{p}/files/uploads {path, size}` → `PUT …/{id}?offset=N`(16MB 이하, 현재 위치에서만. 아니면 409 `{received}`) → `POST …/{id}/finish`(sha256, blob으로 이동). 미완료 조각은 하루 뒤 정리(업로드 시작·서버 시작 때 전체). 상한(환경변수): 파일 `AGENT_MAX_FILE` 4GB, 프로젝트 `AGENT_UPLOAD_QUOTA` 20GB, 사용자 전체 `AGENT_USER_QUOTA` 40GB, 디스크 여유 `AGENT_DISK_RESERVE` 2GB(열린 업로드들이 아직 쓸 양을 빼고 판단). UI는 5MB 넘는 파일을 조각으로 올리고 실패한 조각은 서버가 말하는 위치부터 다시 보낸다.
+- **run 준비**: 업로드 blob을 run 작업 공간에 하드링크한다(0444, sandbox에서는 :ro, 같은 파일시스템이 아니면 복사). blob은 바뀌지 않으므로 링크로 충분하다.
+- **cache**: 프로젝트마다 `/workspace/cache`를 읽기·쓰기로 그대로 마운트한다(복사·역복사 없음, 호스트는 내용을 읽지 않음, 크기만 lstat로 셈). `AGENT_CACHE_MAX` 20GB를 넘으면 `run_long`을 거부한다. `GET/DELETE /projects/{p}/cache`(진행 중인 run이 있으면 409).
+- **긴 작업(`run_long`)**: 최대 60분. 서버 전체 동시 실행 수 `AGENT_JOB_SLOTS`(기본 코어 수-1, 선착순). `setsid -w`로 프로세스 그룹을 만들어 취소·시간 초과 때 그룹째 종료한다. `PROGRESS done total [note]` 줄은 진행 이벤트(`job`)로, 2초 간격(마지막 값 보존). 실제 CPU 한도는 컨테이너의 `--cpus 1`이다.
+
 ### 9.4 아티팩트와 고정 리포트 [검증: Loop 14, 리서치 R6]
 - **아티팩트**(Claude 방식): `artifact` tool, command는 `create`, `update`(`old_str`을 `new_str`로 바꿈, 최신 버전에서 정확히 1회 일치해야 함), `rewrite` 세 가지.
   - 종류: html, markdown, svg, mermaid, code.
@@ -558,6 +564,7 @@ tests/test_l17_slides.py      Loop 23 (리뷰 회귀: shmoo 구멍 분리, 축 �
 tests/test_l18_auth.py        Loop 24 (로그인, 잠금, 폐기, 출처 검사, UI)
 tests/test_l19_deploy.py      Loop 25 (새 Ubuntu 서버 컨테이너에 설치 → Caddy 거쳐 로그인·run → 업데이트 → 되돌리기)
 tests/test_l20_gateway_errors.py  Loop 25.9 (gateway 오류: 나아질 수 없는 오류는 재시도 안 함, Retry-After 전달)
+tests/test_l24_bigdata.py     Loop 31 (조각 업로드·할당량·디스크, 하드링크 run 준비, cache, 긴 작업 슬롯·진행·취소, Chrome 업로드·상태 줄)
 tests/test_l23_plan.py        Loop 30 (update_plan 검사, 요약을 지나는 계획, 새로고침 뒤 카드, Chrome에서 실시간 카드·상태 줄; LLM: t_llm_uses_plan)
 tests/test_l22_layout.py      Loop 27 (패널 폭 끌기·키·기억·창 크기 제한, 크게 보기, 사이드바 숨기기, 닫은 아티팩트 다시 열기), Loop 28 (프롬프트 히스토리), Loop 29 (사이드바 목록 높이)
 tests/test_l21_files.py       Loop 26 (사용자 파일 트리: 경로 규칙, 폴더 작업, 상한, sandbox 읽기 전용, 프롬프트, API, Chrome UI, 모델이 폴더 이름으로 찾기)
@@ -592,6 +599,7 @@ K=3 python tests/test_l9_artifacts.py      # Playwright + 시스템 Chrome(AGENT
 python tests/test_l18_auth.py             # 결정적, LLM 없이 몇 초
 python tests/test_l20_gateway_errors.py   # 결정적, 네트워크 없이 몇 초
 python tests/test_l22_layout.py           # Chrome, LLM 없이 몇 초
+python tests/test_l24_bigdata.py          # Docker·Chrome, LLM 없이 1분 정도
 python tests/test_l23_plan.py             # Docker·Chrome, LLM 없이. LLM: python tests/test_l23_plan.py t_llm_uses_plan (K=3)
 python tests/test_l21_files.py            # Docker·Chrome 필요. 마지막 t_model_finds_folder만 LLM(K=2)
 KEEP=1 python tests/test_l19_deploy.py    # 배포: Docker와 인터넷, 약 13분 (부록 C)

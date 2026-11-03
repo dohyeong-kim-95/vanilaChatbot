@@ -4,11 +4,16 @@ Tools flagged `ask=True` need a human answer (a string), passed to the impl as `
 import contextlib
 import datetime
 import json
+import os
 import tempfile
 from pathlib import Path
 
 from . import delegate, github, logview, report, shmoo
 from .artifacts import MAX_SIZE as ARTIFACT_MAX
+from .sandbox import JOB_MAX
+from .userstore import DISK_RESERVE
+
+CACHE_MAX = int(os.environ.get("AGENT_CACHE_MAX", 20 * 2**30))  # one project's /workspace/cache
 
 REGISTRY = {}
 
@@ -51,6 +56,31 @@ def bash(ctx, command, timeout=60):
     for h, why in blocked.items():  # tools only see "403"; tell the model why and what it can do
         out += f"\n[egress] blocked {h}: {why}. If the task needs it, call request_network_access."
     return out
+
+
+@tool("Run a long bash command in the sandbox (minutes, up to 60): processing big files, building a cache. It "
+      "waits for a free slot on the server (the user sees the queue). Print lines 'PROGRESS <done> <total> [note]' "
+      "(e.g. bytes read so far and the file size) and the user sees the progress. Other output comes back like bash "
+      "(head and tail): write results to files (e.g. /workspace/cache) instead of printing them. Use bash for anything "
+      "that takes less than a minute.",
+      {"command": S, "label": {"type": "string", "description": "what it does, a few words in the user's language"},
+       "timeout_min": {"type": "integer", "description": "1-60, default 60"}}, required=["command", "label"])
+def run_long(ctx, command, label, timeout_min=60):
+    label = " ".join(str(label).split())[:60] or "작업"
+    minutes = max(1, min(int(timeout_min), JOB_MAX // 60))
+    # the cache persists and the disk is shared: no new long job over the limit or on a nearly full disk
+    du = ctx.sandbox.exec("du -sb /workspace/cache 2>/dev/null | cut -f1; df -B1 --output=avail /workspace/cache | tail -1",
+                          timeout=60).split("\n")[1:]
+    used, free = (int(x) if x.strip().isdigit() else 0 for x in (du + ["", ""])[:2])
+    if used > CACHE_MAX:
+        raise ValueError(f"/workspace/cache holds {used:,} bytes (limit {CACHE_MAX:,}); remove what is not needed "
+                         "or ask the user to clear the cache")
+    if free and free < DISK_RESERVE:
+        raise ValueError("the server's disk is nearly full; ask the user to free space")
+    say = lambda **ev: ctx.emit({"type": "job", "label": label, **ev})  # noqa: E731
+    return ctx.sandbox.job(command, timeout=minutes * 60, cancel=ctx.cancel,
+                           progress=lambda done, total, note: say(done=done, total=total, note=note),
+                           waiting=lambda ahead: say(ahead=ahead), started=lambda: say(state="running"))
 
 
 @tool("Ask the user to allow HTTPS access to one more domain from the sandbox. Requires human approval.",

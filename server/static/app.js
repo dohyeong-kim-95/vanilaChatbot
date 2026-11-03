@@ -135,7 +135,7 @@ async function openSession(sid) {
 
 // ---- files: the user's own folders. The model is shown the same tree with every message (agent/userstore.py), so
 // "the files in the 카드 folder" means what is drawn here. Names come from the user: textContent only.
-const MAX_FILE = 5 * 1024 * 1024;  // agent/userstore.py MAX_UPLOAD
+const MAX_FILE = 5 * 1024 * 1024;  // agent/userstore.py MAX_UPLOAD: bigger files go up in parts (bigUpload)
 const parentOf = (p) => p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
 const baseName = (p) => p.slice(p.lastIndexOf("/") + 1);
 const joinPath = (dir, name) => dir ? `${dir}/${name}` : name;
@@ -145,7 +145,7 @@ const fmtSize = (n) => n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFix
 function fileError(e) {
   const s = String(e.message || e);
   if (s.startsWith("409")) return "같은 이름이 이미 있어요";
-  if (s.startsWith("413")) return "너무 커요 (파일 5MB, 프로젝트 전체 200MB·2,000개까지)";
+  if (s.startsWith("413")) return /disk/.test(s) ? "서버 디스크 공간이 모자라요" : "너무 커요 (파일 4GB, 프로젝트 전체 20GB·2,000개까지)";
   if (s.startsWith("422")) return "쓸 수 없는 이름이에요 (. - 공백으로 시작하거나 \\ 가 들어간 이름, 8단계보다 깊은 폴더)";
   if (s.startsWith("404")) return "이미 없어요";
   return s;
@@ -285,9 +285,15 @@ async function uploadFiles(project, files, folders = []) {
   let i = 0;
   for (const [path, file] of files) {
     busy.textContent = `올리는 중… ${++i}/${files.length}`;
-    if (file.size > MAX_FILE) { errs.push(`${path}: ${fileError("413")}`); continue; }
     try {
-      await api(fileUrl(project, path), { method: "PUT", body: file, headers: { "Content-Type": "application/octet-stream" } });
+      if (file.size > MAX_FILE) {
+        const n = i;
+        await bigUpload(project, path, file, (f) => {
+          busy.textContent = `올리는 중… ${n}/${files.length} · ${baseName(path)} ${Math.floor(f * 100)}% (${fmtSize(f * file.size)} / ${fmtSize(file.size)})`;
+        });
+      } else {
+        await api(fileUrl(project, path), { method: "PUT", body: file, headers: { "Content-Type": "application/octet-stream" } });
+      }
     } catch (e) {
       errs.push(`${path}: ${fileError(e)}`);
     }
@@ -295,6 +301,35 @@ async function uploadFiles(project, files, folders = []) {
   busy.remove();
   if (errs.length) addMsg("error", `올리지 못했어요\n${errs.join("\n")}`);
   if (project === state.project) await loadFiles();
+}
+
+// A big file in parts (Loop 31): each part goes on from where the server says the upload stands, so a lost reply
+// or a dropped connection costs one part, not the file. Gives up (and frees the space) after repeated failures.
+async function bigUpload(project, path, file, show) {
+  const base = `/projects/${project}/files/uploads`;
+  const begun = await api(base, { method: "POST", body: JSON.stringify({ path, size: file.size }) });
+  const id = begun.upload_id, part = begun.part_max;
+  let received = begun.received, fails = 0;
+  const retryable = (e) => e.name === "TypeError" || /^(409|5\d\d)/.test(String(e.message));  // network, offset, server
+  while (received < file.size) {
+    show(received / file.size);
+    try {
+      const r = await api(`${base}/${id}?offset=${received}`, {
+        method: "PUT", body: file.slice(received, received + part), headers: { "Content-Type": "application/octet-stream" },
+      });
+      received = r.received;
+      fails = 0;
+    } catch (e) {
+      if (!retryable(e) || ++fails > 6) {
+        api(`${base}/${id}`, { method: "DELETE" }).catch(() => {});
+        throw e;
+      }
+      await new Promise((ok) => setTimeout(ok, 500 * 2 ** fails));
+      try { received = (await api(`${base}/${id}`)).received; } catch (e2) { /* still down: try again */ }
+    }
+  }
+  show(1);
+  await api(`${base}/${id}/finish`, { method: "POST" });
 }
 
 async function moveFile(src, dst) {
@@ -418,7 +453,10 @@ function onEvent(rid, ev, seq, status) {
       break;
     case "tool_call": {
       let name = ev.name;
-      try { if (ev.name === "bash") name += ": " + JSON.parse(ev.arguments).command.split("\n")[0].slice(0, 80); } catch (e) {}
+      try {
+        if (ev.name === "bash") name += ": " + JSON.parse(ev.arguments).command.split("\n")[0].slice(0, 80);
+        if (ev.name === "run_long") name = JSON.parse(ev.arguments).label;
+      } catch (e) {}
       if (ev.name !== "update_plan") status.now = name;
       break;
     }
@@ -433,6 +471,11 @@ function onEvent(rid, ev, seq, status) {
       break;
     case "plan":
       drawPlan(ev.steps);
+      break;
+    case "job":  // a long command (run_long): its queue place, then its progress
+      status.now = ev.ahead != null ? `${ev.label}: 대기 중 (앞에 ${ev.ahead}개)`
+        : ev.total ? `${ev.label} ${Math.min(100, Math.floor((100 * ev.done) / ev.total))}%${ev.note ? ` · ${ev.note}` : ""}`
+        : ev.label;
       break;
     case "artifact":
       addArtifactRef(ev.id, ev.version, ev.title);

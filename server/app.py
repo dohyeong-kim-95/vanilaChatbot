@@ -13,6 +13,10 @@ PUT  /projects/{p}/files?path=a/b.csv   raw bytes              new file; parent 
 POST /projects/{p}/folders              {path}
 POST /projects/{p}/files/move           {src, dst}             rename or move a file or a folder
 DELETE /projects/{p}/files?path=a       a file, or a folder with everything in it
+POST /projects/{p}/files/uploads        {path, size} -> {upload_id, received, part_max}   a big file, in parts:
+PUT  .../files/uploads/{id}?offset=N    raw bytes (one part, from where it stands; 409 {received} otherwise)
+POST .../files/uploads/{id}/finish      -> {sha256, path}   (GET status, DELETE cancel)
+GET|DELETE /projects/{p}/cache          size of / clear the project's derived data (/workspace/cache)
 POST /sessions                          {project_id} -> {session_id}
 POST /sessions/{id}/documents           {name, text}           (RAG upload)
 POST /sessions/{id}/messages            {content}  -> {run_id}  (409 if a run is active in the project)
@@ -50,7 +54,7 @@ from agent.loop import ACK, LATEST, PLAN_HINT, SUMMARY, SYSTEM, Context, Interru
 from agent.rag import DocStore
 from agent.sandbox import Sandbox
 from agent.tools import REGISTRY, schemas
-from agent.userstore import ID_RE, MAX_UPLOAD, TooLarge, UserStore
+from agent.userstore import ID_RE, MAX_UPLOAD, PART_MAX, Conflict, TooLarge, UserStore
 from server import auth, capture, render
 
 ROOT = Path(os.environ.get("AGENT_ROOT", "/tmp/agent-sessions"))
@@ -80,6 +84,7 @@ LOCK = threading.Lock()
 CANCEL = {}  # process-local
 _read = lambda env: Path(os.environ[env]).read_text() if os.environ.get(env) else ""
 STORE = UserStore(ROOT, org_policy=_read("AGENT_ORG_POLICY"), org_settings=json.loads(_read("AGENT_ORG_SETTINGS") or "{}"))
+STORE.sweep_uploads()  # unfinished uploads past a day, from before a restart
 TOOLS = [t["function"]["name"] for t in schemas()] + ["remember", "artifact", "show_report", "show_shmoo", "show_logview", "use_skill", "ask_user"]
 AGENTS = delegate.discover()
 TOOLS += [delegate.tool_name(n) for n in AGENTS]
@@ -124,7 +129,8 @@ def _work(rid, task, decisions):
     run_dir = ROOT / "work" / rid
     if not run_dir.exists():  # else: a crashed worker's uncommitted workspace, keep it
         STORE.checkout(user, project, run_dir)
-    sb = Sandbox(run_dir / "ws", readonly=("uploads",), name=rid, mounts={skills.DIR: skills.MOUNT, delegate.DIR: delegate.MOUNT})
+    sb = Sandbox(run_dir / "ws", readonly=("uploads",), name=rid, mounts={skills.DIR: skills.MOUNT, delegate.DIR: delegate.MOUNT},
+                 rw_mounts={STORE.cache_dir(user, project): "/workspace/cache"})
     settings = STORE.settings(user, project)
     ctx = Context(sandbox=sb, skills=SKILLS, agents=AGENTS, docs=DocStore(str(ROOT / f"{sid}.docs.db")), notes=json.loads(notes),
                   git_dir=str(run_dir / "git"), remote_url=settings.get("git_remote"),
@@ -388,6 +394,8 @@ def get_memory(user=Depends(caller)):
 def files_op(fn, *args):
     try:
         return fn(*args)
+    except Conflict as e:  # the client goes on from `received`
+        raise HTTPException(409, {"message": str(e), "received": e.received})
     except TooLarge as e:
         raise HTTPException(413, str(e))
     except FileExistsError as e:
@@ -396,6 +404,61 @@ def files_op(fn, *args):
         raise HTTPException(404, "no such file or folder")
     except ValueError as e:
         raise HTTPException(422, str(e))
+
+
+class BeginUpload(BaseModel):
+    path: str
+    size: int
+
+
+# Big files (Loop 31): begin -> PUT parts in order (16 MB each) -> finish. Resumable: after a lost reply or a
+# reload the client asks where the upload stands and goes on from there. Unfinished uploads expire after a day.
+@app.post("/projects/{pid}/files/uploads")
+def begin_upload(pid: str, b: BeginUpload, user=Depends(caller)):
+    return files_op(STORE.begin_upload, user, own_project(pid, user), b.path, b.size)
+
+
+@app.get("/projects/{pid}/files/uploads/{uid}")
+def upload_status(pid: str, uid: str, user=Depends(caller)):
+    return files_op(STORE.upload_status, user, own_project(pid, user), uid)
+
+
+@app.put("/projects/{pid}/files/uploads/{uid}")
+async def upload_part(pid: str, uid: str, offset: int, request: Request, user=Depends(caller)):
+    project = await asyncio.to_thread(own_project, pid, user)
+    data = bytearray()
+    async for chunk in request.stream():
+        data += chunk
+        if len(data) > PART_MAX:
+            raise HTTPException(413, f"a part is at most {PART_MAX} bytes")
+    return await asyncio.to_thread(files_op, STORE.upload_part, user, project, uid, offset, bytes(data))
+
+
+@app.post("/projects/{pid}/files/uploads/{uid}/finish")
+async def finish_upload(pid: str, uid: str, user=Depends(caller)):
+    project = await asyncio.to_thread(own_project, pid, user)
+    return await asyncio.to_thread(files_op, STORE.finish_upload, user, project, uid)  # hashing GBs takes seconds
+
+
+@app.delete("/projects/{pid}/files/uploads/{uid}")
+def cancel_upload(pid: str, uid: str, user=Depends(caller)):
+    files_op(STORE.cancel_upload, user, own_project(pid, user), uid)
+    return {"ok": True}
+
+
+@app.get("/projects/{pid}/cache")
+def cache_info(pid: str, user=Depends(caller)):
+    return {"size": STORE.cache_size(user, own_project(pid, user))}
+
+
+@app.delete("/projects/{pid}/cache")
+def cache_clear(pid: str, user=Depends(caller)):
+    project = own_project(pid, user)
+    if q("""SELECT 1 FROM runs JOIN sessions s ON s.id = runs.session_id WHERE s.user_id=? AND s.project_id=?
+            AND runs.status IN ('running','awaiting_approval')""", user, project):
+        raise HTTPException(409, "a conversation in this project is still working; clear the cache when it ends")
+    STORE.clear_cache(user, project)
+    return {"ok": True}
 
 
 class FolderReq(BaseModel):

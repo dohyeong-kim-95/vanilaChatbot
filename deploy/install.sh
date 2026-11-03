@@ -204,6 +204,13 @@ AGENT_RENDER_SECRET=$(secret)
 AGENT_CHROME_CHANNEL=
 PLAYWRIGHT_BROWSERS_PATH=$OPT/ms-playwright
 AGENT_EFFORT=low
+# big files and long jobs (bytes; the defaults are shown): file, project, user, free disk kept, cache, parallel jobs
+#AGENT_MAX_FILE=4294967296
+#AGENT_UPLOAD_QUOTA=21474836480
+#AGENT_USER_QUOTA=42949672960
+#AGENT_DISK_RESERVE=2147483648
+#AGENT_CACHE_MAX=21474836480
+#AGENT_JOB_SLOTS=
 # any OpenAI-compatible server; the default is the gateway on this machine (gateway.env)
 LLM_BASE_URL=http://127.0.0.1:8100/v1
 LLM_API_KEY=$(getenv GATEWAY_API_KEY "$GWENV")
