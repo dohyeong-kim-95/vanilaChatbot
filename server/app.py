@@ -52,7 +52,7 @@ from agent import delegate, report, skills
 from agent.artifacts import ArtifactStore
 from agent.loop import ACK, LATEST, PLAN_HINT, SUMMARY, SYSTEM, Context, Interrupt, _user_text, run, shown_plans
 from agent.rag import DocStore
-from agent.sandbox import Sandbox
+from agent.sandbox import VTOOLS, Sandbox
 from agent.tools import REGISTRY, schemas
 from agent.userstore import ID_RE, MAX_UPLOAD, PART_MAX, Conflict, TooLarge, UserStore
 from server import auth, capture, render
@@ -129,7 +129,8 @@ def _work(rid, task, decisions):
     run_dir = ROOT / "work" / rid
     if not run_dir.exists():  # else: a crashed worker's uncommitted workspace, keep it
         STORE.checkout(user, project, run_dir)
-    sb = Sandbox(run_dir / "ws", readonly=("uploads",), name=rid, mounts={skills.DIR: skills.MOUNT, delegate.DIR: delegate.MOUNT},
+    sb = Sandbox(run_dir / "ws", readonly=("uploads",), name=rid,
+                 mounts={skills.DIR: skills.MOUNT, delegate.DIR: delegate.MOUNT, VTOOLS: "/vtools"},
                  rw_mounts={STORE.cache_dir(user, project): "/workspace/cache"})
     settings = STORE.settings(user, project)
     ctx = Context(sandbox=sb, skills=SKILLS, agents=AGENTS, docs=DocStore(str(ROOT / f"{sid}.docs.db")), notes=json.loads(notes),

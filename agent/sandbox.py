@@ -1,6 +1,7 @@
 """Isolated execution: one hardened Docker container per session, workspace bind-mounted."""
 import collections
 import contextlib
+import hashlib
 import os
 import queue
 import re
@@ -10,7 +11,12 @@ import time
 import uuid
 from pathlib import Path
 
-IMAGE = os.environ.get("SANDBOX_IMAGE", "python:3.12-slim")
+# Our analysis image (sandbox/Dockerfile: polars, duckdb, pyarrow). Its tag is the Dockerfile's hash, so a changed
+# Dockerfile means a new image (deploy/install.sh builds it; locally: docker build -t <IMAGE> sandbox/).
+_DOCKERFILE = Path(__file__).resolve().parents[1] / "sandbox" / "Dockerfile"
+DEFAULT_IMAGE = "vanilachatbot/sandbox:" + hashlib.sha256(_DOCKERFILE.read_bytes()).hexdigest()[:12]
+IMAGE = os.environ.get("SANDBOX_IMAGE") or DEFAULT_IMAGE
+VTOOLS = _DOCKERFILE.parent / "vtools"  # our scripts for big logs, mounted read-only at /vtools
 CA = os.environ.get("EGRESS_CA")  # CA bundle to trust inside the sandbox, if TLS is re-terminated upstream
 MAX_OUT = 10_000  # chars; head+tail kept beyond this (mini-swe-agent style)
 # The sandbox runs as the server's own (non-root) user, so the server can read and remove what it writes and a

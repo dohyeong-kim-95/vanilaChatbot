@@ -5,6 +5,8 @@ import contextlib
 import datetime
 import json
 import os
+import re
+import shlex
 import tempfile
 from pathlib import Path
 
@@ -81,6 +83,47 @@ def run_long(ctx, command, label, timeout_min=60):
     return ctx.sandbox.job(command, timeout=minutes * 60, cancel=ctx.cancel,
                            progress=lambda done, total, note: say(done=done, total=total, note=note),
                            waiting=lambda ahead: say(ahead=ahead), started=lambda: say(state="running"))
+
+
+DATASET = {"type": "string", "description": "name of the dataset in /workspace/cache: lowercase letters, digits, _"}
+
+
+@tool("Turn big log files into a Parquet dataset in /workspace/cache/<dataset>/ for fast SQL (log_query), as a long "
+      "job with progress. Do this first for files of more than a few MB instead of reading them yourself; a dataset "
+      "whose files did not change is reused. format 'stdf': STDF V4 test data -> tables parts (lot, wafer, head, "
+      "site, part, part_id, x, y, hard_bin, soft_bin, passed, part_flg, test_t, file), results (part, test_num, "
+      "result, failed, test_flg, file; one row per parametric test; join to parts on (file, part)), tests (test_num, "
+      "name, lo, hi, units). A die tested again (part_flg & 3 != 0, a retest) appears more than once: for yield keep "
+      "the last part per (file, wafer, x, y). format 'text': one row per line "
+      "matched by `pattern`, a regex with named groups (Python syntax, no lookaround or backreferences) as the "
+      "columns; look at the first lines (head) to write "
+      "it; time_column + time_format (e.g. %Y-%m-%dT%H:%M:%S%.3f) parse a timestamp column.",
+      {"paths": {"type": "array", "items": S, "description": "files under /workspace (e.g. uploads/logs/a.stdf)"},
+       "format": {"type": "string", "enum": ["stdf", "text"]}, "dataset": DATASET, "pattern": S,
+       "time_column": S, "time_format": S}, required=["paths", "format", "dataset"])
+def ingest_log(ctx, paths, format, dataset, pattern=None, time_column=None, time_format=None):
+    if not isinstance(paths, list) or not paths or len(paths) > 200:
+        raise ValueError("paths: 1-200 files")
+    if format not in ("stdf", "text") or not re.match(r"^[a-z][a-z0-9_]{0,40}$", str(dataset)):
+        raise ValueError("format: stdf or text; dataset: lowercase letters, digits and _, starting with a letter")
+    files = [ctx.sandbox.cpath(p) for p in paths]  # refuses ../ escapes
+    cmd = ["python", "/vtools/ingest.py", format, dataset, *files]
+    if pattern:
+        cmd += [f"--pattern={pattern}"]  # = : a pattern starting with - is not an option
+    if time_column:
+        cmd += [f"--time={time_column}"] + ([f"--time-format={time_format}"] if time_format else [])
+    return run_long(ctx, " ".join(shlex.quote(c) for c in cmd), f"로그 변환: {dataset}")
+
+
+@tool("Run SQL (DuckDB) over the datasets made by ingest_log: every dataset is a schema, every table a view "
+      "(SELECT ... FROM <dataset>.parts). Aggregate in SQL; at most max_rows rows come back. sql='' lists the "
+      "datasets, tables, columns and row counts.",
+      {"sql": S, "max_rows": {"type": "integer", "description": "1-1000, default 200"}}, required=["sql"])
+def log_query(ctx, sql, max_rows=200):
+    n = max(1, min(int(max_rows), 1000))
+    if not sql.strip():
+        return ctx.sandbox.exec("python /vtools/query.py --tables", timeout=120)
+    return ctx.sandbox.exec(f"python /vtools/query.py --max-rows {n} {shlex.quote(sql)}", timeout=300)
 
 
 @tool("Ask the user to allow HTTPS access to one more domain from the sandbox. Requires human approval.",

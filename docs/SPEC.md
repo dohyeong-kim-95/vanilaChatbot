@@ -414,6 +414,12 @@ DELETE /projects/{p}/files?path=…           파일, 또는 폴더와 그 안�
 - **cache**: 프로젝트마다 `/workspace/cache`를 읽기·쓰기로 그대로 마운트한다(복사·역복사 없음, 호스트는 내용을 읽지 않음, 크기만 lstat로 셈). `AGENT_CACHE_MAX` 20GB를 넘으면 `run_long`을 거부한다. `GET/DELETE /projects/{p}/cache`(진행 중인 run이 있으면 409).
 - **긴 작업(`run_long`)**: 최대 60분. 서버 전체 동시 실행 수 `AGENT_JOB_SLOTS`(기본 코어 수-1, 선착순). `setsid -w`로 프로세스 그룹을 만들어 취소·시간 초과 때 그룹째 종료한다. `PROGRESS done total [note]` 줄은 진행 이벤트(`job`)로, 2초 간격(마지막 값 보존). 실제 CPU 한도는 컨테이너의 `--cpus 1`이다.
 
+### 9.3.3 큰 로그 분석 [검증: Loop 32]
+- sandbox 이미지 `sandbox/Dockerfile`(polars, duckdb, pyarrow, pandas), 태그는 Dockerfile 해시. `sandbox/vtools`를 `/vtools`에 읽기 전용으로.
+- `ingest_log(paths, format=stdf|text, dataset, pattern, time_column, time_format)`: `/workspace/cache/<dataset>/`에 Parquet. STDF 표: parts(file, lot, wafer, head, site, part, part_id, x, y, hard_bin, soft_bin, passed, part_flg, test_t), results(file, part, test_num, result, failed, test_flg), tests(test_num, name, lo, hi, units). 원본(경로·크기·mtime)·옵션·표 버전이 같으면 재사용.
+- `log_query(sql, max_rows)`: DuckDB, 데이터셋마다 스키마·표마다 뷰, memory_limit 600MB, threads 1, `cache/.tmp`로 넘침.
+- 벤치마크: `bench/stdf_gen.py`(mock, 정답 분리), `bench/t1.py`(R7 T1).
+
 ### 9.4 아티팩트와 고정 리포트 [검증: Loop 14, 리서치 R6]
 - **아티팩트**(Claude 방식): `artifact` tool, command는 `create`, `update`(`old_str`을 `new_str`로 바꿈, 최신 버전에서 정확히 1회 일치해야 함), `rewrite` 세 가지.
   - 종류: html, markdown, svg, mermaid, code.
@@ -564,6 +570,7 @@ tests/test_l17_slides.py      Loop 23 (리뷰 회귀: shmoo 구멍 분리, 축 �
 tests/test_l18_auth.py        Loop 24 (로그인, 잠금, 폐기, 출처 검사, UI)
 tests/test_l19_deploy.py      Loop 25 (새 Ubuntu 서버 컨테이너에 설치 → Caddy 거쳐 로그인·run → 업데이트 → 되돌리기)
 tests/test_l20_gateway_errors.py  Loop 25.9 (gateway 오류: 나아질 수 없는 오류는 재시도 안 함, Retry-After 전달)
+tests/test_l25_ingest.py      Loop 32 (STDF 리더: 바이트 순서·스펙 레코드·잘린 파일, cache 재사용, 텍스트 정규식, ingest_log·log_query)
 tests/test_l24_bigdata.py     Loop 31 (조각 업로드·할당량·디스크, 하드링크 run 준비, cache, 긴 작업 슬롯·진행·취소, Chrome 업로드·상태 줄)
 tests/test_l23_plan.py        Loop 30 (update_plan 검사, 요약을 지나는 계획, 새로고침 뒤 카드, Chrome에서 실시간 카드·상태 줄; LLM: t_llm_uses_plan)
 tests/test_l22_layout.py      Loop 27 (패널 폭 끌기·키·기억·창 크기 제한, 크게 보기, 사이드바 숨기기, 닫은 아티팩트 다시 열기), Loop 28 (프롬프트 히스토리), Loop 29 (사이드바 목록 높이)
@@ -578,7 +585,7 @@ docs/LOOP_LOG.md        루프별 실험 기록
 ```bash
 pip install -r requirements.txt
 dockerd &                                  # 필요 시
-docker pull python:3.12-slim
+docker build -t "$(python -c 'from agent.sandbox import IMAGE; print(IMAGE)')" sandbox/   # sandbox 이미지
 # 캡처용 대체 글꼴 (OFL, DESIGN.md 4.2): Arimo + Noto Sans KR. 리포트 섹션 캡처(headless Chrome)가 이 글꼴로 그린다.
 mkdir -p ~/.local/share/fonts/vanilachatbot && cd ~/.local/share/fonts/vanilachatbot && \
   for f in arimo/Arimo%5Bwght%5D.ttf arimo/OFL.txt notosanskr/NotoSansKR%5Bwght%5D.ttf; do \
@@ -600,6 +607,7 @@ python tests/test_l18_auth.py             # 결정적, LLM 없이 몇 초
 python tests/test_l20_gateway_errors.py   # 결정적, 네트워크 없이 몇 초
 python tests/test_l22_layout.py           # Chrome, LLM 없이 몇 초
 python tests/test_l24_bigdata.py          # Docker·Chrome, LLM 없이 1분 정도
+python tests/test_l25_ingest.py           # Docker(sandbox 이미지), 몇 초. 모델 벤치마크: python bench/t1.py --k 3
 python tests/test_l23_plan.py             # Docker·Chrome, LLM 없이. LLM: python tests/test_l23_plan.py t_llm_uses_plan (K=3)
 python tests/test_l21_files.py            # Docker·Chrome 필요. 마지막 t_model_finds_folder만 LLM(K=2)
 KEEP=1 python tests/test_l19_deploy.py    # 배포: Docker와 인터넷, 약 13분 (부록 C)

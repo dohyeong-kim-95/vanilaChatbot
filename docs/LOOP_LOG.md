@@ -1234,3 +1234,31 @@ Linux 서버 한 대에 여러 사람이 브라우저로 접속하는 경우를 
 
 결과: `tests/test_l24_bigdata.py` 5개 통과. 고친 곳(링크, 미완료 업로드를 할당량에 포함, 위치 충돌, blob 재작성 금지, `setsid -w`, 그룹 kill, 열린 업로드의 남은 바이트, 사용자 할당량, 권한 복구, 전체 정리, 마지막 진행 보고, 시작 이벤트, cache 한도)은 각각 되돌리면 실패함을 확인.
 
+## Loop 32 — 분석 이미지, STDF/텍스트 → Parquet → SQL, T1 벤치마크
+| 구성 | 내용 |
+|---|---|
+| sandbox 이미지 | `sandbox/Dockerfile`: python:3.12-slim + polars·duckdb·pyarrow·pandas. 태그 = Dockerfile 해시(`agent/sandbox.py` IMAGE), `deploy/install.sh`가 없을 때 빌드(프록시·pip 미러 전달). 모든 sandbox가 이 이미지를 씀 |
+| `/vtools` | `sandbox/vtools`(ingest·query·STDF 리더)를 읽기 전용 마운트. 이미지 재빌드 없이 갱신 |
+| STDF 리더 | V4 스펙에서 직접 작성(외부 라이브러리·라이선스 없음). FAR 바이트 순서, MIR lot, WIR/WRR, PIR/PTR/PRR. 생략된 선택 필드·잘린 마지막 레코드 처리. 표: parts(…, passed, part_flg), results(…, result, failed, test_flg), tests(이름·한계) |
+| `ingest_log` | STDF 또는 텍스트(정규식 named group, Polars) → `/workspace/cache/<dataset>/` Parquet, `run_long` 위에서 진행률. 원본·옵션·버전이 같으면 재사용, `.building`에 만든 뒤 교체 |
+| `log_query` | DuckDB, 데이터셋 = 스키마·표 = 뷰, 메모리 600MB·스레드 1·디스크로 넘침, 행 상한 |
+| mock 생성기 | `bench/stdf_gen.py`: seed로 lot·wafer·die·test, 나쁜 웨이퍼(drift)·가장자리 링·드문 랜덤 fail을 심고 정답(`truth.json`)은 데이터 밖에 |
+| T1 | `bench/t1.py`: 89MB STDF 3개(die 60,795, PTR 554만) → lot 수율·최악 웨이퍼·최다 fail test를 `answers.json`으로, sandbox 밖의 정답과 비교 |
+
+실측: Python STDF 변환 89MB 16초(약 5.6MB/s, 1 CPU), 질의 1초 미만. T1(Haiku 5.5): effort 미지정 3/3(584–918초, 출력 토큰 13–22만), 서버와 같은 effort low 2/3(77·84초, 1회는 31초 만에 답 파일 없이 끝남 → 마지막 모델 확인 때 원인 조사). bash만 쓰는 비교는 사용자 요청으로 중단(느림). 이후 Loop에서는 실제 모델 벤치마크를 매번 돌리지 않음(사용자 결정).
+
+### 32.1 리뷰: Must 1, Should 5
+| 지적 | 처리 |
+|---|---|
+| **Must**: MIR을 코드 4바이트로 읽어 실제 STDF에서 lot이 깨짐. 우리 writer도 같은 실수라 테스트가 못 잡음 | 3바이트로 수정(리더·writer), 스펙대로 손으로 만든 레코드로 테스트(`t_spec_records`) |
+| Should: PRR PART_FLG 무효(bit4)·재검사(bit0/1) 무시 → 재검사 die가 두 번 셈 | `passed` NULL, `part_flg` 열, tool 설명에 "같은 (file, wafer, x, y)는 마지막만" (Loop 34 Rust 파서가 같은 스키마를 써야 해서 지금) |
+| Should: PTR TEST_FLG 무효·미실행·중단을 값으로 저장 | `result` NULL, `test_flg` 열 (같은 이유) |
+| Should: OPT_FLAG bit4/5(한계 무효) 무시 | 반영 |
+| Should: 텍스트 cache 키에 시간 옵션 빠짐 → 고쳐 다시 변환해도 무시 | 키에 포함, 표 버전(`VERSION`)도 포함 |
+| Should: 프록시 뒤 서버에서 이미지 빌드 실패 | 프록시·pip 미러를 build-arg로, 실패 메시지에 안내 |
+| (Nit, 같이) 패턴이 `-`로 시작하면 인자 오류, 만드는 중인 데이터셋이 스키마로 보임, WRR writer 필드 수 | `--pattern=`, `.building` 제외, 수정 |
+
+**남긴 Nit (마지막에)**: 같은 데이터셋 동시 변환 잠금, `tests`가 test_num만으로 합쳐짐(다른 프로그램의 한계), 옛 이미지 정리, Polars 정규식과 Python 정규식 차이(설명에 적음).
+
+결과: `tests/test_l25_ingest.py` 5개, 기존 테스트 98개(새 이미지) 통과. MIR·TEST_FLG·cache 키 수정은 되돌리면 실패함을 확인.
+
