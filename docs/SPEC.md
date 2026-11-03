@@ -444,6 +444,7 @@ DELETE /projects/{p}/files?path=…           파일, 또는 폴더와 그 안�
   - UI에는 section마다 [복사]·[저장] 버튼이 있다.
 - **최소 UI**(`server/static`): 로그인 화면, 사이드바(사용자·로그아웃, 프로젝트, 대화, 파일 트리 §9.3.1, 아티팩트), 채팅(fetch로 SSE를 받고 승인 버튼 표시), 아티팩트 패널(버전 선택, 코드 보기, [크게]: 창 전체로 덮고(덮인 영역은 inert) Esc로 돌아옴. 아티팩트 안을 클릭한 뒤의 Esc는 렌더러 prelude가 `postMessage({type:"escape"})`로 올려 주고, 앱은 그 iframe의 window에서 온 것만 받는다(할 수 있는 일은 크게 보기 해제뿐), 닫아도 사이드바 목록·채팅의 버튼으로 다시 열림). 채팅과 패널 사이 경계를 끌거나 ←/→ 키로 폭을 바꾸고(더블클릭하면 기본 비율), 사이드바는 ☰로 숨긴다. 폭과 사이드바 상태는 브라우저에 기억하고, 폭은 채팅이 360px 아래로 줄지 않게 창 크기에 맞춰 줄이되(화면에만), 저장값은 사용자가 끌거나 키로 바꿀 때만 바뀐다. 프로젝트를 바꾸면 열린 아티팩트를 닫는다. [검증: Loop 27] 입력창에서 커서가 맨 앞일 때 ↑, 맨 끝일 때 ↓로 최근 프롬프트 4개를 오가고 끝에서 쓰던 글로 돌아온다(한글 조합 중 무시, 페이지 메모리에만). [검증: Loop 28] 사이드바의 대화 목록·파일 트리 아래 경계를 위아래로 끌거나 ↑/↓ 키로 목록 높이를 정한다(더블클릭 = 내용만큼, 48px ~ 60vh, 브라우저에 기억, 정한 목록은 따로 스크롤). [검증: Loop 29]
   - 모델·tool 텍스트는 textContent로만 넣는다. 모델 답변은 `md.js`가 마크다운을 DOM 노드로 만든다(텍스트는 텍스트 노드, 답변 속 HTML은 글자, 링크는 http(s)·mailto만, 중첩 20단·스캔 길이 제한, 실패하면 글자로). 코드 블록 [복사], 표 [표 복사](HTML 표 + TSV, Excel용). 사용자 입력·오류는 글자 그대로. [검증: Loop 36]
+  - **근거 칩** [검증: Loop 37]: 답변의 `[이름](artifact:ID[@V]#PART)`는 버튼(칩)이 된다. 누르면 그 artifact(버전이 있으면 그 버전, 없으면 최신)를 열고 프레임에 `{type:"focus", ref}`를 보낸다. 렌더러 prelude는 부모 창이 보낸 것만 받고(ref는 `[A-Za-z0-9_-]{1,40}`), `[data-ref=PART]`·`#sec-PART`·`#PART`를 1.5초까지 찾아 프레임 안에서만 스크롤하고 2.5초 테두리. 영역 이름: 대시보드 `c1…`, 리포트 `summary`/`categories`/`top`/`notes`, html은 모델이 단 `id="sec-이름"`. `show_dashboard`·`show_report`·`artifact`(html) 결과가 모델에게 쓰는 법과 영역 목록을 알려 준다. 마지막 클릭이 이긴다(늦게 온 응답은 버림).
 
 ### 9.5 인터랙티브 템플릿 뷰와 "보이는 그대로" 캡처 [검증: Loop 16]
 - 목적: 로그를 넣으면 사용자가 클릭으로 원하는 화면을 만들고, 그 화면을 이미지로 문서에 붙인다.
@@ -574,7 +575,7 @@ tests/test_l17_slides.py      Loop 23 (리뷰 회귀: shmoo 구멍 분리, 축 �
 tests/test_l18_auth.py        Loop 24 (로그인, 잠금, 폐기, 출처 검사, UI)
 tests/test_l19_deploy.py      Loop 25 (새 Ubuntu 서버 컨테이너에 설치 → Caddy 거쳐 로그인·run → 업데이트 → 되돌리기)
 tests/test_l20_gateway_errors.py  Loop 25.9 (gateway 오류: 나아질 수 없는 오류는 재시도 안 함, Retry-After 전달)
-tests/test_l28_markdown.py    Loop 36 (답변 마크다운: 블록·인라인, 한국어 조사, HTML·스크립트 링크 없음, 비정상 답변, 표·코드 복사)
+tests/test_l28_markdown.py    Loop 36–37 (답변 마크다운: 블록·인라인, 한국어 조사, HTML·스크립트 링크 없음, 비정상 답변, 표·코드 복사, 근거 칩)
 tests/test_l27_rust.py        Loop 34 (Rust와 Python STDF 리더의 표가 같음: 두 바이트 순서, 스펙 레코드, 재검사, 섞인 site, 잘린 끝)
 tests/test_l26_dashboard.py   Loop 33 (대시보드 렌더·이스케이프, 정답과 같은 수치, Spotfire 번들, 결과 파일 다운로드)
 tests/test_l25_ingest.py      Loop 32 (STDF 리더: 바이트 순서·스펙 레코드·잘린 파일, cache 재사용, 텍스트 정규식, ingest_log·log_query)
@@ -617,7 +618,7 @@ python tests/test_l28_markdown.py         # Chrome, LLM 없이 몇 초
 python tests/test_l24_bigdata.py          # Docker·Chrome, LLM 없이 1분 정도
 python tests/test_l27_rust.py             # Docker(sandbox 이미지), 몇 초
 python tests/test_l26_dashboard.py        # Docker(sandbox 이미지)·Chrome, 몇 초
-python tests/test_l25_ingest.py           # Docker(sandbox 이미지), 몇 초. 모델 벤치마크: python bench/t1.py --k 3
+python tests/test_l25_ingest.py           # Docker(sandbox 이미지), 몇 초. 모델 벤치마크: python bench/t1.py --k 3 (근거 칩: --task cite)
 python tests/test_l23_plan.py             # Docker·Chrome, LLM 없이. LLM: python tests/test_l23_plan.py t_llm_uses_plan (K=3)
 python tests/test_l21_files.py            # Docker·Chrome 필요. 마지막 t_model_finds_folder만 LLM(K=2)
 KEEP=1 python tests/test_l19_deploy.py    # 배포: Docker와 인터넷, 약 13분 (부록 C)

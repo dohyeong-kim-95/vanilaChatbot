@@ -174,7 +174,8 @@ def show_dashboard(ctx, id, title, charts):
     meta = store.save(id, "dashboard", title, json.dumps({"title": title, "charts": specs}, ensure_ascii=False),
                       command="rewrite" if store.versions(id) else "create")
     return f"dashboard {meta['id']} saved as version {meta['version']}: " + "; ".join(
-        f"{c['title']}: {len(c['rows'])} rows" + (" (cut: aggregate more)" if c["truncated"] else "") for c in specs)
+        f"{c['title']}: {len(c['rows'])} rows" + (" (cut: aggregate more)" if c["truncated"] else "") for c in specs) \
+        + cite_hint(meta, [(f"c{i + 1}", c["title"]) for i, c in enumerate(specs)])
 
 
 @tool("Export query results for Spotfire: one SBDF file (Spotfire data file) per table, plus an Automation Services "
@@ -305,7 +306,8 @@ def remember(ctx, note):
       "- rewrite: replace the whole content (content or file) when most of it changes.\n"
       "type: html (one self-contained page; external scripts/styles only from https://cdnjs.cloudflare.com with an "
       "exact version; no network requests and no external images: embed all data in the page), markdown, svg, "
-      "mermaid, code (set language).",
+      "mermaid, code (set language). html: give each part your answer may refer to an id, e.g. <section "
+      "id=\"sec-trend\">; then a paragraph can end with [short name](artifact:ID@VERSION#trend) to open it there.",
       {"command": {"type": "string", "enum": ["create", "update", "rewrite"]}, "id": S,
        "type": {"type": "string", "enum": ["html", "markdown", "svg", "mermaid", "code"]}, "title": S,
        "content": S, "file": S, "old_str": S, "new_str": S, "language": S}, required=["command", "id"])
@@ -338,7 +340,17 @@ def artifact(ctx, command, id, type=None, title=None, content=None, file=None, o
             content = cur["content"].replace(old_str, new_str)
         meta = store.save(id, type or cur["type"], title or cur["title"], content, language or cur["language"],
                           command)
-    return f"artifact {meta['id']} saved as version {meta['version']} ({meta['type']}, {len(content)} chars)"
+    return f"artifact {meta['id']} saved as version {meta['version']} ({meta['type']}, {len(content)} chars)" + (
+        f"\nA part with id=\"sec-NAME\" is cited as [short name](artifact:{meta['id']}@{meta['version']}#NAME)"
+        if meta["type"] == "html" else "")
+
+
+def cite_hint(meta, parts):
+    """How the answer points at the part of this view that backs a paragraph (Loop 37; app.js opens it there)."""
+    clean = lambda t: " ".join(t.replace("[", "(").replace("]", ")").split())[:60]  # noqa: E731
+    return (f"\nTo show the user where a claim in your answer comes from, end that paragraph with "
+            f"[short name](artifact:{meta['id']}@{meta['version']}#PART), PART being the part that shows it: "
+            + ", ".join(f"{r} = {clean(t)}" for r, t in parts))
 
 
 @tool("Show the user the standard monthly spending report (fixed layout: summary, spending by category as a "
@@ -352,6 +364,7 @@ def show_report(ctx, id, data):
     meta = store.save(id, "report", clean["title"], json.dumps(clean, ensure_ascii=False),
                       command="rewrite" if store.versions(id) else "create")
     return f"report {meta['id']} saved as version {meta['version']}" + \
+        cite_hint(meta, [(k, report.SECTIONS[k]) for k in report.sections(clean)]) + \
         "".join(f"\nWARNING: {w}. Check your numbers and call show_report again if they are wrong." for w in warnings)
 
 

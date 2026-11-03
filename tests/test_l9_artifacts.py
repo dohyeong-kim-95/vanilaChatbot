@@ -346,7 +346,7 @@ def t_report_and_capture():
     ws.mkdir()
     ctx = Context(sandbox=stub_sandbox(ws), artifacts=ArtifactStore(UserStore(DATA).create_project("alice", "p3") / "artifacts"))
     out = run_tool(ctx, "show_report", json.dumps({"id": "sep", "data": REPORT}, ensure_ascii=False))
-    assert out == "report sep saved as version 1", out
+    assert out.startswith("report sep saved as version 1\n") and "(artifact:sep@1#PART)" in out and "summary = " in out and "WARNING" not in out, out
     bad = {**REPORT, "total": 1_000_000, "top": REPORT["top"][::-1]}
     out = run_tool(ctx, "show_report", json.dumps({"id": "sep", "data": bad}, ensure_ascii=False))
     assert "version 2" in out and "categories sum to 1,605,300 but total is 1,000,000" in out and "not sorted" in out, out

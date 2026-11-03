@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from test_l22_layout import APP, PW, servers  # noqa: E402
 
 CASES = [
@@ -47,8 +48,19 @@ CASES = [
     ("| a | b |\n|---|---|\n| 1 | 2 |\n설명: a|b", '<div class="table"><div class="md-bar"><span>표 · 1행</span><button '
      'type="button">표 복사</button></div><div class="table-wrap"><table><thead><tr><th>a</th><th>b</th></tr></thead>'
      '<tbody><tr><td>1</td><td>2</td></tr></tbody></table></div></div><p>설명: a|b</p>'),
+    # Loop 37: citations of an artifact part are chips (no link); anything else after artifact: is just the words
+    ("수율이 가장 낮다 [웨이퍼 맵](artifact:yield@2#c3) [표](artifact:t1)", '<p>수율이 가장 낮다 <button class="cite" '
+     'type="button" data-artifact="yield" data-version="2" data-ref="c3" title="근거 보기">웨이퍼 맵</button> <button '
+     'class="cite" type="button" data-artifact="t1" title="근거 보기">표</button></p>'),
+    ("[a](artifact:x@v02#sec-c1)", '<p><button class="cite" type="button" data-artifact="x" data-version="2" data-ref="sec-c1" '
+     'title="근거 보기">a</button></p>'),
+    ('[a](artifact:Bad/../x#c1) [b](artifact:x#"><i>) [**c**](artifact:ok#r)', '<p>a [b](artifact:x#"&gt;&lt;i&gt;) <button class="cite" type="button" '
+     'data-artifact="ok" data-ref="r" title="근거 보기"><strong>c</strong></button></p>'),
     ("**[굵은 링크](https://a.b)**", '<p><strong><a href="https://a.b" target="_blank" rel="noopener noreferrer">굵은 링크</a></strong></p>'),
 ]
+LATE = ("<style>body{margin:0}main{height:100vh;overflow:auto}</style><main><div style='height:1500px'>top</div></main>"
+        "<script>setTimeout(() => { const s = document.createElement('section'); s.id = 'sec-late'; s.textContent = 'late';"
+        " s.style.height = '200px'; document.querySelector('main').append(s); }, 600)</script>")
 CODE = "```python\nprint('<b>')\n\n  x = 1\n```\n뒤 문장"
 
 
@@ -107,6 +119,78 @@ def t_markdown():
                           + "---|" * 40 + "\n| " + " | ".join("값" * 6 for _ in range(40)) + " |")
             assert page.eval_on_selector("#messages", "e => e.scrollWidth <= e.clientWidth")
             assert page.eval_on_selector("#messages .table-wrap >> nth=-1", "e => e.scrollWidth > e.clientWidth")
+            # a citation chip opens the artifact and brings that part into view (the report of setup(): sections)
+            frame = lambda: page.frame_locator("#frame-wrap iframe")
+            page.set_viewport_size({"width": 1200, "height": 420})  # the report is taller than the frame now
+            page.evaluate("s => addMsg('assistant', s)", "메모 근거 [메모](artifact:rep#notes) · 큰 거래 [큰 거래](artifact:rep@1#top)"
+                          " · 없는 것 [x](artifact:nope#a) · 없는 부분 [y](artifact:rep#zz)")
+            chips = page.locator("#messages .msg.assistant").last.locator("button.cite")
+            app_scroll = page.evaluate("[scrollY, document.querySelector('#messages').scrollTop]")
+            chips.nth(0).click()
+            page.wait_for_selector("#panel:not([hidden])")
+            sec = frame().locator("section[data-ref=notes]")
+            sec.wait_for()
+            for _ in range(50):
+                if "solid" in sec.evaluate("e => e.style.outline"):
+                    break
+                page.wait_for_timeout(100)
+            assert "solid" in sec.evaluate("e => e.style.outline")
+            page.wait_for_timeout(800)  # smooth scroll
+            # at the top of the frame, or as far as the page scrolls (the last section of a short page)
+            pos = sec.evaluate("e => [e.getBoundingClientRect().top, scrollY, document.documentElement.scrollHeight - innerHeight, innerHeight]")
+            assert pos[1] > 0 and (abs(pos[0] - 12) <= 2 or abs(pos[1] - pos[2]) <= 1) and pos[0] < pos[3], pos
+            assert page.evaluate("[scrollY, document.querySelector('#messages').scrollTop]") == app_scroll  # only the frame moved
+            page.wait_for_timeout(2600)  # the outline goes away again
+            assert sec.evaluate("e => e.style.outline") == ""
+            # a chip with its version, that version open already: not loaded again, the chip only moves within it: the next chip only moves within it
+            page.evaluate("document.querySelector('#frame-wrap iframe').mark = 1")
+            chips.nth(1).click()
+            top = frame().locator("section[data-ref=top]")
+            for _ in range(50):
+                if "solid" in top.evaluate("e => e.style.outline"):
+                    break
+                page.wait_for_timeout(100)
+            assert "solid" in top.evaluate("e => e.style.outline")
+            assert page.evaluate("document.querySelector('#frame-wrap iframe').mark") == 1
+            n_err = page.locator("#messages .msg.error").count()
+            chips.nth(2).click()  # no such artifact: said in the chat
+            page.wait_for_selector(f"#messages .msg.error >> nth={n_err}")
+            assert "nope" in page.locator("#messages .msg.error").last.inner_text()
+            chips.nth(3).click()  # no such part: the artifact stays, nothing breaks
+            page.wait_for_timeout(300)
+            assert page.locator("#messages .msg.error").count() == n_err + 1
+            # a page cannot be steered by others: only its parent's focus message counts, refs are names only
+            page.evaluate("r => document.querySelector('#frame-wrap iframe').contentWindow.postMessage({type: 'focus', ref: r}, '*')",
+                          'x"], body, [a="')
+            page.wait_for_timeout(1800)
+            assert frame().locator("body").evaluate("b => [...b.querySelectorAll('*')].filter(e => e.style.outline.includes('solid')).length") == 0
+            # the last click wins: a slow answer for an earlier chip does not replace the later one
+            page.route("**/artifacts/dash*", lambda r: (time.sleep(1.2), r.continue_()))
+            page.evaluate("s => addMsg('assistant', s)", "[대시](artifact:dash) [리포트 요약](artifact:rep@v1#summary)")
+            two = page.locator("#messages .msg.assistant").last.locator("button.cite")
+            two.nth(0).click()
+            page.wait_for_timeout(100)
+            two.nth(1).click()
+            page.wait_for_timeout(2000)
+            assert page.locator("#art-title").inner_text() == "리포트", page.locator("#art-title").inner_text()
+            page.unroute("**/artifacts/dash*")
+            # a model's html page: the part is drawn by its script after load, inside a scrolling <main>; cited with
+            # and without the sec- prefix
+            from agent.artifacts import ArtifactStore
+            from agent.userstore import UserStore
+            from test_l22_layout import DATA
+            ArtifactStore(UserStore(DATA).project_dir("alice", "p") / "artifacts").save("late", "html", "늦은 페이지", LATE)
+            page.evaluate("s => addMsg('assistant', s)", "[늦게](artifact:late#late) [접두어](artifact:late#sec-late)")
+            late = page.locator("#messages .msg.assistant").last.locator("button.cite")
+            for k in (0, 1):
+                late.nth(k).click()
+                part = frame().locator("#sec-late")
+                part.wait_for()
+                page.wait_for_timeout(900)
+                assert "solid" in part.evaluate("e => e.style.outline"), k
+                assert frame().locator("main").evaluate("m => m.scrollTop") > 1000, k
+                page.wait_for_timeout(2600)
+            page.set_viewport_size({"width": 1200, "height": 800})
             # degenerate answers (a model repeating itself): no exception, no frozen page
             for src in ["- " * 50000, "1. " * 30000, ">" * 100000 + " x", "*a " * 33000, "**a " * 25000, "~~a " * 25000,
                         "[" * 100000, "*a" + " *b" * 33000, "# a" + " " * 100000 + "b", "[a" * 50000, "`a " * 33000,

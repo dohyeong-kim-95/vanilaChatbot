@@ -229,7 +229,7 @@ def render(d):
             drawn = f"<p class='note'>{e(str(ex))}</p>"
         note = (c.get("note") or "") + (" (행이 많아 일부만 그렸어요)" if c.get("truncated") else "") \
             + (f" (series {c['dropped']}개는 색이 모자라 뺐어요)" if c.get("dropped") else "")
-        body.append(f'<section id="sec-c{i}"><h2>{e(c["title"])}</h2>'
+        body.append(f'<section id="sec-c{i + 1}" data-ref="c{i + 1}"><h2>{e(c["title"])}</h2>'
                     + (f'<p class="note">{e(note.strip())}</p>' if note.strip() else "") + drawn + "</section>")
     return (f'<!doctype html><html lang="ko"><meta charset="utf-8"><title>{e(d["title"])}</title><style>{CSS}</style>'
             f'<body>{"".join(body)}<script type="application/json" id="data">{data_json(d)}</script></body></html>')

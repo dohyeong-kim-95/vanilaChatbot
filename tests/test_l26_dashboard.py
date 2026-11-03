@@ -85,6 +85,7 @@ def t_show_dashboard():
              "x": "x", "y": "y", "value": "hard_bin"},
             {"title": "fail 많은 test", "kind": "table", "sql": "SELECT test_num, count(*) n FROM w.results WHERE failed GROUP BY 1 ORDER BY 2 DESC LIMIT 5"}]}))
         assert r.startswith("dashboard yield saved as version 1"), r
+        assert "(artifact:yield@1#PART)" in r and "c2 = " in r, r  # how the answer cites a chart (Loop 37)
         a = store.get("yield")
         c = json.loads(a["content"])
         ys = {row[0]: row[1] for row in c["charts"][0]["rows"]}

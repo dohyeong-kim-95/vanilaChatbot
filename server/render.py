@@ -86,6 +86,20 @@ PRELUDE = ("<script>for (const k of ['RTCPeerConnection', 'webkitRTCPeerConnecti
            # keys go to this frame once the user clicks in it: pass Escape up so the app can leave its full view.
            # Bubbling phase on window: an artifact that handles Escape itself (closing its own dialog) can stop it.
            "addEventListener('keydown', (e) => { if (e.key === 'Escape') parent.postMessage({type: 'escape'}, '*'); });"
+           # Loop 37: a citation in the chat names a part (data-ref, id sec-REF or id REF): bring it into view and
+           # outline it for a moment. The page may still be drawing it (a script after load): looked for again for 1.5s.
+           # scrollIntoView from in here moves the frame's own scrolling boxes (window or an inner container); the app
+           # around the frame is not scrolled, the frame being in view there.
+           "addEventListener('message', (e) => { if (e.source !== parent || !e.data || e.data.type !== 'focus') return;"
+           " const r = String(e.data.ref || ''); if (!/^[A-Za-z0-9_-]{1,40}$/.test(r)) return;"
+           " let n = 0; const go = () => { const el = document.querySelector('[data-ref=\"' + r + '\"]')"
+           " || document.getElementById('sec-' + r) || document.getElementById(r);"
+           " if (!el) { if (++n < 10) setTimeout(go, 150); return; }"
+           " el.scrollIntoView({block: 'start', behavior: 'smooth'});"
+           " if (!el.vFocus) el.vOld = [el.style.outline, el.style.outlineOffset];"
+           " el.style.outline = '3px solid #e8a200'; el.style.outlineOffset = '3px'; clearTimeout(el.vFocus);"
+           " el.vFocus = setTimeout(() => { [el.style.outline, el.style.outlineOffset] = el.vOld; el.vFocus = 0; }, 2500); };"
+           " go(); });"
            "</script>")
 DOCTYPE = re.compile(r"^\s*<!doctype[^>]*>", re.I)
 

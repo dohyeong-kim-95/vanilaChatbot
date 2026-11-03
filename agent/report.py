@@ -165,7 +165,7 @@ def render(d):
                     f'<td class="num">{fmt(t["amount"])}</td></tr>' for t in d["top"]) + "</table>"
     if d["notes"]:
         out["notes"] = head("notes") + "<ul>" + "".join(f"<li>{e(n)}</li>" for n in d["notes"]) + "</ul>"
-    body = "".join(f'<section id="sec-{k}">{out[k]}</section>' for k in sections(d))
+    body = "".join(f'<section id="sec-{k}" data-ref="{k}">{out[k]}</section>' for k in sections(d))
     return f'<!doctype html><html lang="ko"><meta charset="utf-8"><title>{e(d["title"])}</title><style>{CSS}</style>' \
            f'<body>{body}</body></html>'
 

@@ -116,6 +116,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #a5d8e6; outline-
 .md blockquote { border-left: 3px solid var(--border); padding-left: 12px; color: var(--muted); }
 .md hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .md a { color: var(--primary); }
+.md .cite { font-size: 12px; padding: 0 7px; margin: 0 2px; border-radius: 10px; border-color: #a5d8e6; color: var(--primary); background: #eef8fb; vertical-align: 1px; line-height: 18px; }
+.md .cite::before { content: "▸ "; }
+.md .cite:hover { border-color: var(--primary); background: #e0f2f7; }
 .md code { font: 13px Consolas, "Liberation Mono", monospace; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
 .md .code, .md .table { border: 1px solid var(--border); border-radius: 6px; background: var(--surface); overflow: hidden; }
 .md .md-bar { display: flex; justify-content: space-between; align-items: center; padding: 3px 6px 3px 10px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); }

@@ -14,6 +14,8 @@ const MD = (() => {
   const ITEM = /^( *)([-*+]|\d{1,9}[.)])(\s+|$)(.*)$/;
   const TABLE_SEP = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
   const SAFE_URL = /^(https?:\/\/|mailto:)/i;
+  // a citation of an artifact part (Loop 37): artifact:ID[@VERSION][#REF] -> a chip the app opens (app.js)
+  const CITE = /^artifact:([a-z0-9][a-z0-9_-]{0,63})(?:@v?(\d{1,4}))?(?:#([A-Za-z0-9_-]{1,40}))?$/;
   const MAX_DEPTH = 20, MAX_LABEL = 1000;
 
   const node = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };
@@ -244,7 +246,17 @@ const MD = (() => {
         const m = link(s, i);
         if (m) {
           flush();
-          if (SAFE_URL.test(m.url)) {
+          const cite = CITE.exec(m.url);
+          if (cite) {
+            const b = node("button", "cite");
+            b.type = "button";
+            b.dataset.artifact = cite[1];
+            if (cite[2]) b.dataset.version = String(parseInt(cite[2], 10));  // @v2, @02 -> 2
+            if (cite[3]) b.dataset.ref = cite[3];
+            b.title = "근거 보기";
+            inline(m.label, b, depth + 1, true);
+            out.append(b);
+          } else if (SAFE_URL.test(m.url)) {
             const a = anchor(m.url);
             inline(m.label, a, depth + 1, true);
             out.append(a);

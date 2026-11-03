@@ -6,7 +6,7 @@ const $ = (id) => document.getElementById(id);
 const state = { user: "", project: "", session: "", artifact: null, streaming: false, follow: null,
                 files: [], folder: "", closed: new Set(),  // folder: where uploads and new folders go ("" = top)
                 history: [], recall: -1, draft: "",  // last prompts sent (newest last); recall: index shown, -1 = none
-                runStart: {} };  // run id -> when it started (ms, this clock) for the elapsed time
+                runStart: {}, opening: 0 };  // opening: the latest openArtifact call (an older answer is dropped)  // run id -> when it started (ms, this clock) for the elapsed time
 
 // One followed run at a time: switching conversation/project stops the old stream (else its events land here).
 function stopFollow() { state.follow?.abort(); state.follow = null; }
@@ -640,6 +640,7 @@ function showQuestion(rid, ev, seq) {
 // The iframe attributes are the isolation contract: scripts yes, same-origin/forms/popups/top-navigation no.
 function showFrame(url) {
   const f = document.createElement("iframe");
+  f.ready = new Promise((ok) => f.addEventListener("load", ok, { once: true }));
   f.setAttribute("sandbox", "allow-scripts");
   f.setAttribute("referrerpolicy", "no-referrer");
   f.setAttribute("allow", "");
@@ -649,9 +650,10 @@ function showFrame(url) {
 }
 
 async function openArtifact(id, version) {
-  const project = state.project;
+  const project = state.project, seq = ++state.opening;
   const a = await api(`/projects/${project}/artifacts/${id}` + (version ? `?version=${version}` : ""));
-  if (state.project !== project) return;  // switched meanwhile: the old project's artifact must not open over the new one
+  // switched meanwhile: the old project's artifact must not open over the new one; and the last click wins
+  if (state.project !== project || seq !== state.opening) return false;
   state.artifact = a;
   $("app").classList.add("with-panel");
   $("panel").hidden = false;
@@ -669,6 +671,7 @@ async function openArtifact(id, version) {
   showSections(a);
   showCapture(a, frame);
   markActive();
+  return true;
 }
 
 // Slide images (docs/DESIGN.md): size preset (auto = the view's default; L full width / M half / S third of a 16:9
@@ -959,6 +962,26 @@ addEventListener("keydown", (e) => { if (e.key === "Escape") leaveFull(); });
 // posts Escape up (server/render.py). Only the frame's own window counts; all it can do is leave the full view.
 addEventListener("message", (e) => {
   if (e.source === $("frame-wrap").querySelector("iframe")?.contentWindow && e.data?.type === "escape") leaveFull();
+});
+// A citation chip in an answer ([그림 2](artifact:id@v#ref), md.js): open that artifact (unless it is already the
+// one shown) and ask its page to bring the part into view (the renderer's prelude scrolls to it and outlines it).
+$("messages").addEventListener("click", async (e) => {
+  const b = e.target.closest("button.cite");
+  if (!b) return;
+  const { artifact: id, version, ref } = b.dataset, a = state.artifact;
+  try {
+    // a chip with a version that is open already only moves in it; without one it means the latest: fetched again
+    const shown = version && a && a.id === id && String(a.version) === version && !$("panel").hidden && !$("frame-wrap").hidden;
+    if (!shown && !(await openArtifact(id, version))) return;  // a later click or a project switch took over
+    const f = $("frame-wrap").querySelector("iframe"), seq = state.opening;
+    if (!ref || !f) return;
+    await f.ready;
+    if (seq !== state.opening || f !== $("frame-wrap").querySelector("iframe")) return;
+    // "*": the sandboxed frame's origin is opaque ("null" cannot be a target); the message is only a part name
+    f.contentWindow?.postMessage({ type: "focus", ref }, "*");
+  } catch (err) {
+    addMsg("error", `근거 artifact(${id}${version ? " v" + version : ""})를 열지 못했어요. ${String(err).startsWith("Error: 404") ? "없거나 지워진 artifact예요." : err}`);
+  }
 });
 function sidebar(show) {
   $("app").classList.toggle("side-hidden", !show);

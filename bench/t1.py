@@ -2,7 +2,9 @@
 The agent runs with the server's sandbox setup (uploads read-only, the project's cache, /vtools) and writes
 /workspace/outputs/answers.json; the checker compares it with truth.json, which never enters the sandbox.
 
-  python bench/t1.py [--k 3] [--seed 7] [--radius 36] [--tools ours|plain] [--effort low] [--keep]
+  python bench/t1.py [--k 3] [--seed 7] [--radius 36] [--tools ours|plain] [--effort low] [--keep] [--task answers|cite]
+     cite (Loop 37): the same data, explained in words with a dashboard; passes when the answer names the worst
+     wafer and cites at least two charts of a dashboard it made, by links that exist ([..](artifact:ID@V#cN))
      ours:  bash, files, plan, run_long, ingest_log, log_query (what the server offers for this)
      plain: bash, files, plan (the same image: python, polars, duckdb are there; no tools of ours)
 Needs the gateway (LLM_BASE_URL, default :8100) and Docker with the sandbox image (agent/sandbox.py IMAGE).
@@ -22,6 +24,9 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "bench"))
 from openai import OpenAI  # noqa: E402
 
+import re  # noqa: E402
+
+from agent.artifacts import ArtifactStore  # noqa: E402
 from agent.loop import Context, run  # noqa: E402
 from agent.sandbox import VTOOLS, Sandbox  # noqa: E402
 from agent.userstore import UserStore  # noqa: E402
@@ -31,6 +36,8 @@ TASK = ("uploads/lots 폴더에 웨이퍼 소트 STDF 파일들이 있어요. lo
         "수율이 가장 낮은 웨이퍼(lot/wafer 형식, 예: L001A/W03), 가장 많은 die를 fail시킨 test 번호를 구해서 "
         "/workspace/outputs/answers.json에 {\"lot_yield\": {\"<lot>\": <pct>}, \"worst_wafer\": \"<lot>/<wafer>\", "
         "\"top_fail_test\": <test_num>} 형식으로 저장해 주세요.")
+TASK_CITE = ("uploads/lots 폴더의 웨이퍼 소트 STDF 파일들을 분석해서, lot별 수율과 수율이 가장 낮은 웨이퍼, 가장 많은 die를 "
+             "fail시킨 test를 설명해 주세요. 사람이 근거를 확인할 수 있게 대시보드도 만들어 주세요.")
 TOOLS = {"ours": ["bash", "read_file", "write_file", "edit_file", "save_note", "update_plan", "run_long", "ingest_log",
                   "log_query"],
          "plain": ["bash", "read_file", "write_file", "edit_file", "save_note", "update_plan"]}
@@ -68,6 +75,20 @@ def check(answers, truth):
     return got
 
 
+def check_cite(final, arts, truth):
+    cites = re.findall(r"\]\(artifact:([a-z0-9][a-z0-9_-]*)(?:@v?(\d+))?(?:#([A-Za-z0-9_-]+))?\)", final)
+    valid = set()
+    for aid, v, ref in cites:
+        try:
+            d = arts.get(aid, int(v) if v else None)
+        except (KeyError, ValueError):
+            continue
+        if d["type"] == "dashboard" and re.fullmatch(r"c(\d+)", ref or "") and 1 <= int(ref[1:]) <= len(json.loads(d["content"])["charts"]):
+            valid.add((aid, ref))
+    return {"worst_wafer": truth["worst_wafer"].replace("/", "") in final.replace("/", "").replace(" ", ""),
+            "cites_2_charts": len(valid) >= 2, "no_broken_cites": len(valid) == len({(c[0], c[2]) for c in cites})}
+
+
 def once(i, a, client, base):
     root = base / f"run{i}"
     data = base / "data"
@@ -86,21 +107,28 @@ def once(i, a, client, base):
                  rw_mounts={store.cache_dir("bench", "t1"): "/workspace/cache"})
     m, events, t = Meter(client), [], time.time()
     try:
-        final, msgs = run(TASK, Context(sandbox=sb), tool_names=TOOLS[a.tools], client=m, emit=events.append,
+        arts = ArtifactStore(root / "artifacts")
+        task, tools = (TASK, TOOLS[a.tools]) if a.task == "answers" else (TASK_CITE, TOOLS[a.tools] + ["show_dashboard"])
+        final, msgs = run(task, Context(sandbox=sb, artifacts=arts), tool_names=tools, client=m, emit=events.append,
                           log=lambda *_: None, max_steps=40, effort=a.effort or None)
     except Exception as e:
         final, msgs = f"ERROR {type(e).__name__}: {e}", []
     finally:
         wall = time.time() - t
         sb.close()
-    try:
-        answers = json.loads((ws / "outputs" / "answers.json").read_text())
-    except (OSError, ValueError):
-        answers = None
-    got = check(answers, json.loads((base / "data.truth.json").read_text()))
+    truth = json.loads((base / "data.truth.json").read_text())
+    if a.task == "cite":
+        got = check_cite(str(final), arts, truth)
+    else:
+        try:
+            answers = json.loads((ws / "outputs" / "answers.json").read_text())
+        except (OSError, ValueError):
+            answers = None
+        got = check(answers, truth)
     calls = Counter(tc["function"]["name"] for mm in msgs if mm.get("role") == "assistant" for tc in mm.get("tool_calls") or [])
     r = {"run": i + 1, "pass": all(got.values()), "items": got, "wall_s": round(wall), "model_calls": m.calls,
-         "tokens_in": m.inp, "tokens_out": m.out, "tool_calls": dict(calls), "final": str(final)[:200]}
+         "tokens_in": m.inp, "tokens_out": m.out, "tool_calls": dict(calls),
+         "final": str(final)[:200 if a.task == "answers" else 1500]}
     print(json.dumps(r, ensure_ascii=False), flush=True)
     if not a.keep:
         shutil.rmtree(root, ignore_errors=True)
@@ -115,6 +143,7 @@ def main():
     ap.add_argument("--tools", choices=list(TOOLS), default="ours")
     ap.add_argument("--effort", default="low", help="as the server (AGENT_EFFORT, deploy default low); '' = unset")
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--task", choices=["answers", "cite"], default="answers")
     a = ap.parse_args()
     base = Path(tempfile.mkdtemp(prefix="t1-"))
     truth = generate(base / "data", seed=a.seed, radius=a.radius)
