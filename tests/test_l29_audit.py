@@ -60,7 +60,8 @@ def t_timeout_kills_the_command():  # M3
             out = sb.exec(cmd, timeout=2)
             assert out.startswith("exit_code=124") and "timeout after 2s" in out and time.time() - t < 10, (cmd, out)
         time.sleep(1)
-        left = sb.exec("ps -eo args | grep -E 'sleep 4[1-4]|time.sleep' | grep -v grep || true")
+        left = sb.exec("for p in /proc/[0-9]*; do tr '\\0' ' ' < $p/cmdline; echo; done 2>/dev/null"
+                       " | grep -E 'sleep 4[1-4]|time.sleep' | grep -v grep || true")
         assert left.strip() == "exit_code=0", left
         assert sb.exec("echo ok; exit 3", timeout=5) == "exit_code=3\nok"  # other exits as they are
         assert sb.exec("timeout 1 sleep 5", timeout=20).startswith("exit_code=124\n")  # the command's own timeout

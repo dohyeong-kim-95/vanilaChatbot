@@ -93,10 +93,15 @@ def validate(d):
     cats = d.get("categories")
     if not isinstance(cats, list) or not cats:
         raise ValueError("categories must be a non-empty list")
+    if len(cats) > MAX_ROWS:  # cutting them would make a right total look wrong
+        raise ValueError(f"at most {MAX_ROWS} categories: put the small ones together as one '기타'")
+    for k in ("top", "notes"):
+        if d.get(k) is not None and not isinstance(d[k], list):
+            raise ValueError(f"{k} must be a list")
     out["categories"] = [{"name": _str(c.get("name"), "categories.name", 40),
                           "amount": _num(c.get("amount"), "categories.amount"),
                           **({"budget": _num(c["budget"], "categories.budget")} if c.get("budget") is not None else {})}
-                         for c in cats[:MAX_ROWS] if _obj(c, "categories")]
+                         for c in cats if _obj(c, "categories")]
     out["top"] = [{"date": _str(t.get("date"), "top.date", 20), "merchant": _str(t.get("merchant"), "top.merchant", 60),
                    "amount": _num(t.get("amount"), "top.amount"), "category": _str(t.get("category", ""), "top.category", 40)}
                   for t in (d.get("top") or [])[:MAX_ROWS] if _obj(t, "top")]

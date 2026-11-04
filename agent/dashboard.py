@@ -11,8 +11,8 @@ import math
 
 from .views import FONT, data_json
 
-KINDS = {"bar", "line", "scatter", "wafer_map", "table"}
 MAX_ROWS = {"bar": 60, "line": 5000, "scatter": 5000, "wafer_map": 20000, "table": 100}
+KINDS = set(MAX_ROWS)
 MAX_CHARTS = 12
 W, H = 680, 300
 L, R, T, B = 64, 16, 12, 44  # plot margins
@@ -128,8 +128,8 @@ def _series(c):
         return None, None
     if all(num(x) for x in xs):
         conv = float
-    else:  # times or labels: in the order they come (ORDER BY in the SQL)
-        order = {v: i for i, v in enumerate(dict.fromkeys(str(x) for x in xs))}
+    else:  # times or labels: in the order the rows come (ORDER BY in the SQL), not series by series
+        order = {v: i for i, v in enumerate(dict.fromkeys(str(r[xi]) for r in c["rows"] if num(r[yi])))}
         conv = lambda v: order[str(v)]  # noqa: E731
     if len(groups) > len(PALETTE):
         c["dropped"] = len(groups) - len(PALETTE)  # said under the chart

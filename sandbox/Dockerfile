@@ -14,8 +14,6 @@ RUN mkdir /out && (cargo build --release --locked && strip target/release/stdf2p
     && cp target/release/stdf2parquet /out/ || echo "warning: stdf2parquet not built; the Python STDF reader is used")
 
 FROM python:3.12-slim
-# procps: pkill/ps, which Sandbox.exec uses to stop a command that timed out
-RUN apt-get update && apt-get install -y --no-install-recommends procps && rm -rf /var/lib/apt/lists/*
 # a pip mirror, if the server uses one (the proxy variables are passed by Docker without being declared)
 ARG PIP_INDEX_URL
 ARG PIP_TRUSTED_HOST

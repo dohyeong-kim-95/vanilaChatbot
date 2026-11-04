@@ -27,6 +27,7 @@ from fastapi.responses import Response
 from agent import dashboard, logview, report, shmoo
 from agent.artifacts import ArtifactStore
 from agent.userstore import UserStore
+from agent.views import data_json
 
 ROOT = Path(os.environ.get("AGENT_ROOT", "/tmp/agent-sessions"))
 APP_ORIGIN = os.environ.get("AGENT_APP_ORIGIN", "http://127.0.0.1:8200")
@@ -70,11 +71,6 @@ def verify(token):
     if claims["exp"] < time.time():
         raise PermissionError("expired")
     return claims
-
-
-def _data(obj):
-    """JSON safe to inline in <script type=application/json>: no `</script>` breakout."""
-    return json.dumps(obj, ensure_ascii=False).replace("<", "\\u003c")
 
 
 # CSP has no directive for WebRTC: a peer connection to a STUN/TURN server sends packets anywhere (measured in
@@ -134,7 +130,7 @@ def page(a):
     run = {"markdown": "document.getElementById('out').innerHTML = marked.parse(SRC);",
            "mermaid": "mermaid.initialize({startOnLoad:false}); "
                       "mermaid.render('m', SRC).then(r => document.getElementById('out').innerHTML = r.svg);"}[t]
-    return head + f'<div id="out"></div><script id="src" type="application/json">{_data(c)}</script>' \
+    return head + f'<div id="out"></div><script id="src" type="application/json">{data_json(c)}</script>' \
         f'<script src="{src}"></script><script>const SRC = JSON.parse(document.getElementById("src").textContent);' \
         f'{run}</script>'
 

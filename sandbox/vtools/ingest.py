@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import sys
 import time
 
@@ -114,6 +115,23 @@ def text(files, out, pattern, time_col=None, time_format=None):
     return {"rows": rows, "unmatched_lines": unmatched}, []
 
 
+def sweep():
+    """Remove what killed builds left (SIGKILL, or TERM while Polars was in native code): a .building nobody holds."""
+    import fcntl
+    for d in os.listdir(CACHE):
+        if d.startswith(".trash-"):  # a sweep that was killed itself
+            shutil.rmtree(os.path.join(CACHE, d), ignore_errors=True)
+        elif d.endswith(".building"):
+            with open(os.path.join(CACHE, f".{d[:-9]}.lock"), "w") as f:
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    continue  # being built now
+                trash = os.path.join(CACHE, f".trash-{os.getpid()}-{d}")
+                os.rename(os.path.join(CACHE, d), trash)  # quick, under the lock; the slow delete is after it
+            shutil.rmtree(trash, ignore_errors=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("format", choices=["stdf", "text"])
@@ -140,6 +158,7 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         raise SystemExit(f"{a.dataset} is being built by another job; wait for it, or use another name")
+    sweep()
     src = sources(a.files)
     meta_f = os.path.join(out, "meta.json")
     key = {"version": VERSION, "format": a.format, "pattern": a.pattern, "time": a.time, "time_format": a.time_format,
@@ -152,6 +171,7 @@ def main():
     tmp = out + ".building"
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # a cancel or timeout: clean up below, not just die
     t = time.time()
     try:
         if a.format == "stdf":

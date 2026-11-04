@@ -73,8 +73,11 @@ def sniff(path):
         tmp.close()
         sample = Path(tmp.name)
         out["sampled_bytes"] = len(raw)
-    with p.open("rb") as fh:
-        out["lines"] = sum(1 for _ in fh)
+    n = raw.count(b"\n")
+    if cut:  # a guess from the head: counting a 2 GB file's lines takes longer than the bash timeout
+        out["lines"] = "~{:,}".format(round(n * out["bytes"] / len(raw))) if n else "?"  # no newline in 2 MB
+    else:
+        out["lines"] = n + (not raw.endswith(b"\n") and bool(raw))
     lines = [l for l in text.splitlines() if l.strip()]
     out.update(encoding=enc, head=[l[:160] for l in lines[:6]])
     fits = []
@@ -125,7 +128,7 @@ def sniff(path):
 def main(paths):
     for p in paths:
         s = sniff(p)
-        print(f"== {s['file']}  ({s['bytes']:,} bytes" + (f", {s['lines']:,} lines" if "lines" in s else "") + ")")
+        print(f"== {s['file']}  ({s['bytes']:,} bytes" + (f", {s['lines']:,} lines" if isinstance(s.get("lines"), int) else f", {s['lines']} lines" if "lines" in s else "") + ")")
         for k, v in s.items():
             if k not in ("file", "bytes", "lines", "fits"):
                 print(f"  {k}: {v}")

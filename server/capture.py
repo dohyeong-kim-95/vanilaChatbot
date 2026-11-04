@@ -31,9 +31,9 @@ def png(data, section, preset=None, title=True):
     return with_dpi(_worker.submit(_shot, html, PRESETS[preset]).result(timeout=60))
 
 
-def _shot(html, size, scale=2):  # 2x: sharp in a document (192 dpi, with_dpi)
+def _shot(html, size):  # 2x: sharp in a document (192 dpi, with_dpi)
     w, h = size or (report.WIDTH + 32, 800)
-    page = _get_browser().new_page(java_script_enabled=False, device_scale_factor=scale, viewport={"width": w, "height": h})
+    page = _get_browser().new_page(java_script_enabled=False, device_scale_factor=2, viewport={"width": w, "height": h})
     try:
         page.route("**/*", lambda route: route.abort())
         page.set_content(html, wait_until="load")

@@ -372,8 +372,9 @@ def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, histo
         checkpoint(msgs, None)
     tools = schemas(tool_names)
     ctx.emit = emit
-    ctx.llm = lambda m: client.chat.completions.create(
-        model=model, messages=m, **_effort(effort)).choices[0].message.content
+    ctx.llm = lambda m: client.chat.completions.create(  # a connected agent's call: its text comes from the files
+        model=model, messages=[{**x, "content": redact(str(x["content"]))} for x in m], **_effort(effort)
+    ).choices[0].message.content
     for step in range(max_steps):
         do_calls(ctx, msgs, step, emit, log, checkpoint)
         if _cheap(effort) and _error_streak(msgs) >= ERROR_STREAK:

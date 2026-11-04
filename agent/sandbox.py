@@ -235,9 +235,12 @@ class Sandbox:
             raise PermissionError(f"path escapes workspace: {rel}")
         return norm
 
+    def _head(self, rel, limit):  # one byte more than the limit, to tell "too big"
+        return ["docker", "exec", self.name, "sh", "-c", 'test -f "$1" && head -c "$2" -- "$1"', "_", self.cpath(rel),
+                str(limit + 1)]
+
     def read_bytes(self, rel, limit):
-        p = subprocess.run(["docker", "exec", self.name, "sh", "-c", 'test -f "$1" && head -c "$2" -- "$1"', "_",
-                            self.cpath(rel), str(limit + 1)], capture_output=True)
+        p = subprocess.run(self._head(rel, limit), capture_output=True)
         if p.returncode:
             raise FileNotFoundError(f"no such file: {rel} {p.stderr.decode(errors='replace').strip()}".strip())
         if len(p.stdout) > limit:
@@ -253,8 +256,7 @@ class Sandbox:
     def copy_out(self, rel, dest, limit):
         """Stream a workspace file to a host file (for server-side parsing), at most `limit` bytes."""
         with open(dest, "wb") as fh:
-            p = subprocess.run(["docker", "exec", self.name, "sh", "-c", 'test -f "$1" && head -c "$2" -- "$1"', "_",
-                                self.cpath(rel), str(limit + 1)], stdout=fh, stderr=subprocess.PIPE)
+            p = subprocess.run(self._head(rel, limit), stdout=fh, stderr=subprocess.PIPE)
         if p.returncode:
             raise FileNotFoundError(f"no such file: {rel}")
         if os.path.getsize(dest) > limit:

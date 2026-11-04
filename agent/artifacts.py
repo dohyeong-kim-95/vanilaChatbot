@@ -45,10 +45,10 @@ class ArtifactStore:
             return []
         out = []
         for d in sorted(self.root.iterdir()):
-            if (vs := self.versions(d.name)):
+            if self.versions(d.name):
                 a = self.get(d.name)
                 out.append({"id": a["id"], "title": a["title"], "type": a["type"], "version": a["version"],
-                            "versions": vs, "created": a["created"]})
+                            "created": a["created"]})
         return sorted(out, key=lambda a: a["created"], reverse=True)
 
     def save(self, aid, type, title, content, language=None, command="create"):

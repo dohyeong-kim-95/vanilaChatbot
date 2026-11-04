@@ -156,15 +156,15 @@ function withDpi(buf, dpi = 192) {
   out.set(src.subarray(0, 33)); out.set(chunk, 33); out.set(src.subarray(33), 54);
   return out.buffer;
 }
-function svgPng(svg, scale = 2) {
+function svgPng(svg) {  // 2x: sharp in a document
   const w = +svg.getAttribute("width"), h = +svg.getAttribute("height");
   const src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(svg));
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
       const c = document.createElement("canvas");
-      c.width = w * scale; c.height = h * scale;
-      const g = c.getContext("2d"); g.scale(scale, scale); g.drawImage(img, 0, 0);
+      c.width = w * 2; c.height = h * 2;
+      const g = c.getContext("2d"); g.scale(2, 2); g.drawImage(img, 0, 0);
       c.toBlob((b) => b ? b.arrayBuffer().then((a) => resolve(withDpi(a))) : reject(new Error("toBlob failed")), "image/png");
     };
     img.onerror = () => reject(new Error("svg load failed"));

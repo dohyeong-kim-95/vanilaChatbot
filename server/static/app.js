@@ -594,7 +594,13 @@ function showApproval(rid, ev, seq) {
   const no = el("button", null, "거절");
   const decide = async (approved) => {
     yes.disabled = no.disabled = true;
-    await api(`/runs/${rid}/approval`, { method: "POST", body: JSON.stringify({ call_id: ev.call_id, approved }) });
+    try {
+      await api(`/runs/${rid}/approval`, { method: "POST", body: JSON.stringify({ call_id: ev.call_id, approved }) });
+    } catch (e) {  // e.g. answered in another tab: say so, the card stays usable
+      addMsg("error", String(e));
+      yes.disabled = no.disabled = false;
+      return;
+    }
     box.replaceChildren(el("div", "tool", `${ev.tool}: ${approved ? "승인함" : "거절함"}`));
     follow(rid, seq);
   };

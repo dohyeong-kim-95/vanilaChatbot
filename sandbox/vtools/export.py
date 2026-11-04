@@ -14,6 +14,7 @@ import html
 import os
 import re
 import shutil
+import signal
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -48,6 +49,7 @@ def main():
     tmp = out + ".building"
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # a cancel or timeout: clean up below, not just die
     try:
         build(a, tables, tmp, sbdf, con)
     except BaseException:

@@ -1442,3 +1442,46 @@ Loop 31–34에서 미뤄 둔 것을 한 번에 고침(사용자 결정: 마지�
 | Nit | SPEC·TODO의 spotlight·PR·허용 도메인·egress 문구 정리. 디스크가 찰 때 남는 빈 `.json.tmp`/`.data`는 둠(용량에 안 셈) |
 
 테스트: l29에 세 가지 검사 추가(통과), l16 전체 통과. 결정적 회귀 전체(22개 파일, 142개 PASS) 중 실패는 위 Must 하나였다.
+
+---
+
+## Loop 39 — 2차 audit(ponytail-audit) 수정과 Loop 38 잔재 정리
+
+> 사용자 요청: "ponytail:audit를 이용해서 오버엔지니어링 여부 감사를 포함한 감사 진행해주세요" → "네 nice는 굳이? 한두줄 고치는거면 하고 아니면 남겨주세요"
+
+방법: Loop 38과 같은 지침, 영역 4개(server, agent-core, data, views-ui) × 감사 1명 + 반박 검증 1명, 보고 1명. 설계 수준의 과잉(`lean-design`)도 보게 했고, Loop 38에서 고친 것·기록된 결정은 다시 올리지 않게 했다. 반박 단계에서 4건 기각(그중 "PNG 캡처에 서버 headless Chrome은 과함").
+
+판정(감사): 20명 규모에 비해 설계 과잉은 없음. 무거워 보이는 것(설치 스크립트 380줄, 로그인 시도 집계, STDF 리더 2개, 이어받기 업로드, 해시 blob)은 모두 기록된 장애·결정에 근거. 과잉은 Loop 38 삭제 뒤 잔재와 테스트만 살리는 제품 코드에 몰려 있었다.
+
+| 항목 | 문제 | 고친 것 |
+|---|---|---|
+| M1 | 연결 에이전트의 `llm` 요청(파일 내용이 들어감)은 redact를 거치지 않고 모델에 감 | `ctx.llm`이 메시지마다 `redact` |
+| M2 | `outputs`가 50MB를 넘으면 `safe_copytree`가 예외 → 작은 리포트까지 그 실행 결과 전부 저장 안 됨 | 넘는 파일만 `skipped`(경고에 표시), LAYOUT에 한도 명시 |
+| M3 | 선 그래프 x 위치를 시리즈 순서로 매겨, A에만 있는 02:00이 B의 01:00 자리에 찍힘(축 라벨은 맞아서 안 보임) | 행 순서(SQL ORDER BY)로 매김 |
+| S1 | Loop 38 S6이 Python 예외만 다룸: 취소·시간 초과(SIGTERM)면 `.building`이 남음(rc=143 재현) | ingest/export에 SIGTERM → `sys.exit(143)`, ingest 시작 때 아무도 lock을 잡지 않은 `*.building` 정리(SIGKILL 잔재) |
+| S2 | egress 삭제 뒤에도 `merge_settings`가 `allowed_domains` 상한·목록 합집합을 처리 | "위 층이 이긴다"만 남김(−10줄), l8 테스트는 `effort`로 |
+| S3 | 테스트용 mock 에이전트 2개가 운영 tool로 배포됨(Loop 21에서 모델이 mock을 먼저 고름, wafer-yield는 CSV 전체를 메모리에) | `tests/fixtures/agents/`로 옮김, `agents/`에는 실행기만 |
+| S4 | log-triage `sniff`가 줄 수를 세려고 파일을 끝까지 읽음(2GB × 여러 개 → bash 60초 초과) | 큰 파일은 앞 2MB로 추정(`~N`), SKILL.md에 표기 |
+| S5 | 카테고리 20개 초과면 앞 20개만 더해 맞는 합계를 틀렸다고 경고 | 20개 초과는 거부("작은 것은 기타로") |
+| S6 | `notes`를 문자열로 주면 글자 하나가 항목 하나 | `top`·`notes`는 목록이어야 함 |
+| S7 | shmoo에서 함께 측정되지 않은 조건을 고르면 선택기는 바뀌고 그림은 그대로 | 그 값을 가진 첫 조합으로 이동, 선택기는 그려진 것을 보여 줌 |
+| S8 | 업로드 part의 사용자별 동시 개수·느린 part 타임아웃에 테스트 없음 | ASGI 테스트 추가(503, 408 뒤 카운터 0, 다음 part 200) |
+
+Lean (한 것): `procps` 제거(Loop 38 뒤 쓰는 곳 없음, apt 단계가 없어져 미러 없는 서버에서 빌드 실패 요인 하나 줄어듦. l29 테스트는 `/proc`로), 연결 에이전트 한 번만 찾기(`agent.tools.AGENTS`), `render._data` → `views.data_json`, artifacts `list()`의 `versions`(목록 화면이 안 씀), `KINDS = set(MAX_ROWS)`, 항상 2인 `scale`(capture, svgPng), sandbox 읽기 명령 중복(`_head`).
+Lean (남긴 것): `git_dir=None` 경로(l2·l3의 git 테스트가 이 경로로 돌아감, 바꾸는 비용이 −8줄보다 큼), artifact `language` 인자(모델에게 보이는 tool 규약, 지우면 그 인자를 주는 호출이 오류), bench `Meter` 복사본(필드 이름이 달라 bench 쪽 수정 필요, 측정 스크립트라 미룸).
+
+Nice: 한두 줄짜리만. N3(템플릿 뷰를 html로 rewrite하면 KeyError → "show_dashboard로 만든다"), N2(승인 요청 실패 시 카드가 굳음 → 오류 표시 후 다시 누를 수 있음, 4줄). 남긴 것: N1(앱 안의 본문 크기 제한, 같은 서버 쉘 계정만 해당, 약 12줄), N4(웨이퍼 맵 범주 13개 이상 색 중복), 1차 감사 N2·N3.
+
+테스트: `tests/test_l30_audit2.py` 11개, 고치기 전 코드(HEAD worktree)에서 동작 수정 8개 실패 확인(merge 정리와 S8 테스트는 원래 통과하는 게 맞음). sandbox 이미지 다시 빌드(`ps` 없음, `timeout` 있음).
+
+### 리뷰 39.1 (별도 에이전트 1명, Docker·Chrome 없이 읽기만): Must 2 / Should 5 / Nit 6
+| 항목 | 고친 것 |
+|---|---|
+| Must | 큰 파일에서 `sniff.py`가 `"~N"`을 `:,`로 출력하다 죽음(바로 이 변경이 겨냥한 경우). 테스트가 `sniff()`만 불러 놓침 → 출력 수정, 테스트가 `main()`도 거침 |
+| Must | 없는 id에 artifact update/rewrite → `[] in TEMPLATES`로 `TypeError: unhashable` (전에는 "no artifact") → `kind and …` |
+| S1 | shmoo에서 pass/fail 칸이 하나도 없는 값(전부 N/A)을 고르면 `combo=-1`로 화면이 깨짐 → 고르기 전 값으로 되돌림 |
+| S2 | `sweep()`이 남은 `.building`을 lock을 쥔 채 지워서(GB면 몇 초) 그 이름의 새 build가 "다른 작업이 build 중"으로 실패 → lock 안에서는 `.trash-*`로 이름만 바꾸고 lock 밖에서 지움(죽은 sweep의 `.trash-*`도 다음에 지움) |
+| S3 | SIGTERM 테스트가 handler 설치 전에 TERM을 보내면 옛 코드로도 통과 → `.building`이 생긴 뒤 보냄 |
+| S5 | 앞 2MB에 줄바꿈이 없으면 `~0` → `?` |
+| S4 (남김) | SQL이 `ORDER BY series, x`면 x 순서가 섞임. tool 설명이 이미 "ORDER BY x"를 요구 |
+| Nit | 낡은 주석(outputs가 통째로만 저장), 쓰이지 않는 walrus, import 순서, `top: ""` 통과 → 고침. 크기 초과 파일의 빈 폴더, 409 뒤 다시 켜지는 승인 버튼 → 둠 |

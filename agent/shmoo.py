@@ -133,8 +133,10 @@ function controls() {
     s.value = cur[fi];
     s.onchange = () => {
       const vals = D.combos[S.combo].slice(); vals[fi] = s.value;
-      const k = comboKey(vals);
-      if (k >= 0) { S.combo = k; S.cell = null; draw(); }
+      let k = comboKey(vals);  // not measured together: the first combination with the value picked
+      if (k < 0) k = D.combos.findIndex(c => c[fi] === s.value);
+      if (k < 0) { s.value = D.combos[S.combo][fi]; return; }  // that value has no pass/fail cell
+      S.combo = k; S.cell = null; draw();  // draw() redoes the selects, so they show what is drawn
     };
     const l = el("label", {}, f.name); l.append(s); box.append(l);
   });

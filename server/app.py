@@ -55,7 +55,7 @@ from agent.artifacts import ArtifactStore
 from agent.loop import ACK, LATEST, PLAN_HINT, SUMMARY, SYSTEM, Context, Interrupt, _user_text, run, shown_plans
 from agent.rag import DocStore
 from agent.sandbox import VTOOLS, Sandbox
-from agent.tools import REGISTRY, TEMPLATES
+from agent.tools import AGENTS, REGISTRY, TEMPLATES
 from agent.userstore import ID_RE, MAX_UPLOAD, PART_MAX, Conflict, TooLarge, UserStore, _writable
 from server import auth, capture, render
 
@@ -100,7 +100,8 @@ def sweep_runs(days=3):
             with contextlib.suppress(OSError):
                 _writable(d)  # the sandbox (same uid) may have made a dir unreadable
             shutil.rmtree(d, ignore_errors=True)
-AGENTS = delegate.discover()  # registers the agent__* tools
+
+
 TOOLS = list(REGISTRY)  # every tool: the server has what each needs (stores, skills, agents)
 SKILLS = skills.discover()
 # Loop 15: effort=max was ~9x slower than low on the finance eval with the same accuracy (k=1). Default low;
@@ -161,7 +162,8 @@ def _work(rid, task, decisions):
     try:  # write back before announcing the end, so a client that sees run_finished sees the saved files
         r = STORE.commit(user, project, run_dir, f"run {rid}")
         if r["skipped"]:
-            emit(rid, {"type": "warning", "message": f"not saved (symlinks/special files): {r['skipped']}"})
+            emit(rid, {"type": "warning",
+                       "message": f"not saved (symlinks, special files, over the outputs limit): {r['skipped']}"})
         if not paused:  # a paused run resumes in this workspace: files outside repo/outputs survive the wait
             # shortcut: an approval/question never answered keeps its run dir; add cleanup by age when disk matters
             shutil.rmtree(run_dir)

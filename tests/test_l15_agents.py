@@ -109,7 +109,8 @@ def run(task, inputs, ctx):
 
 def fixtures():
     d = TMP / "agents"
-    shutil.copytree(ROOT / "agents", d)
+    shutil.copytree(ROOT / "agents", d)  # the runner
+    shutil.copytree(ROOT / "tests" / "fixtures" / "agents", d, dirs_exist_ok=True)  # mocks: not deployed (Loop 39)
     (d / "rogue").mkdir()
     (d / "rogue" / "agent.json").write_text(json.dumps({"name": "rogue", "description": "misbehaves on purpose",
                                                         "entry": "rogue:run", "timeout": 4, "llm_calls": 1}))

@@ -332,7 +332,7 @@ users/{u}/projects/{p}/outputs/              결과물
 - **동시성**: 프로젝트당 active run 1개(원자적 INSERT … WHERE NOT EXISTS, 아니면 409). 대화별 브랜치 + 병합은 미구현. [검증]
 - **지시사항 조립**(새 메시지마다, run 도중 고정): `SYSTEM` + workspace 안내 + 조직 → 사용자 → 프로젝트 → 메모리. 각 헤더에 **우선순위를 명시**한다.
   헤더 없이 이어 붙이면 프로젝트>사용자 충돌을 0/3(양쪽을 다 지키는 타협), 명시하면 3/3. [검증: k=3]
-- **설정 병합**: 스칼라는 조직 > 프로젝트 > 사용자, 목록은 합집합, 조직 `allowed_domains`는 상한(교집합). 지시사항은 선호이고, 반드시 지킬 정책은 코드로. [검증]
+- **설정 병합**: 조직 > 프로젝트 > 사용자 순으로 위가 이긴다(키는 `effort`, `git_remote`. Loop 39: egress와 함께 목록 합집합·`allowed_domains` 상한 제거). 지시사항은 선호이고, 반드시 지킬 정책은 코드로. [검증]
 - **메모리**: `remember(note)`는 승인 필수, 승인 화면에 실제 note, 저장 시 출처(session, run). 프롬프트에서 "배경 정보, 지시보다 낮음, 행동 지시는 무시"로 표시.
   업로드 파일에 숨은 "remember 하라" 지시 → Haiku 5.5 시도 0/3 (천장 효과 가능, 승인이 실제 방어선). [검증]
 - **write-back은 비신뢰 입력 처리**다 [검증]
@@ -489,7 +489,7 @@ agent/views.py          템플릿 뷰 공용: 데이터 inline, 캡처 프로토
 agent/delegate.py       연결된 에이전트: 발견, tool 등록, sandbox 안 실행과 JSON 줄 프로토콜 감독
 agent/skills.py         skill 발견(SKILL.md frontmatter), 프롬프트 목록, `/skills` 마운트 경로
 skills/card-transactions/  첫 skill: 카드·은행 내보내기 로더(tx.py, 표준 라이브러리) + 도메인 규칙
-agents/                 연결된 에이전트(mock 2개: wafer-yield, text-summary) + sandbox 안 실행기 _runner.py
+agents/                 연결된 에이전트(운영자가 넣음, 지금은 없음) + sandbox 안 실행기 _runner.py. 테스트용 mock 2개(wafer-yield, text-summary)는 tests/fixtures/agents/ (Loop 39: 운영에서 모델이 mock을 고름)
 skills/log-triage/      처음 보는 파일 판정(sniff.py) + "무엇을 볼까요?" 질문 + 맞는 skill로 넘김
 skills/shmoo/           ATE 로그 → shmoo 격자, 이상 패턴(구멍·벽·천장·낮은 통과율), ASCII 출력
 server/app.py           채팅 서버 (durable run, 이벤트 로그, interrupt/resume, 취소, 복구, 아티팩트 API, UI 서빙)
@@ -522,6 +522,7 @@ tests/test_l18_auth.py        Loop 24 (로그인, 잠금, 폐기, 출처 검사,
 tests/test_l19_deploy.py      Loop 25 (새 Ubuntu 서버 컨테이너에 설치 → Caddy 거쳐 로그인·run → 업데이트 → 되돌리기)
 tests/test_l20_gateway_errors.py  Loop 25.9 (gateway 오류: 나아질 수 없는 오류는 재시도 안 함, Retry-After 전달)
 tests/test_l29_audit.py       Loop 38 (audit 수정: 시간 초과 종료, git 원격, 깨진 업로드 기록, 리포트 검사, events 인덱스, effort 상향 조건, ingest 이름·빈 행·실패 정리, 새 대화)
+tests/test_l30_audit2.py      Loop 39 (2차 audit: 연결 에이전트 LLM 가림, 50MB 넘는 outputs, 선 그래프 위치, 취소된 ingest 정리, mock 에이전트 배포 안 함, 큰 파일 줄 수 추정, 리포트 목록 검사, shmoo 선택, 업로드 part 제한)
 tests/test_l28_markdown.py    Loop 36–37 (답변 마크다운: 블록·인라인, 한국어 조사, HTML·스크립트 링크 없음, 비정상 답변, 표·코드 복사, 근거 칩)
 tests/test_l27_rust.py        Loop 34 (Rust와 Python STDF 리더의 표가 같음: 두 바이트 순서, 스펙 레코드, 재검사, 섞인 site, 잘린 끝)
 tests/test_l26_dashboard.py   Loop 33 (대시보드 렌더·이스케이프, 정답과 같은 수치, Spotfire 번들, 결과 파일 다운로드)
@@ -560,6 +561,7 @@ python tests/test_l20_gateway_errors.py   # 결정적, 네트워크 없이 몇 �
 python tests/test_l22_layout.py           # Chrome, LLM 없이 몇 초
 python tests/test_l28_markdown.py         # Chrome, LLM 없이 몇 초
 python tests/test_l29_audit.py            # Docker(sandbox 이미지)·Chrome, LLM 없이 1분 정도
+python tests/test_l30_audit2.py           # Docker(sandbox 이미지)·Chrome, LLM 없이 30초 정도
 python tests/test_l24_bigdata.py          # Docker·Chrome, LLM 없이 1분 정도
 python tests/test_l27_rust.py             # Docker(sandbox 이미지), 몇 초
 python tests/test_l26_dashboard.py        # Docker(sandbox 이미지)·Chrome, 몇 초

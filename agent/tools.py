@@ -189,7 +189,7 @@ def show_dashboard(ctx, id, title, charts):
 def export_spotfire(ctx, name, tables, template=None):
     if not isinstance(tables, list) or not 1 <= len(tables) <= 20 or not all(isinstance(t, dict) for t in tables):
         raise ValueError("tables: 1-20 {name, sql}")
-    # what is left for outputs: the run's outputs are saved only as a whole, under MAX_OUTPUTS
+    # what is left for outputs (MAX_OUTPUTS in all; a file past it is not saved): a bundle cut short is no use
     du = ctx.sandbox.exec("du -sb /workspace/outputs | cut -f1", timeout=60).split("\n")[-1].strip()
     budget = MAX_OUTPUTS - (int(du) if du.isdigit() else 0)
     if budget <= 0:
@@ -303,8 +303,9 @@ def artifact(ctx, command, id, type=None, title=None, content=None, file=None, o
     store = ctx.artifacts
     if command not in ("create", "update", "rewrite"):
         raise ValueError("command must be create, update or rewrite")
-    if type in TEMPLATES or (command != "create" and store.versions(id) and store.get(id)["type"] in TEMPLATES):
-        raise ValueError(f"{type or store.get(id)['type']} views are made with {TEMPLATES[type or store.get(id)['type']]}")
+    kind = type if type in TEMPLATES else command != "create" and store.versions(id) and store.get(id)["type"]
+    if kind and kind in TEMPLATES:
+        raise ValueError(f"{kind} views are made with {TEMPLATES[kind]}")
     if command != "update":
         if (content is None) == (file is None):
             raise ValueError("give exactly one of content or file")
@@ -471,4 +472,5 @@ def schemas(names=None):
 
 
 # Connected agents (agent/delegate.py): one tool per agents/{name}/agent.json, run inside the sandbox.
-delegate.register(delegate.discover(), REGISTRY, _schema)
+AGENTS = delegate.discover()  # the server passes these as ctx.agents
+delegate.register(AGENTS, REGISTRY, _schema)

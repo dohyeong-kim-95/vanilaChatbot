@@ -8,7 +8,7 @@ description: First step for "이 로그/파일 분석해줘" when the user has n
 ```bash
 python /skills/log-triage/scripts/sniff.py /workspace/uploads/*
 ```
-Per file: size, lines, encoding, first lines, kind (table / text log / json lines / spreadsheet), and `fits:` the
+Per file: size, lines (`~N` = estimated from the first 2 MB of a big file), encoding, first lines, kind (table / text log / json lines / spreadsheet), and `fits:` the
 skills whose loaders accept it. Trust `fits` over your own guess from the first lines.
 
 ## 2. Ask what matters (one ask_user call), unless the user already said it
