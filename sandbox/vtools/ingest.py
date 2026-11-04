@@ -16,8 +16,8 @@ import shutil
 import sys
 import time
 
-CACHE = os.environ.get("VTOOLS_CACHE", "/workspace/cache")
-VERSION = 2  # of the tables this script makes: a dataset from another version is built again
+CACHE = "/workspace/cache"
+VERSION = 3  # of the tables (3: no rows for unmatched text lines, Loop 38) this script makes: a dataset from another version is built again
 NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 
 
@@ -98,16 +98,17 @@ def text(files, out, pattern, time_col=None, time_format=None):
     os.makedirs(os.path.join(out, "rows"))
     for i, f in enumerate(files):
         say(base, total, os.path.basename(f))
-        lf = (pl.scan_csv(f, separator="\x1f", has_header=False, quote_char=None, new_columns=["line"],
-                          schema_overrides={"line": pl.Utf8}, encoding="utf8-lossy", truncate_ragged_lines=True)
-              .select(pl.col("line").str.extract_groups(pattern).alias("g")).unnest("g"))
+        lines = pl.scan_csv(f, separator="\x1f", has_header=False, quote_char=None, new_columns=["line"],
+                            schema_overrides={"line": pl.Utf8}, encoding="utf8-lossy", truncate_ragged_lines=True)
+        # a line the pattern does not match is not a row (Loop 38: it was one of NULLs, counted by count(*))
+        lf = (lines.select(pl.col("line").str.extract_groups(pattern).alias("g")).unnest("g")
+              .filter(~pl.all_horizontal(pl.col(names).is_null())))
         if time_col:
             lf = lf.with_columns(pl.col(time_col).str.to_datetime(time_format, strict=False))
         part = os.path.join(out, "rows", f"{i:04d}.parquet")
         lf.with_columns(pl.lit(os.path.basename(f)).alias("file")).sink_parquet(part, compression="zstd")
         n = pl.scan_parquet(part).select(pl.len()).collect().item()
-        bad = pl.scan_parquet(part).filter(pl.col(names[0]).is_null()).select(pl.len()).collect().item()
-        rows, unmatched = rows + n - bad, unmatched + bad
+        rows, unmatched = rows + n, unmatched + lines.select(pl.len()).collect().item() - n
         base += os.path.getsize(f)
     say(total, total, "done")
     return {"rows": rows, "unmatched_lines": unmatched}, []
@@ -127,6 +128,11 @@ def main():
     missing = [f for f in a.files if not os.path.isfile(f)]
     if missing:
         raise SystemExit(f"no such file: {missing}")
+    names = [os.path.basename(f) for f in a.files]  # the tables' file column (rows of two files would mix)
+    if len(set(names)) != len(names):
+        dup = sorted({n for n in names if names.count(n) > 1})
+        raise SystemExit(f"two files named {dup[:5]} (or one file twice): the dataset tells files apart by name; "
+                         "make one dataset per folder, or pass each file once")
     out = os.path.join(CACHE, a.dataset)
     import fcntl
     lock = open(os.path.join(CACHE, f".{a.dataset}.lock"), "w")
@@ -147,15 +153,19 @@ def main():
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp)
     t = time.time()
-    if a.format == "stdf":
-        counts, notes, reader = stdf(a.files, tmp)
-    else:
-        if not a.pattern:
-            raise SystemExit("text needs --pattern with named groups")
-        (counts, notes), reader = text(a.files, tmp, a.pattern, a.time, a.time_format), "polars"
-    meta = {**key, "counts": counts, "built": time.strftime("%Y-%m-%d %H:%M:%S"), "seconds": round(time.time() - t, 1),
-            "reader": reader}
-    json.dump(meta, open(os.path.join(tmp, "meta.json"), "w"), indent=1)
+    try:
+        if a.format == "stdf":
+            counts, notes, reader = stdf(a.files, tmp)
+        else:
+            if not a.pattern:
+                raise SystemExit("text needs --pattern with named groups")
+            (counts, notes), reader = text(a.files, tmp, a.pattern, a.time, a.time_format), "polars"
+        meta = {**key, "counts": counts, "built": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "seconds": round(time.time() - t, 1), "reader": reader}
+        json.dump(meta, open(os.path.join(tmp, "meta.json"), "w"), indent=1)
+    except BaseException:  # a failed build must not keep its GBs in the cache (Loop 38)
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
     shutil.rmtree(out, ignore_errors=True)
     os.replace(tmp, out)  # a dataset is either the whole new one or the old one
     print(f"dataset {a.dataset}: {json.dumps(counts)} in {meta['seconds']}s ({meta['reader']}); tables: "

@@ -125,6 +125,10 @@ def t_login_through_caddy():
     assert curl("POST", "/projects", {"project_id": "x"}, extra="-H 'Origin: https://evil.test'", origin=False)[0] == 403
     code, _ = curl("GET", "/me", extra="-H 'X-User: alice'", jar=False)
     assert code == 401, code
+    # Loop 38: one request is at most 20 MB, before the app reads it (a 16 MB upload part still goes through)
+    sh("head -c 21000000 /dev/zero > /root/big && head -c 16777216 /dev/zero > /root/part")
+    assert curl("POST", "/login", extra="-H 'Content-Type: application/json' --data-binary @/root/big", jar=False)[0] == 413
+    assert curl("POST", "/login", extra="-H 'Content-Type: application/json' --data-binary @/root/part", jar=False)[0] != 413
     # http redirects to https
     loc = sh(f"curl -s -o /dev/null -w '%{{redirect_url}}' --resolve {APP}:80:127.0.0.1 http://{APP}/").stdout
     assert loc == f"https://{APP}/", loc

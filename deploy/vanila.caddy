@@ -4,6 +4,11 @@
 https://@APP_HOST@ {
 	@TLS@
 	request_header -X-User # only AGENT_AUTH=header reads it; never from outside, whatever the setting
+	# FastAPI reads a body before the login check: cap one request (the UI sends at most 16 MB parts, so GB files
+	# still go up, in parts). Loop 38.
+	request_body {
+		max_size 20MB
+	}
 	reverse_proxy 127.0.0.1:8200
 	header Strict-Transport-Security "max-age=31536000"
 }

@@ -48,8 +48,14 @@ def page_head():
 
 SLIDE_JS = r"""
 const SVGNS = "http://www.w3.org/2000/svg";
-function S_(tag, attrs = {}, text) {
+function S_(tag, attrs = {}, text) {  // an SVG element
   const n = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+function el(tag, attrs = {}, text) {  // an HTML element
+  const n = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
   if (text !== undefined) n.textContent = text;
   return n;

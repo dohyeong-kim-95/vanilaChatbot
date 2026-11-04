@@ -191,8 +191,9 @@ const MD = (() => {
     const b = node("button");
     b.type = "button"; b.textContent = label;
     b.onclick = async () => {
+      b.disabled = true;
       try { await copy(); b.textContent = "복사됨"; } catch (e) { b.textContent = "실패"; }
-      setTimeout(() => { b.textContent = label; }, 1500);
+      setTimeout(() => { b.textContent = label; b.disabled = false; }, 1500);
     };
     return b;
   }
@@ -313,5 +314,5 @@ const MD = (() => {
     return a;
   }
 
-  return { render: (src) => blocks(String(src).replace(/\r\n?/g, "\n").replace(/\t/g, "    ").split("\n"), document.createDocumentFragment()) };
+  return { copyButton, render: (src) => blocks(String(src).replace(/\r\n?/g, "\n").replace(/\t/g, "    ").split("\n"), document.createDocumentFragment()) };
 })();

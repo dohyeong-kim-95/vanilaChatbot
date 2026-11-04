@@ -12,7 +12,7 @@ import time
 
 import duckdb
 
-CACHE = os.environ.get("VTOOLS_CACHE", "/workspace/cache")
+CACHE = "/workspace/cache"
 
 
 def connect():

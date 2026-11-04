@@ -1389,3 +1389,56 @@ Loop 31–34에서 미뤄 둔 것을 한 번에 고침(사용자 결정: 마지�
 **내용 3/3** (채점기는 2/3: 1회차의 "L007A**의** W04"를 채점기가 못 읽음 → 채점기 수정). 69·87·70초, 모델 호출 9–10번.
 - 세 번 모두 대시보드 1개(차트 4개: lot 수율, 웨이퍼 수율, fail test, W04 웨이퍼 맵)를 만들고, 주장마다 문단 끝에 그 차트를 가리키는 칩을 담. 깨진 링크 0, `#c1`만 베끼는 일 없음(c1–c4를 각자 맞게)
 - 버전까지 정확히 씀(`@1`). 확인하지 않은 점("T032가 W04에 몰려 있는지는 확인 필요")은 칩 없이 따로 적음
+
+## Loop 38 — 저장소 전체 audit(ponytail-audit) 수정과 군더더기 정리
+사용자 요청: 오버엔지니어링까지 보는 audit → Must·Should 수정, Lean은 `search_documents`만 남기고 제거.
+
+**audit 방법**: ponytail-audit 지침(`skills/ponytail-audit/SKILL.md`, 설치 없이 원문만)으로 별도 에이전트 4명이 영역을 나눠(서버·배포 / 에이전트 핵심 / 데이터 / 화면) 읽고, 영역마다 다른 에이전트가 지적을 반박해 본 뒤(3건 기각) 한 보고서로 합침. 부하 가정: Linux 서버 1대, 사용자 약 20명, 2GB 로그 여러 개. LOOP_LOG에 "남긴 것"으로 적은 결정은 지적에서 뺌. 결과: Must 5, Should 8(+Lean 4), Nice 4(+Lean 9).
+
+### Must (모두 수정)
+| # | 지적 | 수정 |
+|---|---|---|
+| M1 | 로그인 전에도 아무 크기의 본문을 메모리에 읽음(4GB 두 번이면 OOM) | Caddy `request_body max_size 20MB`. GB 파일은 16MB 조각이라 그대로 올라감(사용자 질문으로 확인) |
+| M2 | `git_remote`를 다른 사용자의 저장소 경로로 바꾸면 그리로 push | https 또는 데이터 폴더 밖 경로만(`git_remote()`), `-`로 시작하는 값 거부 |
+| M3 | 시간 초과된 sandbox 명령이 계속 돎(`pkill -f` 패턴이 거의 안 맞음). **Loop 33.1에 "고침"으로 적었던 것이 실제로는 안 고쳐져 있었음** | 컨테이너 안 `timeout -k 5`(프로세스 그룹째), pkill과 `exec ` 접두사 제거 |
+| M4 | 빈 `.json` 하나(디스크 가득)로 모든 사용자의 큰 업로드와 서버 시작이 실패 | 읽지 못하면 그 업로드만 지움, `.json`은 tmp에 써서 `os.replace` |
+| M5 | categories가 문자열 목록인 리포트는 저장되고 열 때마다 500 | 객체가 아니면 거부 |
+
+### Should (모두 수정)
+| # | 지적 | 수정 |
+|---|---|---|
+| S1 | events에 run_id 인덱스 없음(300만 행에서 SSE 한 번에 0.44초 동안 모든 요청 정지) | `events_run(run_id, seq)` |
+| S2 | 결과 없는 grep(exit 1)을 오류로 세어 effort가 high로(약 9배 느림) | exit≠0은 stderr가 있을 때만 |
+| S3 | log-triage가 2GB 텍스트 로그를 16MB 한도 뷰로 보냄 | 16MB 넘으면 `ingest_log`로 안내(SKILL.md, 오류 문구), `logs.py` 300만 줄 |
+| S4 | 다른 폴더의 같은 이름 파일이 데이터셋에서 섞여 수율이 조용히 틀림 | 같은 이름(같은 파일 두 번 포함)이면 거부 |
+| S5 | 텍스트 ingest가 안 맞는 줄을 NULL 행으로 저장(`count(*)` 부풀림) | 그 줄은 행이 아님, 데이터셋 VERSION 3(다시 만듦) |
+| S6 | ingest 실패 시 수 GB `.building`이 캐시에 남음 | 실패하면 지움 |
+| S7 | 실행 중 새 대화를 누르면 이전 실행의 답이 새 화면에 붙음 | `stopFollow()`, 그리고 멈춘 follow가 풀지 못하는 전송 잠금을 `stopFollow`에서 풂 |
+| S8 | 새 대화의 첫 메시지가 프로젝트 전체를 다시 불러옴(열린 artifact가 닫힘) | 대화 목록만 다시 불러옴(`loadSessions`) |
+| N1 (같이) | 파일 개수 한도를 2GB를 다 올린 뒤에야 검사 | 시작할 때 검사(아래 `_place`) |
+
+### Lean (사용자 결정: `search_documents`만 남기고 제거)
+| 지운 것 | 이유 |
+|---|---|
+| egress 프록시, MCP 어댑터, tool 라우터, spotlight(+`request_network_access`, `search_tools`, 테스트 l5·l6·l7, MCP fixture, 인젝션 실험, `mcp` 의존성) | 서버에 연결되지 않고 테스트에서만 쓰임. 이미 어긋나기 시작함(spotlight가 켜지면 effort 상향이 오류를 못 셈). 설계·측정은 Loop 8·9·11에 남음 |
+| GitHub PR 생성과 토큰 처리 | 아무것도 설정하지 않아 실행된 적 없음. `open_pull_request` → `push_branch(branch)`(push만 하던 그대로) |
+| `_DECIDED` 캐시 | 판정이 대화 기록(VERDICT)에 저장된 뒤로 불필요 |
+| 쓰이지 않는 인자·설정 | gateway `tool_choice`·backend `EFFORT`, capture `scale`, `DocStore.add_file`, `VTOOLS_CACHE`/`VTOOLS_OUTPUTS`, shmoo의 `MONO` |
+| 중복 | artifact 도구 이름 목록 3곳 → `TEMPLATES`/registry 하나, 업로드 용량 합계 3곳·파일 배치 2곳 → `_used`/`_place`, `svgEl`·`el` → `SLIDE_JS`의 `S_`·`el`, 복사 버튼 2개 → `MD.copyButton`, show_* 저장 4곳 → `_save_view`, effort 인자 3곳 → `_effort`, 같은 모양 요청 모델 2쌍 |
+
+**기각된 것(검증 에이전트)**: git_dir 없을 때 호스트 git 사용(서버는 항상 설정), gateway 가짜 스트리밍, dashboard 색 토큰 중복.
+
+결과: 제품 코드 약 −290줄(515 삭제, 225 추가), 테스트 −300줄(지운 기능의 테스트). `tests/test_l29_audit.py` 11개 — 수정마다 고치기 전 코드에서 실패함을 확인(7개 파일 되돌려 실행). 모델 확인은 하지 않음(동작이 바뀐 곳은 결정적 테스트로 덮음).
+
+### 리뷰 38.1 (별도 에이전트 1명): Must 1 / Should 5 / Nit 4
+| 항목 | 고친 것 |
+|---|---|
+| Must | `tests/test_l16_effort.py`가 지운 `_DECIDED`를 부름(3개 실패, 회귀 테스트에서도 잡힘) → 그 줄 삭제 |
+| S1 | `bash(timeout=0)`이면 `timeout(1)`이 제한 없음으로 읽어 M3이 다시 열림 → `max(1, …)` |
+| S2 | `bash` 설명에 "허용된 HTTPS 도메인" 문구가 남음 → "no network" |
+| S3 | 잘못된 `git_remote`(ssh 형식 등)가 조용히 무시되고 push가 프로젝트 자신의 origin으로 가며 성공으로 보고됨 → 설정 저장 때 400(`checked`) |
+| S5 | 시간 초과(`exit_code=124\n[timeout…]`, stderr 없음)가 연속 실패로 세지지 않음 → 셈 |
+| S4 (미룸) | 텍스트 ingest가 안 맞는 줄 수를 세려고 파일을 두 번 읽음. GB 로그에서 I/O 2배. 다음 ingest 작업 때 |
+| Nit | SPEC·TODO의 spotlight·PR·허용 도메인·egress 문구 정리. 디스크가 찰 때 남는 빈 `.json.tmp`/`.data`는 둠(용량에 안 셈) |
+
+테스트: l29에 세 가지 검사 추가(통과), l16 전체 통과. 결정적 회귀 전체(22개 파일, 142개 PASS) 중 실패는 위 Must 하나였다.

@@ -5,6 +5,7 @@ The page has no scripts and no external resources: the chart is SVG drawn here, 
 Each section is self-contained (own heading, fixed width) so a capture of it reads on its own.
 """
 import html
+import json
 
 from .views import FONT, PAD, PRESETS, SIZES, TOKENS
 
@@ -70,6 +71,12 @@ def _str(x, field, limit=200):
     return x[:limit]
 
 
+def _obj(x, field):
+    if not isinstance(x, dict):  # Loop 38: dropped quietly, a report of no categories saved and never opened
+        raise ValueError(f"{field}: each item must be an object, got {json.dumps(x, ensure_ascii=False)[:60]}")
+    return True
+
+
 def validate(d):
     """Strict shape check; returns (clean data, warnings). Warnings go back to the model so it can fix numbers."""
     if not isinstance(d, dict):
@@ -89,10 +96,10 @@ def validate(d):
     out["categories"] = [{"name": _str(c.get("name"), "categories.name", 40),
                           "amount": _num(c.get("amount"), "categories.amount"),
                           **({"budget": _num(c["budget"], "categories.budget")} if c.get("budget") is not None else {})}
-                         for c in cats[:MAX_ROWS] if isinstance(c, dict)]
+                         for c in cats[:MAX_ROWS] if _obj(c, "categories")]
     out["top"] = [{"date": _str(t.get("date"), "top.date", 20), "merchant": _str(t.get("merchant"), "top.merchant", 60),
                    "amount": _num(t.get("amount"), "top.amount"), "category": _str(t.get("category", ""), "top.category", 40)}
-                  for t in (d.get("top") or [])[:MAX_ROWS] if isinstance(t, dict)]
+                  for t in (d.get("top") or [])[:MAX_ROWS] if _obj(t, "top")]
     out["notes"] = [_str(n, "notes", 300) for n in (d.get("notes") or [])[:10]]
     heads = d.get("headlines") or {}
     if not isinstance(heads, dict) or set(heads) - {"summary", "categories", "top"}:

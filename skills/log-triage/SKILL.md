@@ -29,7 +29,10 @@ If there are several unrelated files, ask which file first (one option per file)
 ## 3. Do it
 - Load the matching skill with use_skill (shmoo, card-transactions) and follow it; its view tool is the artifact
   (`show_shmoo`, `show_report`).
-- Text logs (kind: text log): call `show_logview` with the file. It is the artifact: entries over time by level and
+- Text logs over 16 MB (GB logs): `show_logview` and `logs.py` cannot take them. Use `ingest_log` (format text,
+  a pattern with named groups such as ts, level, msg) once, then `log_query` for the numbers and `show_dashboard`
+  for the view.
+- Text logs (kind: text log, up to 16 MB): call `show_logview` with the file. It is the artifact: entries over time by level and
   masked message patterns; the user clicks levels, patterns and time buckets and copies the chart. Use its summary
   (levels, top patterns, busiest error buckets) for your answer; `python /skills/log-triage/scripts/logs.py FILE`
   prints the same summary, and `import logs; entries, _ = logs.parse(path); logs.aggregate(entries)` gives the numbers for follow-ups.

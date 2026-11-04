@@ -196,15 +196,8 @@ class UserStore:
         sha = hashlib.sha256(data).hexdigest()
 
         def add(d, m):
-            if path in m:
-                raise FileExistsError(f"{path} already exists")
-            self._parents(m, path)
-            m[path] = sha
-            blobs = {v for v in m.values() if v}
-            if len(m) > MAX_UPLOAD_ENTRIES:
-                raise TooLarge(f"more than {MAX_UPLOAD_ENTRIES} files and folders")
-            if sum((d / "blobs" / b).stat().st_size for b in blobs - {sha}) + len(data) \
-                    + sum(p["size"] for p in self._partials(d).values()) > MAX_UPLOAD_TOTAL:
+            self._place(m, path, sha)
+            if self._used(d, m, skip=sha) + len(data) > MAX_UPLOAD_TOTAL:
                 raise TooLarge(f"uploads exceed {MAX_UPLOAD_TOTAL} bytes")
             self._user_quota(user, len(data))
             blob = d / "blobs" / sha
@@ -275,13 +268,10 @@ class UserStore:
         d = self.project_dir(user, project) / "uploads"
         with UPLOAD_LOCK:
             m = self._manifest(d)
-            if path in m:
-                raise FileExistsError(f"{path} already exists")
-            self._parents(dict(m), path)  # a file in the way of a parent folder: say so now, not after 4 GB
+            # a name taken, a file in the way of a parent folder, too many entries: say so now, not after 4 GB
+            self._place(dict(m), path, None)
             owed = self._sweep_uploads()  # every open upload on this server: bytes still to come
-            parts = self._partials(d)
-            used = sum((d / "blobs" / b).stat().st_size for b in {v for v in m.values() if v})
-            if used + sum(p["size"] for p in parts.values()) + size > MAX_UPLOAD_TOTAL:
+            if self._used(d, m) + size > MAX_UPLOAD_TOTAL:
                 raise TooLarge(f"uploads exceed {MAX_UPLOAD_TOTAL} bytes")
             self._user_quota(user, size)
             (d / "partial").mkdir(parents=True, exist_ok=True)
@@ -290,15 +280,30 @@ class UserStore:
                 raise TooLarge("not enough disk space on the server")
             uid = secrets.token_hex(8)
             (d / "partial" / f"{uid}.data").touch()
-            (d / "partial" / f"{uid}.json").write_text(json.dumps({"path": path, "size": size}, ensure_ascii=False))
+            tmp = d / "partial" / f"{uid}.json.tmp"  # written whole or not at all
+            tmp.write_text(json.dumps({"path": path, "size": size}, ensure_ascii=False))
+            os.replace(tmp, d / "partial" / f"{uid}.json")
         return {"upload_id": uid, "path": path, "size": size, "received": 0, "part_max": PART_MAX}
+
+    def _place(self, m, path, sha):
+        """Put a new file into manifest m (its parent folders too), or say why it cannot go there."""
+        if path in m:
+            raise FileExistsError(f"{path} already exists")
+        self._parents(m, path)
+        m[path] = sha
+        if len(m) > MAX_UPLOAD_ENTRIES:
+            raise TooLarge(f"more than {MAX_UPLOAD_ENTRIES} files and folders")
+
+    def _used(self, d, m, skip=None):
+        """Bytes a project's uploads take: its distinct blobs (but `skip`) and its unfinished uploads."""
+        return sum((d / "blobs" / b).stat().st_size for b in {v for v in m.values() if v} - {skip}) \
+            + sum(p["size"] for p in self._partials(d).values())
 
     def _user_quota(self, user, adding):
         """All of a user's projects together (projects are free to make). Caller holds UPLOAD_LOCK."""
         total = adding
         for up in (self.user_dir(user) / "projects").glob("*/uploads"):
-            total += sum((up / "blobs" / b).stat().st_size for b in {v for v in self._manifest(up).values() if v})
-            total += sum(p["size"] for p in self._partials(up).values())
+            total += self._used(up, self._manifest(up))
         if total > USER_QUOTA:
             raise TooLarge(f"your uploads exceed {USER_QUOTA} bytes over all projects")
 
@@ -328,7 +333,11 @@ class UserStore:
                 data.unlink(missing_ok=True)
                 meta.unlink(missing_ok=True)
                 continue
-            out[meta.stem] = json.loads(meta.read_text())
+            try:
+                out[meta.stem] = json.loads(meta.read_text())
+            except (OSError, ValueError):  # cut short (a full disk): this upload is lost, the others go on
+                data.unlink(missing_ok=True)
+                meta.unlink(missing_ok=True)
         return out
 
     def _partial(self, user, project, uid):
@@ -379,12 +388,7 @@ class UserStore:
             sha, path = h.hexdigest(), meta["path"]
 
             def add(d, m):
-                if path in m:
-                    raise FileExistsError(f"{path} already exists")
-                self._parents(m, path)
-                m[path] = sha
-                if len(m) > MAX_UPLOAD_ENTRIES:
-                    raise TooLarge(f"more than {MAX_UPLOAD_ENTRIES} files and folders")
+                self._place(m, path, sha)
                 blob = d / "blobs" / sha
                 blob.parent.mkdir(parents=True, exist_ok=True)
                 if not f.exists():  # expired by a sweep while it was hashed

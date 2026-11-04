@@ -145,11 +145,9 @@ def t_model_decides_correction():
     for text, reply, want in (("오답이에요", "yes", "high"), ("3월이 빠졌어요", "Yes.", "high"), ("nope, card B", "네", "high"),
                               ("틀렸어요", "no", "low"), ("아니에요 괜찮아요", "No", "low"),
                               ("틀렸어요", "음… 잘 모르겠네요", "high"), ("좋아요 고마워요", "", "low")):
-        loop._DECIDED.clear()
         c = Scripted([DONE], judge=lambda _t, r=reply: r)
         run(text, Context(), client=c, model="m", history=hist(), effort="low", log=lambda *_: None)
         assert c.efforts == [want] and c.judged == [text], (text, reply, c.efforts, c.judged)
-    loop._DECIDED.clear()
     c = Scripted([DONE], judge=lambda _t: 1 / 0)  # the call fails: regex
     run("틀렸어요", Context(), client=c, model="m", history=hist(), effort="low", log=lambda *_: None)
     assert c.efforts == ["high"], c.efforts
@@ -164,7 +162,6 @@ def t_model_decides_correction():
 def t_classifier_context_and_resume():
     """The model sees the answer (not a tool-call turn), the earlier question and both ends of a long message; a
     resume asks nothing new and keeps the verdict even if the model would now say otherwise."""
-    loop._DECIDED.clear()
     seen = []
 
     class Judge(Scripted):
@@ -198,7 +195,7 @@ def t_verdict_kept_in_history():
     assert c.efforts == ["high", "high"] and hist[3].get(loop.VERDICT) is True, (c.efforts, hist[3])
     assert not any(loop.VERDICT in m for sent in c.sent for m in sent), "the verdict reached the model"
     for compacted in (False, True):
-        loop._DECIDED.clear()  # a restarted server
+        # a restarted server: nothing in memory
         if compacted:
             hist[:] = loop.compact(hist, Scripted([{"role": "assistant", "content": "summary"}]), "m", budget=1)
             assert hist[2]["content"].startswith(loop.SUMMARY) and hist[2].get(loop.VERDICT) is True, hist[2]

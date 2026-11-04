@@ -12,7 +12,7 @@ import html
 import importlib.util
 
 from .skills import DIR
-from .views import FONT, MONO, SLIDE_JS, data_json, page_head
+from .views import FONT, SLIDE_JS, data_json, page_head
 
 _spec = importlib.util.spec_from_file_location("shmoo_core", DIR / "shmoo" / "scripts" / "shmoo.py")
 core = importlib.util.module_from_spec(_spec)
@@ -102,18 +102,6 @@ const D = JSON.parse(document.getElementById("data").textContent);
 const NX = D.x.values.length, NY = D.y.values.length, ALL = -1;
 const S = { combo: 0, device: ALL, cell: null };
 const $ = (id) => document.getElementById(id);
-const el = (tag, attrs = {}, text) => {
-  const n = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
-  if (text !== undefined) n.textContent = text;
-  return n;
-};
-const svgEl = (tag, attrs = {}, text) => {
-  const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
-  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
-  if (text !== undefined) n.textContent = text;
-  return n;
-};
 const comboKey = (vals) => D.combos.findIndex((c) => c.every((v, i) => v === vals[i]));
 const condText = (ci) => D.filters.map((f, i) => `${f.name}=${D.combos[ci][i]}`).join(", ");
 const devName = (di) => di === ALL ? `전체 ${D.devices.length}개 합산` : `${D.device_cols.join("-")} ${D.devices[di]}`;
@@ -162,12 +150,12 @@ function controls() {
 const CW = 30, CH = 22, ML = 64, MT = 58, MB = 66, MR = 16;
 function plot() {
   const w = Math.max(ML + NX * CW + MR, 480), h = MT + NY * CH + MB;  // min width: title and legend fit
-  const s = svgEl("svg", { xmlns: "http://www.w3.org/2000/svg", viewBox: `0 0 ${w} ${h}`, width: w, height: h,
+  const s = S_("svg", { xmlns: "http://www.w3.org/2000/svg", viewBox: `0 0 ${w} ${h}`, width: w, height: h,
                            style: `max-width: ${w}px`,
                            "font-family": FONT });
-  s.append(svgEl("rect", { x: 0, y: 0, width: w, height: h, fill: "#ffffff" }));
-  s.append(svgEl("text", { x: 12, y: 22, "font-size": 15, "font-weight": 700, fill: "#1c1917" }, D.title));
-  s.append(svgEl("text", { x: 12, y: 42, "font-size": 12, fill: "#625c57" },
+  s.append(S_("rect", { x: 0, y: 0, width: w, height: h, fill: "#ffffff" }));
+  s.append(S_("text", { x: 12, y: 22, "font-size": 15, "font-weight": 700, fill: "#1c1917" }, D.title));
+  s.append(S_("text", { x: 12, y: 42, "font-size": 12, fill: "#625c57" },
                  `${devName(S.device)}${D.filters.length ? " · " + condText(S.combo) : ""}`));
   const ci = S.combo;
   for (let j = 0; j < NY; j++) {
@@ -183,51 +171,51 @@ function plot() {
         const v = at(ci, S.device, i, j);
         fill = cellColor(v);
       }
-      const r = svgEl("rect", { class: "c", x: x + 1, y: y + 1, width: CW - 2, height: CH - 2, rx: 2, fill,
+      const r = S_("rect", { class: "c", x: x + 1, y: y + 1, width: CW - 2, height: CH - 2, rx: 2, fill,
                                 stroke: fill === "#FFFFFF" ? TOK.untested : "none" });
       r.onclick = () => { S.cell = [i, j]; draw(); };
       s.append(r);
-      if (label) s.append(svgEl("text", { x: x + CW / 2, y: y + CH / 2 + 4, "text-anchor": "middle", "font-size": 10,
+      if (label) s.append(S_("text", { x: x + CW / 2, y: y + CH / 2 + 4, "text-anchor": "middle", "font-size": 10,
                                          fill: "#1c1917", "pointer-events": "none" }, label));
     }
   }
   if (D.spec) {
     const xi = inRange(D.x.values, D.spec.x), yj = inRange(D.y.values, D.spec.y);
     if (xi.length && yj.length)
-      s.append(svgEl("rect", { x: ML + xi[0] * CW, y: MT + (NY - 1 - yj[yj.length - 1]) * CH, width: xi.length * CW,
+      s.append(S_("rect", { x: ML + xi[0] * CW, y: MT + (NY - 1 - yj[yj.length - 1]) * CH, width: xi.length * CW,
                                height: yj.length * CH, fill: "none", stroke: TOK.ink, "stroke-width": 2, "stroke-dasharray": "6 4", "pointer-events": "none" }));
   }
   if (D.op) {
     const i = idx(D.x.values, D.op.x), j = idx(D.y.values, D.op.y);
-    s.append(svgEl("circle", { cx: ML + i * CW + CW / 2, cy: MT + (NY - 1 - j) * CH + CH / 2, r: 6, fill: "#fff", stroke: TOK.ink, "stroke-width": 2.5, "pointer-events": "none" }));
+    s.append(S_("circle", { cx: ML + i * CW + CW / 2, cy: MT + (NY - 1 - j) * CH + CH / 2, r: 6, fill: "#fff", stroke: TOK.ink, "stroke-width": 2.5, "pointer-events": "none" }));
   }
   if (S.cell) {
     const [i, j] = S.cell;
-    s.append(svgEl("rect", { x: ML + i * CW, y: MT + (NY - 1 - j) * CH, width: CW, height: CH, fill: "none",
+    s.append(S_("rect", { x: ML + i * CW, y: MT + (NY - 1 - j) * CH, width: CW, height: CH, fill: "none",
                              stroke: "#1c1917", "stroke-width": 2, "pointer-events": "none" }));
   }
   const step = (n, px) => Math.max(1, Math.ceil(n * 14 / px));
   const ys = step(NY, NY * CH), xs = step(NX, NX * CW / 2.2);
   for (let j = 0; j < NY; j += ys)
-    s.append(svgEl("text", { x: ML - 6, y: MT + (NY - 1 - j) * CH + CH / 2 + 4, "text-anchor": "end", "font-size": 11,
+    s.append(S_("text", { x: ML - 6, y: MT + (NY - 1 - j) * CH + CH / 2 + 4, "text-anchor": "end", "font-size": 11,
                              fill: "#1c1917" }, D.y.values[j]));
   for (let i = 0; i < NX; i += xs)
-    s.append(svgEl("text", { x: ML + i * CW + CW / 2, y: MT + NY * CH + 15, "text-anchor": "middle", "font-size": 11,
+    s.append(S_("text", { x: ML + i * CW + CW / 2, y: MT + NY * CH + 15, "text-anchor": "middle", "font-size": 11,
                              fill: "#1c1917" }, D.x.values[i]));
-  s.append(svgEl("text", { x: ML + NX * CW / 2, y: MT + NY * CH + 32, "text-anchor": "middle", "font-size": 12,
+  s.append(S_("text", { x: ML + NX * CW / 2, y: MT + NY * CH + 32, "text-anchor": "middle", "font-size": 12,
                            fill: "#625c57" }, D.x.name));
-  s.append(svgEl("text", { x: 14, y: MT + NY * CH / 2, "text-anchor": "middle", "font-size": 12, fill: "#625c57",
+  s.append(S_("text", { x: 14, y: MT + NY * CH / 2, "text-anchor": "middle", "font-size": 12, fill: "#625c57",
                            transform: `rotate(-90 14 ${MT + NY * CH / 2})` }, D.y.name));
   // legend
   const ly = h - 12;
   if (S.device === ALL) {
-    BINS.forEach(([, c], k) => s.append(svgEl("rect", { x: ML + k * 14, y: ly - 9, width: 14, height: 10, fill: c })));
-    s.append(svgEl("text", { x: ML + 6 * 14 + 6, y: ly, "font-size": 11, fill: "#625c57" },
+    BINS.forEach(([, c], k) => s.append(S_("rect", { x: ML + k * 14, y: ly - 9, width: 14, height: 10, fill: c })));
+    s.append(S_("text", { x: ML + 6 * 14 + 6, y: ly, "font-size": 11, fill: "#625c57" },
                    "통과율 100% → 0%   칸 숫자 = 실패한 장치 수"));
   } else {
     [[TOK.pass, "Pass"], [TOK.fail, "Fail"], ["#FFFFFF", "미측정"]].forEach(([c, t], k) => {
-      s.append(svgEl("rect", { x: ML + k * 80, y: ly - 9, width: 12, height: 10, fill: c }));
-      s.append(svgEl("text", { x: ML + k * 80 + 16, y: ly, "font-size": 11, fill: "#625c57" }, t));
+      s.append(S_("rect", { x: ML + k * 80, y: ly - 9, width: 12, height: 10, fill: c }));
+      s.append(S_("text", { x: ML + k * 80 + 16, y: ly, "font-size": 11, fill: "#625c57" }, t));
     });
   }
   return s;
@@ -451,7 +439,7 @@ function renderSlide(preset, opts = {}) {
 
 def render(d):
     return (f'<!doctype html><html lang="ko"><meta charset="utf-8"><title>{html.escape(d["title"])}</title>'
-            f'<style>{CSS.replace("MONO", MONO).replace("FONT", FONT)}</style><body><h1 id="h"></h1><div class="sub" id="sub"></div>'
+            f'<style>{CSS.replace("FONT", FONT)}</style><body><h1 id="h"></h1><div class="sub" id="sub"></div>'
             '<div class="controls" id="controls"></div><label class="titlebox">캡처 제목 <input id="slide-title"></label>'
             '<div class="layout"><div class="card" id="plot"></div>'
             '<div class="side"><div class="card"><h2>선택한 칸</h2><div id="detail"></div></div>'

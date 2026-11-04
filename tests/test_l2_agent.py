@@ -103,18 +103,18 @@ def t_github_flow():
     sb = Sandbox(ws)
     asked = []
     task = ("Fix the failing test (python test_calc.py), commit on branch fix/add, "
-            "then open a pull request for it.")
+            "then push the branch.")
     try:
         # 1) human denies -> nothing pushed
         ctx = Context(sandbox=sb, remote_url=str(origin), approve=lambda n, a: asked.append((n, a)) or False)
         log = []
         run(task, ctx, log=log.append)
         print("   ", *log, sep="\n    ")
-        assert asked and asked[0][0] == "open_pull_request", asked
+        assert asked and asked[0][0] == "push_branch", asked
         assert github.git(origin, "rev-parse", "--verify", "fix/add")[0] != 0, "pushed despite denial"
         # 2) human approves -> branch lands on origin with the fix
         ctx.approve = lambda n, a: True
-        ans, _ = run("The user approved now. Open the pull request.", ctx, log=log.append)
+        ans, _ = run("The user approved now. Push the branch.", ctx, log=log.append)
         rc, content = github.git(origin, "show", "fix/add:calc.py")
         assert rc == 0 and "a + b" in content, (ans, content)
     finally:

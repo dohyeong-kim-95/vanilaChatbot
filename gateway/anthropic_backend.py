@@ -14,7 +14,6 @@ import os
 import anthropic
 
 MODEL = os.environ.get("GATEWAY_MODEL", "claude-haiku-5-5")
-EFFORT = os.environ.get("GATEWAY_EFFORT", "max")
 client = anthropic.AsyncAnthropic()  # ANTHROPIC_API_KEY from env
 TURNS = OrderedDict()  # tuple(tool_call ids) -> full assistant content blocks (in-memory, MVP), oldest dropped first
 MAX_TURNS = 10_000  # a missing entry is rebuilt from the OpenAI message (thinking is then dropped, not an error)
@@ -49,11 +48,11 @@ def to_anthropic(messages):
     return "\n\n".join(system), out
 
 
-async def complete(messages, tools, tool_choice=None, effort=EFFORT):
+async def complete(messages, tools, effort):
     """Returns (openai_message, finish_reason, usage)."""
     system, msgs = to_anthropic(messages)
     kw = {}
-    if tools and tool_choice != "none":
+    if tools:  # tool_choice "none" arrives as no tools (gateway/app.py)
         kw["tools"] = [{"name": t["function"]["name"], "description": t["function"].get("description", ""),
                         "input_schema": t["function"].get("parameters") or {"type": "object", "properties": {}}}
                        for t in tools]

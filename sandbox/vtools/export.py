@@ -17,7 +17,7 @@ import shutil
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-OUT = os.environ.get("VTOOLS_OUTPUTS", "/workspace/outputs")
+OUT = "/workspace/outputs"
 NAME = re.compile(r"^[A-Za-z0-9가-힣][A-Za-z0-9가-힣_-]{0,60}$")
 
 

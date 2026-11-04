@@ -55,7 +55,7 @@ from agent.artifacts import ArtifactStore
 from agent.loop import ACK, LATEST, PLAN_HINT, SUMMARY, SYSTEM, Context, Interrupt, _user_text, run, shown_plans
 from agent.rag import DocStore
 from agent.sandbox import VTOOLS, Sandbox
-from agent.tools import REGISTRY, schemas
+from agent.tools import REGISTRY, TEMPLATES
 from agent.userstore import ID_RE, MAX_UPLOAD, PART_MAX, Conflict, TooLarge, UserStore, _writable
 from server import auth, capture, render
 
@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, user_id TEXT, project_i
                                     notes TEXT DEFAULT '[]');
 CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, session_id TEXT, status TEXT, inflight TEXT, pending TEXT);
 CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, type TEXT, data TEXT);
+CREATE INDEX IF NOT EXISTS events_run ON events(run_id, seq);
 """)
 try:  # Loop 30: a DB from before keeps working (two processes starting at once: the second finds it there)
     DB.execute("ALTER TABLE runs ADD COLUMN started REAL")
@@ -99,10 +100,8 @@ def sweep_runs(days=3):
             with contextlib.suppress(OSError):
                 _writable(d)  # the sandbox (same uid) may have made a dir unreadable
             shutil.rmtree(d, ignore_errors=True)
-TOOLS = [t["function"]["name"] for t in schemas()] + ["remember", "artifact", "show_report", "show_shmoo", "show_logview",
-                                                      "show_dashboard", "use_skill", "ask_user"]
-AGENTS = delegate.discover()
-TOOLS += [delegate.tool_name(n) for n in AGENTS]
+AGENTS = delegate.discover()  # registers the agent__* tools
+TOOLS = list(REGISTRY)  # every tool: the server has what each needs (stores, skills, agents)
 SKILLS = skills.discover()
 # Loop 15: effort=max was ~9x slower than low on the finance eval with the same accuracy (k=1). Default low;
 # a project can raise it with settings {"effort": "high"} (user/project/org layers, §9.3).
@@ -149,7 +148,7 @@ def _work(rid, task, decisions):
                  rw_mounts={STORE.cache_dir(user, project): "/workspace/cache"})
     settings = STORE.settings(user, project)
     ctx = Context(sandbox=sb, skills=SKILLS, agents=AGENTS, docs=DocStore(str(ROOT / f"{sid}.docs.db")), notes=json.loads(notes),
-                  git_dir=str(run_dir / "git"), remote_url=settings.get("git_remote"),
+                  git_dir=str(run_dir / "git"), remote_url=git_remote(settings.get("git_remote")),
                   memory=lambda note: STORE.remember(user, note, f"session {sid}, run {rid}"),
                   artifacts=artifacts(user, project, on_save=lambda meta: emit(rid, {"type": "artifact", **meta}),
                                       source=f"session {sid}, run {rid}"),
@@ -341,11 +340,7 @@ class Msg(BaseModel):
     content: str
 
 
-class Project(BaseModel):
-    project_id: str
-
-
-class SessionReq(BaseModel):
+class Project(BaseModel):  # also a new session's body
     project_id: str
 
 
@@ -357,12 +352,7 @@ class Settings(BaseModel):
     settings: dict
 
 
-class Upload(BaseModel):
-    name: str
-    text: str
-
-
-class Doc(BaseModel):
+class Upload(BaseModel):  # also a document's body
     name: str
     text: str
 
@@ -393,15 +383,21 @@ def project_instructions(pid: str, t: Text, user=Depends(caller)):
     return {"ok": True}
 
 
+def checked(settings):
+    if settings.get("git_remote") and not git_remote(settings["git_remote"]):  # else a push would go to origin, silently
+        raise HTTPException(400, "git_remote must be an https URL or a local path outside the data root")
+    return settings
+
+
 @app.put("/settings")
 def user_settings(st: Settings, user=Depends(caller)):
-    STORE.set_settings(user, st.settings)
+    STORE.set_settings(user, checked(st.settings))
     return {"ok": True}
 
 
 @app.put("/projects/{pid}/settings")
 def project_settings(pid: str, st: Settings, user=Depends(caller)):
-    STORE.set_settings(user, st.settings, own_project(pid, user))
+    STORE.set_settings(user, checked(st.settings), own_project(pid, user))
     return {"ok": True}
 
 
@@ -561,7 +557,7 @@ def delete_file(pid: str, path: str, user=Depends(caller)):
 
 
 @app.post("/sessions")
-def create_session(r: SessionReq, user=Depends(caller)):
+def create_session(r: Project, user=Depends(caller)):
     own_project(r.project_id, user)
     sid = uuid.uuid4().hex[:12]
     q("INSERT INTO sessions(id, user_id, project_id, history) VALUES (?,?,?,?)", sid, user, r.project_id,
@@ -570,7 +566,7 @@ def create_session(r: SessionReq, user=Depends(caller)):
 
 
 @app.post("/sessions/{sid}/documents")
-def add_doc(sid: str, d: Doc, user=Depends(caller)):
+def add_doc(sid: str, d: Upload, user=Depends(caller)):
     own_session(sid, user)
     return {"chunks": DocStore(str(ROOT / f"{sid}.docs.db")).add_text(d.name, d.text)}
 
@@ -694,7 +690,7 @@ def get_session(sid: str, user=Depends(caller)):
         for tc in m.get("tool_calls") or []:  # in call order, as they appeared live
             if tc["function"]["name"] == "update_plan" and i in plans:
                 show_plan(i)
-            if tc["function"]["name"] in ("artifact", "show_report", "show_shmoo", "show_logview", "show_dashboard"):
+            if tc["function"]["name"] in ("artifact", *TEMPLATES.values()):
                 try:
                     out.append({"role": "artifact", "id": json.loads(tc["function"]["arguments"])["id"]})
                 except (ValueError, KeyError, TypeError):
@@ -753,6 +749,17 @@ def section_png(pid: str, aid: str, section: str, version: int = None, preset: s
 UI_CSP = (f"default-src 'self'; frame-src {render.RENDER_ORIGIN}; script-src 'self'; "
           "style-src 'self'; font-src 'none'; img-src 'self' data:; "
           "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+
+
+def git_remote(value):
+    """The project's push target from its settings (Loop 38): an https URL, or a local path outside the data root (a
+    path into it would push into another user's repository; a leading - would be read as a git option)."""
+    v = (value or "").strip() if isinstance(value, str) else ""
+    if v.startswith("https://") and not any(c.isspace() for c in v):
+        return v
+    if v.startswith("/") and not Path(v).resolve().is_relative_to(ROOT.resolve()):
+        return v
+    return None
 
 
 @app.get("/")

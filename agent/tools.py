@@ -46,19 +46,19 @@ VIEW_MAX = 16 * 1024 * 1024
 def _host_copy(ctx, rel):
     """A private host copy of a workspace file (streamed through the container, capped) for server-side parsers."""
     with tempfile.TemporaryDirectory(prefix="view-") as d:
-        yield ctx.sandbox.copy_out(rel, Path(d) / "data", VIEW_MAX)
+        try:
+            p = ctx.sandbox.copy_out(rel, Path(d) / "data", VIEW_MAX)
+        except ValueError as e:  # the way on for a big log (Loop 38)
+            raise ValueError(f"{e}: too big for this view. For a big log use ingest_log (format text, a pattern) "
+                             "and then log_query / show_dashboard") from None
+        yield p
 TEMPLATES = {"report": "show_report", "shmoo": "show_shmoo", "logview": "show_logview", "dashboard": "show_dashboard"}  # our pages, data only
 
 
-@tool("Run a bash command in the isolated sandbox (cwd=/workspace; network only to allowlisted HTTPS domains, "
-      "if any). Returns exit code + output.", {"command": S, "timeout": {"type": "integer"}}, required=["command"])
+@tool("Run a bash command in the isolated sandbox (cwd=/workspace, no network). "
+      "Returns exit code + output; timeout 1-300 s.", {"command": S, "timeout": {"type": "integer"}}, required=["command"])
 def bash(ctx, command, timeout=60):
-    seen = len(ctx.egress.log) if ctx.egress else 0
-    out = ctx.sandbox.exec(command, min(int(timeout), 300))
-    blocked = {h: why for h, why in (ctx.egress.log[seen:] if ctx.egress else []) if why != "allow"}
-    for h, why in blocked.items():  # tools only see "403"; tell the model why and what it can do
-        out += f"\n[egress] blocked {h}: {why}. If the task needs it, call request_network_access."
-    return out
+    return ctx.sandbox.exec(command, max(1, min(int(timeout), 300)))  # timeout(1) reads 0 as no limit
 
 
 @tool("Run a long bash command in the sandbox (minutes, up to 60): processing big files, building a cache. It "
@@ -145,8 +145,8 @@ def show_dashboard(ctx, id, title, charts):
         if ctx.cancel.is_set():
             raise ValueError("cancelled by the user")
         f = f"cache/.tmp/dash-{uuid.uuid4().hex[:8]}.json"
-        try:  # exec: the timeout kill reaches python itself, not a shell around it
-            out = ctx.sandbox.exec(f"exec python /vtools/query.py --max-rows {dashboard.MAX_ROWS[c['kind']]} "
+        try:
+            out = ctx.sandbox.exec(f"python /vtools/query.py --max-rows {dashboard.MAX_ROWS[c['kind']]} "
                                    f"--json /workspace/{f} {shlex.quote(c['sql'])}", timeout=300)
             if not out.startswith("exit_code=0"):
                 raise ValueError(f"chart {c['title']!r}: the SQL failed: {out[-1500:]}")
@@ -170,9 +170,7 @@ def show_dashboard(ctx, id, title, charts):
         raise ValueError("the dashboard's data is too big for one page (" + ", ".join(
             f"{c['title']}: {n // 1024} KB" for c, n in zip(specs, sizes)) + f"; limit about {ARTIFACT_MAX // 1024} KB): "
             "aggregate more or split it")
-    store = ctx.artifacts
-    meta = store.save(id, "dashboard", title, json.dumps({"title": title, "charts": specs}, ensure_ascii=False),
-                      command="rewrite" if store.versions(id) else "create")
+    meta = _save_view(ctx, id, "dashboard", title, {"title": title, "charts": specs})
     return f"dashboard {meta['id']} saved as version {meta['version']}: " + "; ".join(
         f"{c['title']}: {len(c['rows'])} rows" + (" (cut: aggregate more)" if c["truncated"] else "") for c in specs) \
         + cite_hint(meta, [(f"c{i + 1}", c["title"]) for i, c in enumerate(specs)])
@@ -201,17 +199,6 @@ def export_spotfire(ctx, name, tables, template=None):
     if template:
         cmd.append(f"--template={ctx.sandbox.cpath(template)}")
     return run_long(ctx, " ".join(shlex.quote(c) for c in cmd), f"Spotfire 내보내기: {name}")
-
-
-@tool("Ask the user to allow HTTPS access to one more domain from the sandbox. Requires human approval.",
-      {"domain": S, "reason": S}, approval=True)
-def request_network_access(ctx, domain, reason):
-    from .egress import HOST_RE
-    domain = domain.lower().strip()
-    if not HOST_RE.match(domain.removeprefix("*.")):
-        raise ValueError(f"not a valid domain: {domain!r}")
-    ctx.egress.allow.add(domain)
-    return f"{domain} is now allowed"
 
 
 @tool("Read a UTF-8 text file in the workspace, with line numbers.",
@@ -345,6 +332,13 @@ def artifact(ctx, command, id, type=None, title=None, content=None, file=None, o
         if meta["type"] == "html" else "")
 
 
+def _save_view(ctx, id, kind, title, data):
+    """A template view's data as the next version of artifact `id` (the first one creates it)."""
+    store = ctx.artifacts
+    return store.save(id, kind, title, json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+                      command="rewrite" if store.versions(id) else "create")
+
+
 def cite_hint(meta, parts):
     """How the answer points at the part of this view that backs a paragraph (Loop 37; app.js opens it there)."""
     clean = lambda t: " ".join(t.replace("[", "(").replace("]", ")").split())[:60]  # noqa: E731
@@ -360,9 +354,7 @@ def cite_hint(meta, parts):
       {"id": S, "data": report.SCHEMA}, required=["id", "data"])
 def show_report(ctx, id, data):
     clean, warnings = report.validate(data)
-    store = ctx.artifacts
-    meta = store.save(id, "report", clean["title"], json.dumps(clean, ensure_ascii=False),
-                      command="rewrite" if store.versions(id) else "create")
+    meta = _save_view(ctx, id, "report", clean["title"], clean)
     return f"report {meta['id']} saved as version {meta['version']}" + \
         cite_hint(meta, [(k, report.SECTIONS[k]) for k in report.sections(clean)]) + \
         "".join(f"\nWARNING: {w}. Check your numbers and call show_report again if they are wrong." for w in warnings)
@@ -409,9 +401,7 @@ def show_shmoo(ctx, id, file, x, y, result, device, filters=(), pass_values=None
     with _host_copy(ctx, file) as p:
         data, warnings, summary = shmoo.build(p, x, y, result, device, filters, pass_values, title, spec, op,
                                               source=Path(file).name)
-    store = ctx.artifacts
-    meta = store.save(id, "shmoo", data["title"], json.dumps(data, ensure_ascii=False, separators=(",", ":")),
-                      command="rewrite" if store.versions(id) else "create")
+    meta = _save_view(ctx, id, "shmoo", data["title"], data)
     return f"shmoo {meta['id']} saved as version {meta['version']}\n{summary}" + \
         "".join(f"\nWARNING: {w}" for w in warnings)
 
@@ -427,9 +417,7 @@ def show_shmoo(ctx, id, file, x, y, result, device, filters=(), pass_values=None
 def show_logview(ctx, id, file, title=None, bucket_seconds=None):
     with _host_copy(ctx, file) as p:
         data, summary = logview.build(p, title or f"로그: {Path(file).name}", bucket_seconds, source=Path(file).name)
-    store = ctx.artifacts
-    meta = store.save(id, "logview", data["title"], json.dumps(data, ensure_ascii=False, separators=(",", ":")),
-                      command="rewrite" if store.versions(id) else "create")
+    meta = _save_view(ctx, id, "logview", data["title"], data)
     return f"logview {meta['id']} saved as version {meta['version']}\n{summary}"
 
 
@@ -439,14 +427,6 @@ def use_skill(ctx, name):
     if name not in ctx.skills:
         raise ValueError(f"unknown skill {name!r}. Available: {sorted(ctx.skills)}")
     return f"Skill {name} (files in /skills/{name}/)\n\n" + ctx.skills[name]["body"]
-
-
-@tool("Search all connected tools by keywords (write the query in English) when none of the tools you have fits. "
-      "Found tools become callable on your next turn.", {"query": S})
-def search_tools(ctx, query):
-    found = ctx.router.search(query)
-    return "\n".join(f"{n}: {REGISTRY[n]['schema']['function']['description'].splitlines()[0]}" for n in found) \
-        or "No matching tools."
 
 
 @tool("Get the current UTC date/time.", {}, required=[])
@@ -471,27 +451,23 @@ def _git(ctx, *args):  # call inside ctx.sandbox.frozen()
     return github.git(ctx.sandbox.workspace, *args)
 
 
-@tool("Push the current branch and open a pull request. Requires human approval.",
-      {"branch": S, "title": S, "body": S}, approval=True)
-def open_pull_request(ctx, branch, title, body):
+@tool("Push a committed branch to the project's remote, where the user opens the pull request. Requires human "
+      "approval.", {"branch": S}, approval=True)
+def push_branch(ctx, branch):
     with ctx.sandbox.frozen():
         ws = ctx.sandbox.path("repo") if ctx.git_dir else ctx.sandbox.workspace
-        rc, out = github.push(ws, branch, ctx.github_token, ctx.remote_url, ctx.git_dir)
+        rc, out = github.push(ws, branch, ctx.remote_url, ctx.git_dir)
     if rc:
         raise RuntimeError(out)
-    if not ctx.github_repo:  # local/bare remote (tests): push only
-        return f"pushed {branch} (no GitHub repo configured, PR skipped)"
-    owner, repo = ctx.github_repo.split("/")
-    return github.create_pr(owner, repo, branch, ctx.base_branch, title, body, ctx.github_token)
+    return f"pushed {branch}"
 
 
 def schemas(names=None):
-    # search_tools needs a ToolRouter, remember a user store, artifact/show_* an artifact store, use_skill skills,
-    # request_network_access an egress proxy, agent__* connected agents (ctx.agents); callers that have them name them
+    # remember needs a user store, artifact/show_* an artifact store, use_skill skills, agent__* connected agents
+    # (ctx.agents); callers that have them name them
     return [t["schema"] for n, t in REGISTRY.items()
             if (n in names if names is not None else
-                n not in ("search_tools", "remember", "artifact", "show_report", "show_shmoo", "show_logview", "show_dashboard",
-                          "use_skill", "ask_user", "request_network_access") and not n.startswith("agent__"))]
+                n not in ("remember", "artifact", *TEMPLATES.values(), "use_skill", "ask_user") and not n.startswith("agent__"))]
 
 
 # Connected agents (agent/delegate.py): one tool per agents/{name}/agent.json, run inside the sandbox.

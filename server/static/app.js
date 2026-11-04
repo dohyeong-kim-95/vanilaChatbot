@@ -9,7 +9,8 @@ const state = { user: "", project: "", session: "", artifact: null, streaming: f
                 runStart: {}, opening: 0 };  // opening: the latest openArtifact call (an older answer is dropped)  // run id -> when it started (ms, this clock) for the elapsed time
 
 // One followed run at a time: switching conversation/project stops the old stream (else its events land here).
-function stopFollow() { state.follow?.abort(); state.follow = null; }
+// The stopped follow's own cleanup no longer runs (it is not state.follow): the composer is free again here.
+function stopFollow() { state.follow?.abort(); state.follow = null; state.streaming = false; $("send").disabled = false; }
 
 function store(key, value) {
   try { value === undefined ? (value = localStorage.getItem(key)) : localStorage.setItem(key, value); } catch (e) { value = null; }
@@ -77,15 +78,20 @@ async function loadProject() {
   state.closed.clear();
   if (!state.project) return;
   store("project", state.project);
+  const sessions = await loadSessions();
+  await Promise.all([loadArtifacts(), loadFiles(), loadOutputs()]);
+  if (sessions.length) await openSession(sessions[0]);
+}
+
+async function loadSessions() {
   const { sessions } = await api(`/projects/${state.project}/sessions`);
-  for (const s of sessions) {
+  $("sessions").replaceChildren(...sessions.map((s) => {
     const li = el("li", null, s);
     li.onclick = () => openSession(s);
     li.dataset.id = s;
-    $("sessions").append(li);
-  }
-  await Promise.all([loadArtifacts(), loadFiles(), loadOutputs()]);
-  if (sessions.length) await openSession(sessions[0]);
+    return li;
+  }));
+  return sessions;
 }
 
 // Deliverables the agent left in /workspace/outputs (saved when a run ends): download links.
@@ -412,7 +418,7 @@ async function deleteFile(f) {
 async function send(text) {
   if (!state.session) {
     const { session_id } = await api("/sessions", { method: "POST", body: JSON.stringify({ project_id: state.project }) });
-    await loadProject();
+    await loadSessions();  // the list only: the open artifact, folders and files stay as they are (Loop 38)
     await openSession(session_id);
   }
   addMsg("user", text);
@@ -703,19 +709,8 @@ function download(blob, name) {
 }
 
 function copyButton(label, blobPromise) {  // blobPromise() is called inside the click (Safari needs that)
-  const b = el("button", null, label);
-  b.onclick = async () => {
-    b.disabled = true;
-    try {
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": blobPromise() })]);
-      b.textContent = "복사됨";
-    } catch (e) {
-      b.textContent = "실패";
-      addMsg("error", `이미지 복사 실패: ${e}`);
-    }
-    setTimeout(() => { b.textContent = label; b.disabled = false; }, 1500);
-  };
-  return b;
+  return MD.copyButton(label, () => navigator.clipboard.write([new ClipboardItem({ "image/png": blobPromise() })])
+    .catch((e) => { addMsg("error", `이미지 복사 실패: ${e}`); throw e; }));
 }
 
 // Reports: each section as a slide image (server-side capture); notes are text, copied as text.
@@ -882,7 +877,10 @@ $("file-folder").onclick = async () => {
 };
 $("files").onclick = (e) => { if (e.target === $("files")) { state.folder = ""; drawFiles(); } };  // empty space: back to the top
 dropTarget($("files"), "");
-$("new-session").onclick = () => { state.session = ""; $("messages").replaceChildren(); markActive(); $("input").focus(); };
+$("new-session").onclick = () => {
+  stopFollow();  // else the running answer of the other conversation keeps landing here
+  state.session = ""; $("messages").replaceChildren(); markActive(); $("input").focus();
+};
 $("composer").onsubmit = (e) => {
   e.preventDefault();
   const text = $("input").value.trim();

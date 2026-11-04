@@ -118,9 +118,6 @@ def t_plan_across_compaction():
     quoted = msgs[:2] + [{"role": "assistant", "content": None, "tool_calls": [plan_call("q", "done", "done", "done")]},
                          {"role": "tool", "tool_call_id": "q", "content": "ERROR: ValueError: unknown arguments: ['plan shown to the user']"}]
     assert latest_plan(quoted) is None
-    from agent.loop import spotlight
-    wrapped = quoted[:3] + [{"role": "tool", "tool_call_id": "q", "content": spotlight("update_plan", "plan shown to the user: 3/3 done")}]
-    assert latest_plan(wrapped) is not None
     # the same short message twice ("계속"): the summary keeps the plan of the turn it carries, not of the first one
     twice = msgs[:2] + [{"role": "user", "content": "계속"},
                         {"role": "assistant", "content": None, "tool_calls": [plan_call("o", "in_progress", "pending", "pending")]},

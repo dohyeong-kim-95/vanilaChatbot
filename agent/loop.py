@@ -1,5 +1,4 @@
 """Agent loop over any OpenAI-compatible Chat Completions endpoint."""
-import hashlib
 import json
 import os
 import re
@@ -9,7 +8,7 @@ from dataclasses import dataclass, field
 from openai import OpenAI
 
 from .sandbox import truncate
-from .tools import REGISTRY, check_plan, schemas
+from .tools import REGISTRY, check_plan, check_question, schemas
 
 SYSTEM = """You are an agent that solves the user's task by using tools, not by guessing.
 - Work in /workspace inside an isolated sandbox (no network). Inspect before you change things.
@@ -25,8 +24,6 @@ PLAN_HINT = "\n- For a task of several steps, show your plan with update_plan be
 class Context:
     sandbox: object = None
     docs: object = None
-    egress: object = None        # EgressProxy (allowlist) when the sandbox has network
-    router: object = None        # ToolRouter: expose a relevant subset of many tools (+ search_tools fallback)
     git_dir: str = None          # server workspaces: trusted git metadata outside the sandbox (userstore.checkout)
     memory: callable = None      # remember(note) -> persists to the user's memory (after approval)
     artifacts: object = None     # ArtifactStore for the `artifact` tool
@@ -35,17 +32,13 @@ class Context:
     emit: callable = lambda ev: None             # set by run(): tools that report progress (connected agents)
     llm: callable = None                         # set by run(): messages -> text, for connected agents' LLM calls
     effort_used: str = None                      # effort of the last model call (after any escalation)
-    github_token: str = None
-    github_repo: str = None      # "owner/repo"
     remote_url: str = None
-    base_branch: str = "main"
     approve: callable = lambda name, args: False   # human-in-the-loop hook; default deny; None = pause the run
     ask: callable = lambda name, args: None        # answer for ask_user; None = pause the run (server/default)
     decisions: dict = field(default_factory=dict)  # tool_call_id -> bool, decided after an Interrupt
     cancel: threading.Event = field(default_factory=threading.Event)
     read_files: set = field(default_factory=set)
     notes: list = field(default_factory=list)  # save_note; survives clearing (lives in tool_call args)
-    spotlight: bool = False  # wrap tool output in <untrusted_tool_output> tags (see Loop 5)
 
 
 # Common credential shapes. Redact before anything reaches the LLM (provider logs, chat UI).
@@ -63,11 +56,6 @@ class Interrupt(BaseException):
 
 def redact(out):
     return SECRET_RE.sub("[REDACTED_SECRET]", out)
-
-
-def spotlight(name, out):
-    out = out.replace("untrusted_tool_output", "untrusted_tool_output_")  # no forged closing tag
-    return f'<untrusted_tool_output tool="{name}">\n{out}\n</untrusted_tool_output>'
 
 
 def check_args(name, raw):
@@ -97,7 +85,6 @@ def run_tool(ctx, name, raw, call_id=None):
             if not ok:
                 return "ERROR: the user denied this action. Do not retry it; report back instead."
         if REGISTRY[name].get("ask"):
-            from .tools import check_question
             check_question(args.get("question"), args.get("options"))  # bad questions go back to the model, not the user
             ans = ctx.decisions.pop(call_id) if call_id in ctx.decisions else ctx.ask(name, args)
             if ans is None:
@@ -136,7 +123,7 @@ PLAN = "\n[Current plan] "  # the summary restates an unfinished plan to the mod
 PLAN_KEY = "x_plan"  # ...and keeps the plan as last shown here, for us (never sent, so nothing the model or a
 # summarized file says can pose as it)
 SHOWN = "plan shown to the user"  # update_plan's result (agent/tools.py); from its start: an error can quote it
-SHOWN_RE = re.compile(r'(<untrusted_tool_output tool="update_plan">\n)?' + SHOWN)  # (spotlight wraps results)
+SHOWN_RE = re.compile(SHOWN)
 
 
 def shown_plans(msgs):
@@ -230,8 +217,6 @@ def do_calls(ctx, msgs, step, emit, log, checkpoint):
             out = redact(run_tool(ctx, name, raw, tc["id"]))
             emit({"type": "tool_result", "id": tc["id"], "content": out[:2000]})
             log(f"[{step}] {name}({raw[:120]}) -> {out[:200]!r}")
-        if ctx.spotlight:
-            out = spotlight(name, out)
         msgs.append({"role": "tool", "tool_call_id": tc["id"], "content": out})
         checkpoint(msgs, None)
 
@@ -286,12 +271,14 @@ def _cheap(effort):
 
 
 def _error_streak(msgs):
-    """Failing tool results in a row, across turns (assistant turns in between do not reset it)."""
+    """Failing tool results in a row, across turns (assistant turns in between do not reset it). A non-zero exit
+    counts only with an error message or a timeout: grep finding nothing, diff, test -f answer with exit 1 and no stderr (Loop 38)."""
     n = 0
     for m in reversed(msgs):
         if m["role"] == "assistant":
             continue
-        if m["role"] != "tool" or not str(m.get("content", "")).lstrip().startswith(("ERROR", "exit_code=1", "exit_code=2")):
+        c = str(m.get("content", "")).lstrip()
+        if m["role"] != "tool" or not (c.startswith("ERROR") or re.match(r"exit_code=[1-9]", c) and ("[stderr]" in c or "[timeout" in c)):
             break
         n += 1
     return n
@@ -314,31 +301,25 @@ wrong?", "flag rows where the total is wrong"; also thanks, praise and polite de
 Messages may be Korean or English. Reply with one word: yes or no."""
 
 
+def _effort(effort):  # the request field for an effort (none: the gateway's default)
+    return {"extra_body": {"reasoning_effort": effort}} if effort else {}
+
+
 def classify_correction(client, model, prev, text, effort="low", asked=""):
     """The model's yes/no on CLASSIFY (Loop 23.4: four rounds of regex fixes kept missing everyday phrasings such as
     "오답이에요", "3월이 빠졌어요", "nope, card B"). Falls back to is_correction when the call fails or the reply is
     not yes/no. One short call per message that follows an answer, at low effort. tests/eval/correction measures it."""
-    key = hashlib.sha256(json.dumps([prev, text, asked]).encode()).hexdigest()
-    if (yes := _DECIDED.get(key)) is not None:  # the same message again (an old history without VERDICT)
-        return yes
     try:  # a hung gateway must not hold the run: short timeout, no retries, then the regex
         c = client.with_options(timeout=15, max_retries=0) if hasattr(client, "with_options") else client
         r = c.chat.completions.create(model=model, messages=[
             {"role": "system", "content": CLASSIFY},
             {"role": "user", "content": (f"User's earlier message:\n{_ends(asked, 1000)}\n\n" if asked else "") +
              f"PREVIOUS ANSWER (excerpt):\n{_ends(prev, 1500)}\n\nNEW user message:\n{_ends(text, 2000)}"}],
-            **({"extra_body": {"reasoning_effort": effort}} if effort else {}))
+            **_effort(effort))
         word = re.sub(r"[^a-z가-힣]", "", (r.choices[0].message.content or "").strip().split()[0].lower())
     except Exception:
         word = ""
-    yes = True if word in ("yes", "예", "네") else False if word in ("no", "아니오", "아니요") else is_correction(text)
-    if len(_DECIDED) > 1000:
-        _DECIDED.clear()
-    _DECIDED[key] = yes
-    return yes
-
-
-_DECIDED = {}  # (prev, text, asked) -> verdict, for messages judged again (the model is not deterministic)
+    return True if word in ("yes", "예", "네") else False if word in ("no", "아니오", "아니요") else is_correction(text)
 
 
 def _ends(t, n):
@@ -389,12 +370,10 @@ def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, histo
             msgs.append({"role": "tool", "tool_call_id": tc["id"], "content": "ERROR: not run; the previous run failed."})
         msgs.append({"role": "user", "content": task, **({VERDICT: corrected} if corrected is not None else {})})
         checkpoint(msgs, None)
-        if ctx.router:
-            ctx.router.start(task)
     tools = schemas(tool_names)
     ctx.emit = emit
     ctx.llm = lambda m: client.chat.completions.create(
-        model=model, messages=m, **({"extra_body": {"reasoning_effort": effort}} if effort else {})).choices[0].message.content
+        model=model, messages=m, **_effort(effort)).choices[0].message.content
     for step in range(max_steps):
         do_calls(ctx, msgs, step, emit, log, checkpoint)
         if _cheap(effort) and _error_streak(msgs) >= ERROR_STREAK:
@@ -404,10 +383,8 @@ def run(task, ctx, tool_names=None, max_steps=20, model=None, client=None, histo
             emit({"type": "final", "content": "[cancelled]"})
             return "[cancelled]", msgs
         msgs[:] = compact(msgs, client, model, budget, notes=ctx.notes)
-        if ctx.router:  # tools may grow after search_tools; keep the list sorted so the prefix is stable
-            tools = sorted(ctx.router.schemas(), key=lambda t: t["function"]["name"])
         r = client.chat.completions.create(model=model, messages=_wire(msgs), tools=tools,
-                                           **({"extra_body": {"reasoning_effort": effort}} if effort else {}))
+                                           **_effort(effort))
         ctx.effort_used = effort
         m = r.choices[0].message
         msgs.append(m.model_dump(exclude_none=True))

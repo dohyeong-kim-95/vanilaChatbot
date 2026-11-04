@@ -20,7 +20,6 @@ _IMAGE_SOURCES = [_DOCKERFILE, _DOCKERFILE.parent / "stdf-rs" / "Cargo.toml", _D
 DEFAULT_IMAGE = "vanilachatbot/sandbox:" + hashlib.sha256(b"".join(p.read_bytes() for p in _IMAGE_SOURCES)).hexdigest()[:12]
 IMAGE = os.environ.get("SANDBOX_IMAGE") or DEFAULT_IMAGE
 VTOOLS = _DOCKERFILE.parent / "vtools"  # our scripts for big logs, mounted read-only at /vtools
-CA = os.environ.get("EGRESS_CA")  # CA bundle to trust inside the sandbox, if TLS is re-terminated upstream
 MAX_OUT = 10_000  # chars; head+tail kept beyond this (mini-swe-agent style)
 # The sandbox runs as the server's own (non-root) user, so the server can read and remove what it writes and a
 # server account that is not uid 1000 still works. A root server keeps uid 1000 for the sandbox.
@@ -106,10 +105,8 @@ PROGRESS = re.compile(r"^PROGRESS (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)(?: (.*))?$")  
 
 
 class Sandbox:
-    def __init__(self, workspace, network="none", egress=None, readonly=(), name=None, mounts=None, agent=False,
-                 rw_mounts=None):
-        """egress: an EgressProxy -> internal network whose only way out is that proxy's allowlist.
-        readonly: workspace subdirs mounted read-only.
+    def __init__(self, workspace, readonly=(), name=None, mounts=None, agent=False, rw_mounts=None):
+        """No network. readonly: workspace subdirs mounted read-only.
         mounts: {host dir: container path}, read-only, outside /workspace (e.g. skills).
         rw_mounts: {host dir: container path}, read-write (the project's cache). Never given to fresh().
         agent: workspace read-only, /workspace/outputs an empty tmpfs (fresh())."""
@@ -123,17 +120,9 @@ class Sandbox:
         old = subprocess.run(["docker", "ps", "-aq", "--filter", f"name=^{re.escape(self.name)}(-a[0-9a-f]{{8}})?$"],
                              capture_output=True, text=True).stdout.split()
         subprocess.run(["docker", "rm", "-f", self.name, *old], capture_output=True)
-        extra = []
-        if egress:
-            from .egress import NETWORK
-            network = NETWORK
-            extra = [a for k in ("HTTPS_PROXY", "https_proxy") for a in ("-e", f"{k}={egress.url}")]
-            if CA:  # only needed when an upstream proxy re-terminates TLS (as in this test env)
-                extra += ["-v", f"{CA}:/etc/egress-ca.pem:ro"] + [
-                    a for k in ("SSL_CERT_FILE", "PIP_CERT", "REQUESTS_CA_BUNDLE") for a in ("-e", f"{k}=/etc/egress-ca.pem")]
         subprocess.run([
-            "docker", "run", "-d", "--rm", "--name", self.name, *extra,
-            "--network", network, "--read-only", "--tmpfs", "/tmp:size=256m",
+            "docker", "run", "-d", "--rm", "--name", self.name,
+            "--network", "none", "--read-only", "--tmpfs", "/tmp:size=256m",
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--pids-limit", "256", "--memory", "1g", "--cpus", "1",
             "--user", OWNER, "-e", "HOME=/tmp", "-e", "PYTHONDONTWRITEBYTECODE=1",
@@ -146,23 +135,27 @@ class Sandbox:
             IMAGE, "sleep", "infinity"], check=True, capture_output=True)
 
     def exec(self, command, timeout=60):
+        t0 = time.monotonic()
         # Stream and keep only head + tail: capture_output would hold everything (e.g. `cat` of a 1 GB log) in the
         # server process before truncating, and the server is shared by every run.
-        p = subprocess.Popen(["docker", "exec", self.name, "bash", "-lc", command],
+        # The time limit is kept inside the container: killing the docker exec client leaves the command running
+        # (Loop 38: pkill -f on the command text missed most of them). timeout(1) signals its whole process group,
+        # KILL 5 s after TERM.
+        p = subprocess.Popen(["docker", "exec", self.name, "timeout", "-k", "5", str(timeout), "bash", "-lc", command],
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         caps = [_Cap(p.stdout), _Cap(p.stderr)]
         for c in caps:
             c.start()
         try:
-            rc = p.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            subprocess.run(["docker", "exec", self.name, "pkill", "-f", command[:50]], capture_output=True)
+            rc = p.wait(timeout=timeout + 15)
+        except subprocess.TimeoutExpired:  # docker itself hangs
             p.kill()
             p.wait()
+            rc = 124
+        for c in caps:
+            c.join(5)
+        if rc in (124, 137) and time.monotonic() - t0 >= timeout:
             return f"exit_code=124\n[timeout after {timeout}s]"
-        finally:
-            for c in caps:
-                c.join(5)
         out, err = (c.text() for c in caps)
         out = (out + (("\n[stderr]\n" + err) if err else "")).strip()
         return f"exit_code={rc}\n{out if any(c.dropped for c in caps) else truncate(out)}"

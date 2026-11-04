@@ -15,9 +15,6 @@ class DocStore:
         self.db.commit()
         return len(rows)
 
-    def add_file(self, path):
-        return self.add_text(Path(path).name, Path(path).read_text(encoding="utf-8"))
-
     def search(self, query, k=4):
         # OR the terms so natural-language queries still match; trigram needs >=3 chars
         terms = [t.replace('"', "") for t in query.split() if len(t) >= 3]

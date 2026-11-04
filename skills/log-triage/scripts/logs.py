@@ -11,7 +11,7 @@ import re
 import sys
 from collections import Counter, defaultdict
 
-MAX_LINES = 5_000_000
+MAX_LINES = 3_000_000  # about 240 B per entry in memory: more does not fit the sandbox's 1 GB (Loop 38)
 MAX_PATTERNS = 300
 MAX_BUCKETS = 2000
 LEVELS = ["FATAL", "ERROR", "WARN", "INFO", "DEBUG", "-"]
@@ -62,7 +62,7 @@ def parse(path):
     with open(path, "rb") as fh:
         for n, raw in enumerate(fh):
             if n >= MAX_LINES:
-                raise ValueError(f"log has more than {MAX_LINES} lines; split it first")
+                raise ValueError(f"log has more than {MAX_LINES:,} lines: use ingest_log (format text) and log_query")
             line = raw.decode("utf-8", "replace").rstrip("\r\n")
             if not line.strip():
                 continue

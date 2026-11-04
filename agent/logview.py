@@ -181,8 +181,6 @@ const ORDER = ["FATAL", "ERROR", "WARN", "INFO", "DEBUG", "-"];
 const S = { on: new Set(Object.keys(D.levels).filter((l) => l !== "INFO" && l !== "DEBUG")), pattern: null, bucket: null };
 if (!S.on.size) Object.keys(D.levels).forEach((l) => S.on.add(l));
 const $ = (id) => document.getElementById(id);
-const el = (tag, attrs = {}, text) => { const n = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); if (text !== undefined) n.textContent = text; return n; };
-const svgEl = (tag, attrs = {}, text) => { const n = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); if (text !== undefined) n.textContent = text; return n; };
 const T0 = new Date(D.start.replace(" ", "T")).getTime(), B = D.bucket_seconds * 1000;
 const pad = (n) => String(n).padStart(2, "0");
 const tlabel = (i, full) => { const d = new Date(T0 + i * B); return (full || i === 0 ? `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` : "") + `${pad(d.getHours())}:${pad(d.getMinutes())}` + (D.bucket_seconds < 60 ? `:${pad(d.getSeconds())}` : ""); };
@@ -216,16 +214,16 @@ function plot() {
   const step = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 1e4, 2e4, 5e4, 1e5, 2e5, 5e5, 1e6].find((s) => max / s <= 5) || 1e6;
   const top = Math.ceil(max / step) * step;
   const pw = W - ML - MR, ph = H - MT - MB, bw = pw / n;
-  const s = svgEl("svg", { xmlns: "http://www.w3.org/2000/svg", viewBox: `0 0 ${W} ${H}`, width: W, height: H,
+  const s = S_("svg", { xmlns: "http://www.w3.org/2000/svg", viewBox: `0 0 ${W} ${H}`, width: W, height: H,
     "font-family": FONT });
-  s.append(svgEl("rect", { x: 0, y: 0, width: W, height: H, fill: "#ffffff" }));
-  s.append(svgEl("text", { x: 12, y: 24, "font-size": 16, "font-weight": 700, fill: "#1c1917" }, D.title));
+  s.append(S_("rect", { x: 0, y: 0, width: W, height: H, fill: "#ffffff" }));
+  s.append(S_("text", { x: 12, y: 24, "font-size": 16, "font-weight": 700, fill: "#1c1917" }, D.title));
   const what = S.pattern !== null ? `패턴: ${D.patterns[S.pattern].pattern}` : `레벨: ${[...S.on].join(", ") || "없음"}`;
-  s.append(svgEl("text", { x: 12, y: 42, "font-size": 13, fill: "#625c57" }, `${what.length > 90 ? what.slice(0, 89) + "…" : what} · ${bsize()} 단위`));
+  s.append(S_("text", { x: 12, y: 42, "font-size": 13, fill: "#625c57" }, `${what.length > 90 ? what.slice(0, 89) + "…" : what} · ${bsize()} 단위`));
   for (let v = 0; v <= top; v += step) {
     const y = MT + ph - v / top * ph;
-    s.append(svgEl("line", { x1: ML, x2: W - MR, y1: y, y2: y, stroke: "#ecebe8" }));
-    s.append(svgEl("text", { x: ML - 6, y: y + 4, "text-anchor": "end", "font-size": 12, fill: "#625c57" }, v.toLocaleString()));
+    s.append(S_("line", { x1: ML, x2: W - MR, y1: y, y2: y, stroke: "#ecebe8" }));
+    s.append(S_("text", { x: ML - 6, y: y + 4, "text-anchor": "end", "font-size": 12, fill: "#625c57" }, v.toLocaleString()));
   }
   data.forEach((c, i) => {
     let y = MT + ph;
@@ -233,23 +231,23 @@ function plot() {
       if (!c[l]) continue;
       const h = c[l] / top * ph;
       y -= h;
-      s.append(svgEl("rect", { x: ML + i * bw + (bw > 4 ? 0.5 : 0), y, width: Math.max(bw - (bw > 4 ? 1 : 0), 0.5), height: h, fill: COLORS[l], "pointer-events": "none" }));
+      s.append(S_("rect", { x: ML + i * bw + (bw > 4 ? 0.5 : 0), y, width: Math.max(bw - (bw > 4 ? 1 : 0), 0.5), height: h, fill: COLORS[l], "pointer-events": "none" }));
     }
-    const hit = svgEl("rect", { class: "b", x: ML + i * bw, y: MT, width: bw, height: ph, fill: "transparent" });
+    const hit = S_("rect", { class: "b", x: ML + i * bw, y: MT, width: bw, height: ph, fill: "transparent" });
     hit.onclick = () => { S.bucket = S.bucket === i ? null : i; draw(); };
     s.append(hit);
   });
-  if (S.bucket !== null) s.append(svgEl("rect", { x: ML + S.bucket * bw, y: MT, width: bw, height: ph, fill: "none", stroke: "#1c1917", "stroke-width": 1.5, "pointer-events": "none" }));
+  if (S.bucket !== null) s.append(S_("rect", { x: ML + S.bucket * bw, y: MT, width: bw, height: ph, fill: "none", stroke: "#1c1917", "stroke-width": 1.5, "pointer-events": "none" }));
   const every = Math.max(1, Math.ceil(n / 6));
   for (let i = 0; i < n; i += every)
-    s.append(svgEl("text", { x: ML + i * bw, y: MT + ph + 17, "font-size": 12, fill: "#1c1917" }, tlabel(i)));
+    s.append(S_("text", { x: ML + i * bw, y: MT + ph + 17, "font-size": 12, fill: "#1c1917" }, tlabel(i)));
   let lx = ML;
   for (const l of ORDER.filter((x) => data.some((c) => c[x]))) {
-    s.append(svgEl("rect", { x: lx, y: H - 22, width: 10, height: 10, fill: COLORS[l] }));
-    const t = svgEl("text", { x: lx + 14, y: H - 13, "font-size": 12, fill: "#625c57" }, l === "-" ? "레벨 없음" : l);
+    s.append(S_("rect", { x: lx, y: H - 22, width: 10, height: 10, fill: COLORS[l] }));
+    const t = S_("text", { x: lx + 14, y: H - 13, "font-size": 12, fill: "#625c57" }, l === "-" ? "레벨 없음" : l);
     s.append(t); lx += 26 + 8 * (l === "-" ? 6 : l.length);
   }
-  s.append(svgEl("text", { x: W - MR, y: H - 13, "text-anchor": "end", "font-size": 12, fill: "#625c57" }, `건수 / ${bsize()}`));
+  s.append(S_("text", { x: W - MR, y: H - 13, "text-anchor": "end", "font-size": 12, fill: "#625c57" }, `건수 / ${bsize()}`));
   return s;
 }
 
