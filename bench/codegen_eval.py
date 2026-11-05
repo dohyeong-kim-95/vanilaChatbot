@@ -60,7 +60,7 @@ def audit(box, tc, role, spec, code, name, seed, size, probes=False):
     """-> (items right, items, Counter of wrong kinds) of a program on the audit set: the real items, or (probes)
     only the role's probe items."""
     cases = [c for c in role.cases(spec, seed, *size) if bool(c.get("probe")) == probes]
-    total = sum(len(c["categories"]) for c in cases)
+    total = sum(len(c["categories"]) or 1 for c in cases)  # a case without items is still one (like the loop)
     if not cases:
         return 0, 0, Counter()
     ok, errs, bin = codegen.compile_source(box, tc, code.encode(), name)
@@ -78,7 +78,7 @@ def audit(box, tc, role, spec, code, name, seed, size, probes=False):
         except Exception:
             j = None
         if j is None or j["format"]:
-            kinds["crash/format"] += len(c["categories"])
+            kinds["crash/format"] += len(c["categories"]) or 1
             continue
         right += j["total"] - len(j["wrong"])
         kinds.update(w["category"] for w in j["wrong"])

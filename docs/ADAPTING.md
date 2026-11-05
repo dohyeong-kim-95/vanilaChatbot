@@ -51,7 +51,7 @@
 - 배열 접근 같은 핫 패스의 검사 함수는 짧게 둔다. `_ix(a, *idx)`를 `_ix1`/`_ix2`로 나누자 256×256 맵이 3.3초에서 1.6초가 됐다(케이스당 제한 5초).
 
 **실행 환경.** 컴파일러는 네트워크 없는 Linux 컨테이너에서 돈다. 루트 파일 시스템은 읽기 전용이고, 일반 사용자로, 1 CPU, 1 GB, 프로세스 256개, `/tmp` 256 MB(exec) 안에서 실행된다. 라이선스 서버나 다운로드가 필요한 컴파일러는 그대로는 안 된다. 자기 옆에 파일을 쓰는 컴파일러도 실패한다. `/toolchains`는 읽기 전용이니 캐시는 `/tmp`로 돌린다.
-- 컴파일러 바이너리는 `toolchains/<언어>/bin/`에 두거나 `sandbox/Dockerfile`에 설치한다. Dockerfile을 바꾸면 이미지 태그(소스의 해시, `agent/sandbox.py` `DEFAULT_IMAGE`)가 바뀌므로 다시 빌드해야 한다. 서버에는 커밋된 파일만 배포된다(`deploy/install.sh`가 `git archive HEAD`로 릴리스를 만든다). 커밋하지 않은 `bin/`은 서버에 없다. 그렇다고 공개 저장소에 배포 권한이 없는 벤더 바이너리를 커밋해서도 안 된다. 그런 컴파일러는 Dockerfile에서 로컬 파일이나 내부 미러로 설치하고, fixture 쪽 사본은 `.gitignore`에 넣는다.
+- 컴파일러 바이너리는 `toolchains/<언어>/bin/`에 두거나 `sandbox/Dockerfile`에 설치한다. Dockerfile을 바꾸면 이미지 태그(소스의 해시, `agent/sandbox.py` `DEFAULT_IMAGE`)가 바뀌므로 다시 빌드해야 한다. 서버에는 커밋된 파일만 배포된다(`deploy/install.sh`가 `git archive HEAD`로 릴리스를 만든다). 커밋하지 않은 `bin/`은 서버에 없다. 그렇다고 공개 저장소에 배포 권한이 없는 벤더 바이너리를 커밋해서도 안 된다. 그런 컴파일러는 Dockerfile에서 로컬 파일이나 내부 미러로 설치하고, fixture 쪽 사본은 `.gitignore`에 넣는다. 이미지는 릴리스가 아니라 서버의 git checkout에서 `sandbox/`를 빌드 컨텍스트로 만든다(`deploy/install.sh`의 `docker build ... "$SRC/sandbox"`). 그래서 로컬 파일은 서버마다 checkout의 `sandbox/` 아래(예: `sandbox/vendor/`, `.gitignore`)에 손으로 둔다. 이미지 태그는 Dockerfile과 stdf-rs 소스의 해시뿐이라, 파일만 바꾸면 옛 이미지가 그대로 쓰인다. Dockerfile에 그 파일의 버전과 sha256 검사(`RUN echo '<sha256>  <파일>' | sha256sum -c`)를 적어서, 파일을 바꾸면 Dockerfile도 바뀌게 한다.
 
 **입력이 stdin이 아닌 프로그램** (파일을 여는 DSL, 예: 로그 파일 요약). 루프의 하네스(`codegen._CASES`)는 입력을 stdin으로만 넘기고, `run`에는 `{bin}`만 치환된다. 하네스를 고치지 말고 toolchain 쪽에 실행 래퍼를 둔다. 프로그램이 파일을 처음부터 끝까지 한 번 읽는다면 경로로 `/dev/stdin`을 넘긴다. 래퍼는 `run: ["sh", "/toolchains/<언어>/run.sh", "{bin}"]`처럼 `sh`로 부른다. 스크립트의 실행 비트에 기대지 않기 위해서다. `{bin}`은 toolchain.json 안에서만 치환되고 스크립트에는 `$1`로 들어오므로, 래퍼 안에서는 `exec <프로그램> "$1" /dev/stdin`을 실행한다. 인터프리터 언어라도 compile 단계는 `{bin}`에 무언가를 써야 한다. 검사만 하고 소스를 복사해도 된다(`tests/fixtures/toolchains/python`처럼).
 - **입력을 `/tmp` 파일로 저장하지 않는다.** 하네스는 실행하는 프로세스와 그 자식 전부에 RLIMIT_FSIZE = 64 KB(`codegen.MAX_CASE_OUT`)를 건다. 출력만이 아니라 쓰는 모든 파일이 그 크기를 넘으면 쓰기가 실패하거나 프로세스가 죽는다. wafermap의 숨긴 입력은 이미 94 KB까지 간다(리뷰 루프 1회차에서 측정). 프로그램이 파일을 여러 번 읽거나 이동(seek)해야 해서 파일이 꼭 필요하면 하네스를 바꿔야 한다.
@@ -96,7 +96,7 @@
 
 `random_spec`이 없으면 테스트가 모두 통과해도 평가가 `AttributeError`로 죽는다. 실제 데이터를 쓰는 역할이면 `use_maps` 분기도 필요하다.
 
-**개수 규약.** 한 케이스의 `categories` 개수, `judge`가 돌려주는 `total`, 출력 항목 수는 같아야 한다. 루프와 평가가 셋을 같은 수로 가정하고 센다(`codegen.test_program`, `bench/codegen_eval.py` `audit`).
+**개수 규약.** 한 케이스의 `categories` 개수, `judge`가 돌려주는 `total`, 출력 항목 수는 같아야 한다. 그리고 모든 케이스는 항목이 1개 이상이어야 한다. 빈 로그처럼 항목이 0개인 케이스는 프로그램이 그 입력에서 죽어도 감사가 놓치기 쉽다. 평가는 리뷰 루프 4회차부터 항목 0개를 1개로 세지만, 예를 들어 "레코드 수"를 늘 첫 항목으로 두는 편이 낫다. 루프와 평가가 셋을 같은 수로 가정하고 센다(`codegen.test_program`, `bench/codegen_eval.py` `audit`).
 
 **검사 입력**
 - 공개 예시는 작고 단순하게, 실수의 종류는 숨긴 검사에서 노린다.
@@ -148,7 +148,7 @@
 4. 오라클을 손 계산으로, 두 번째 구현으로, 실수 프로그램으로 확인한다.
 5. 경계에 정확히 놓은 검사 입력을 만든다.
 6. 에이전트를 scripted 응답으로 돌려 루프를 끝까지 확인한다(`t_loop_with_the_agent`). LLM은 필요 없고 Docker는 필요하다.
-7. 역할에 `random_spec`과 `probe` 표시를 넣고 `bench/codegen_eval.py`를 고친 뒤(5절), 대응 비교 평가를 돌린다: `python bench/codegen_eval.py --role <역할> --language <언어>`.
+7. 역할에 `random_spec`(필수)과 `probe` 표시(선택)를 넣고 `bench/codegen_eval.py`를 고친 뒤(5절), 대응 비교 평가를 돌린다: `python bench/codegen_eval.py --role <역할> --language <언어>`.
 8. 새로 만든 것은 구현하지 않은 리뷰어에게 리뷰받는다. 이 프로젝트에서 격리 결함은 모두 별도 리뷰어가 찾았다.
 
 ## 예: 다른 DSL로 "장비 로그를 요약 숫자로" 같은 과제라면
