@@ -25,7 +25,7 @@ def run(task, inputs, ctx):
                  {"role": "user", "content": f"That program failed these checks:\n{listed}\n\nFix it. Reply with "
                                              "the complete program."}]
     text = ctx.llm(msgs)
-    m = re.search(r"```[a-zA-Z]*\n(.*?)```", text, re.S)
+    m = re.search(r"```[^\n]*\n(.*?)```", text, re.S)  # any fence tag: a slug may have digits and "-"
     code = (m[1] if m else text).strip() + "\n"
     out = ctx.workspace / inputs["out"]
     out.parent.mkdir(parents=True, exist_ok=True)
