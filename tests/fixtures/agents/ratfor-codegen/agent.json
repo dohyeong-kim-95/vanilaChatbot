@@ -1,0 +1,8 @@
+{
+  "name": "ratfor-codegen",
+  "description": "Writes Ratfor programs (mock: another team's code generator, written in C)",
+  "language": "ratfor",
+  "command": ["bin/codegen"],
+  "build": "make",
+  "timeout": 30
+}

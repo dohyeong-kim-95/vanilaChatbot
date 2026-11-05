@@ -197,6 +197,17 @@ def name(ctx, **args) -> str
 - 호스트가 강제: 시간 제한(컨테이너 안 `timeout` + 호스트 타이머. 클라이언트만 끊으면 컨테이너 안 프로세스가 남는다), 한 줄 256KB, 메시지 2,000개. stderr는 끝까지 읽고 앞뒤만 보관한다(실패 시 마지막 줄을 보여 줌). 결과는 다른 tool 출력과 같은 경로(truncate → redact)로 모델에게 간다.
 - 남은 한계: 에이전트가 `outputs/`에 남긴 `.py`는 그 폴더에서 실행되는 python에는 import될 수 있다(모델이 `outputs/` 안 스크립트를 실행하는 경우). `PYTHONSAFEPATH`는 모델이 workspace에 만든 보조 모듈 import를 깨뜨려서 쓰지 않았다.
 - 범위 밖(지금): 에이전트가 실행 중에 사용자에게 묻기(ask_user), 에이전트별 네트워크 허용, 버전 고정과 서명.
+- 실행 파일 에이전트(Loop 40): `entry` 대신 `command`(argv, 프로그램은 에이전트 폴더 안 상대 경로). C 같은 다른 언어의 코드 묶음을 고치지 않고 붙인다. 실행기가 프로토콜을 대신한다: `/workspace`에서 `command… --task <task> --<input> <값>…`(목록·객체는 JSON), stdout이 결과(200KB까지), stderr가 로그, 종료 코드 0이 성공, 시그널로 죽으면 `killed by SIGSEGV`. LLM 호출은 못 한다. sandbox에 네트워크가 없고 `/agents`는 읽기 전용이라 운영자가 미리 빌드한다(`build`는 기록용, 예: 정적 링크 `make`).
+
+### 4.8 모델이 모르는 언어의 코드 생성 [검증: Loop 40, Ratfor를 가상 언어 대역으로]
+- 목적: 다른 팀의 codegen 에이전트(가상 언어로 코드를 씀)와 그 언어의 컴파일러를 붙여, "생성 → 컴파일 → 오류를 에이전트에 → 다시 생성"을 우리가 돌린다. 모델(Haiku)은 그 언어를 모르므로 코드를 직접 쓰지 않고, 루프를 시작하고 결과를 설명만 한다.
+- **언어가 바뀌어도 바뀌는 곳은 두 곳**: `toolchains/{language}/`(toolchain.json + 필요하면 오류 변환기, 컴파일러 바이너리)와 codegen 에이전트(`agents/{name}/agent.json`의 `"language"`). 루프·tool·UI·테스트 구조는 그대로다(`agent/codegen.py`, 규약은 `toolchains/README.md`). 테스트가 두 번째 언어 Toy(정규식 오류 형식, Python 에이전트)로 이것을 확인한다.
+- toolchain.json: `language`, `description`, `ext`, `compile`(argv, `{src}` `{bin}`), `errors`(`"json"`: 변환기가 `{"ok", "errors": [{"stage", "line", "message"}]}` 한 줄(10KB 미만, 오류 20개까지)을 출력하고 종료 코드 0 / 정규식: `message`(·`line`·`stage`) 이름 그룹, 종료 코드 0이 성공이고 그때 맞는 줄은 경고라 돌려보내지 않음), `run`(선택: 빌드된 프로그램을 한 번 실행, 실패는 stage `run` 오류), `timeout` ≤ 300s. `line`은 에이전트가 쓴 소스의 줄이고, 모르면 `null`(틀린 줄은 없는 것보다 나쁘다).
+- `write_code(language, task, id, attempts=4)`: codegen 에이전트를 부르고(`--task`, `--out`, 실패 뒤에는 `--prev`·`--errors`), **버리는 컨테이너**에서 컴파일·실행(`Sandbox.fresh()`, 호출마다 하나: 생성된 소스는 신뢰하지 않는 에이전트의 것이므로 에이전트와 같은 격리. run sandbox에서 돌리면 프로젝트 cache를 고치거나 `/tmp`에 `.pth`를 심어 run의 다음 python이 실행하게 할 수 있음, Loop 40 리뷰), 실패하면 오류를 넘겨 다시. 시작할 때 같은 id의 옛 `outputs/codegen/{id}/`를 지운다(쓰지 않은 에이전트의 시도가 옛 파일로 "빌드됨"이 되지 않게). 멈춤: 빌드(와 실행) 성공, 직전과 같은 오류, 시도 소진, 에이전트 실패(예: SIGSEGV)·소스를 안 씀, 취소(시도 사이에서). codegen 에이전트의 언어에 toolchain이 없거나 한 언어에 에이전트가 둘이면 서버 시작 때 실패한다. 시도마다 `outputs/codegen/{id}/attempt-N/{main<ext>, errors.json}`을 남기고, 성공하면 `outputs/codegen/{id}/main<ext>`. 오류는 시도마다 20개, 메시지 300자까지. 루프는 코드로 고정했다(모델이 중간에 멈추거나 직접 고치지 않게).
+- `compile_code(language, file)`: 사용자가 준 소스를 컴파일해 오류 목록을 돌려준다.
+- tool 노출: toolchain이 있으면 `compile_code`, 같은 언어의 codegen 에이전트도 있으면 `write_code`(설명에 "그 코드를 직접 쓰지 말 것"). codegen 에이전트는 `agent__*` tool로 따로 보이지 않는다. 운영 `toolchains/`는 비어 있고(README만), Ratfor·Toy와 mock 에이전트는 `tests/fixtures/`에 있다.
+- 대역 Ratfor(`tests/fixtures/toolchains/ratfor/compile.py`): `ratfor -C` → Fortran 77 → `gfortran -ffixed-line-length-none -fcheck=all`. 실제 컴파일러가 가진 까다로운 점이 있어 대역으로 골랐다: ratfor는 오류가 있어도 종료 코드 0(stderr만 봄), 문법이 틀린 일부(`if (i > )`)는 ratfor를 통과하고 gfortran에서 실패(두 단계), gfortran 줄은 생성된 `.f`의 줄. 소스 줄마다 `#@L<n>` 주석을 넣어(`-C`가 `C@L<n>`으로 남김) 되돌린다. 링크 오류와 실행 오류는 줄이 `null`.
+- sandbox 이미지에 `ratfor`, `gfortran`(Debian 패키지, gcc가 함께 들어와 모델의 bash도 C를 컴파일할 수 있음). 에이전트 컨테이너(`fresh()`)의 `/tmp`만 실행 가능(`exec`, 빌드한 프로그램을 거기서 실행). run sandbox의 `/tmp`는 그대로 noexec.
 
 ---
 
@@ -487,9 +498,11 @@ agent/shmoo.py          인터랙티브 shmoo 뷰 (데이터 구성, 페이지 �
 agent/logview.py        인터랙티브 텍스트 로그 뷰 (레벨 × 시간, 패턴 표)
 agent/views.py          템플릿 뷰 공용: 데이터 inline, 캡처 프로토콜
 agent/delegate.py       연결된 에이전트: 발견, tool 등록, sandbox 안 실행과 JSON 줄 프로토콜 감독
+agent/codegen.py        모르는 언어의 코드 생성 루프 (codegen 에이전트 → 컴파일 → 오류 → 재생성), toolchain 발견
 agent/skills.py         skill 발견(SKILL.md frontmatter), 프롬프트 목록, `/skills` 마운트 경로
 skills/card-transactions/  첫 skill: 카드·은행 내보내기 로더(tx.py, 표준 라이브러리) + 도메인 규칙
-agents/                 연결된 에이전트(운영자가 넣음, 지금은 없음) + sandbox 안 실행기 _runner.py. 테스트용 mock 2개(wafer-yield, text-summary)는 tests/fixtures/agents/ (Loop 39: 운영에서 모델이 mock을 고름)
+agents/                 연결된 에이전트(운영자가 넣음, 지금은 없음) + sandbox 안 실행기 _runner.py. 테스트용 mock(wafer-yield, text-summary, ratfor-codegen(C), toy-codegen)는 tests/fixtures/agents/ (Loop 39: 운영에서 모델이 mock을 고름)
+toolchains/             언어별 컴파일러 (운영에서는 비어 있음, 규약 README.md). 대역 ratfor·toy는 tests/fixtures/toolchains/
 skills/log-triage/      처음 보는 파일 판정(sniff.py) + "무엇을 볼까요?" 질문 + 맞는 skill로 넘김
 skills/shmoo/           ATE 로그 → shmoo 격자, 이상 패턴(구멍·벽·천장·낮은 통과율), ASCII 출력
 server/app.py           채팅 서버 (durable run, 이벤트 로그, interrupt/resume, 취소, 복구, 아티팩트 API, UI 서빙)
@@ -523,6 +536,7 @@ tests/test_l19_deploy.py      Loop 25 (새 Ubuntu 서버 컨테이너에 설치 
 tests/test_l20_gateway_errors.py  Loop 25.9 (gateway 오류: 나아질 수 없는 오류는 재시도 안 함, Retry-After 전달)
 tests/test_l29_audit.py       Loop 38 (audit 수정: 시간 초과 종료, git 원격, 깨진 업로드 기록, 리포트 검사, events 인덱스, effort 상향 조건, ingest 이름·빈 행·실패 정리, 새 대화)
 tests/test_l30_audit2.py      Loop 39 (2차 audit: 연결 에이전트 LLM 가림, 50MB 넘는 outputs, 선 그래프 위치, 취소된 ingest 정리, mock 에이전트 배포 안 함, 큰 파일 줄 수 추정, 리포트 목록 검사, shmoo 선택, 업로드 part 제한)
+tests/test_l31_codegen.py     Loop 40 (모르는 언어 코드 생성: Ratfor 변환기 두 단계·줄 되돌리기, 3번 만에 빌드, 실행 오류, 멈춤 조건, 두 번째 언어 Toy, tool 노출, 실행 파일 에이전트)
 tests/test_l28_markdown.py    Loop 36–37 (답변 마크다운: 블록·인라인, 한국어 조사, HTML·스크립트 링크 없음, 비정상 답변, 표·코드 복사, 근거 칩)
 tests/test_l27_rust.py        Loop 34 (Rust와 Python STDF 리더의 표가 같음: 두 바이트 순서, 스펙 레코드, 재검사, 섞인 site, 잘린 끝)
 tests/test_l26_dashboard.py   Loop 33 (대시보드 렌더·이스케이프, 정답과 같은 수치, Spotfire 번들, 결과 파일 다운로드)
@@ -562,6 +576,7 @@ python tests/test_l22_layout.py           # Chrome, LLM 없이 몇 초
 python tests/test_l28_markdown.py         # Chrome, LLM 없이 몇 초
 python tests/test_l29_audit.py            # Docker(sandbox 이미지)·Chrome, LLM 없이 1분 정도
 python tests/test_l30_audit2.py           # Docker(sandbox 이미지)·Chrome, LLM 없이 30초 정도
+python tests/test_l31_codegen.py          # Docker(sandbox 이미지)·호스트 gcc, LLM 없이 30초 정도
 python tests/test_l24_bigdata.py          # Docker·Chrome, LLM 없이 1분 정도
 python tests/test_l27_rust.py             # Docker(sandbox 이미지), 몇 초
 python tests/test_l26_dashboard.py        # Docker(sandbox 이미지)·Chrome, 몇 초

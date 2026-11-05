@@ -50,12 +50,12 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
-from agent import delegate, report, skills
+from agent import codegen, delegate, report, skills
 from agent.artifacts import ArtifactStore
 from agent.loop import ACK, LATEST, PLAN_HINT, SUMMARY, SYSTEM, Context, Interrupt, _user_text, run, shown_plans
 from agent.rag import DocStore
 from agent.sandbox import VTOOLS, Sandbox
-from agent.tools import AGENTS, REGISTRY, TEMPLATES
+from agent.tools import AGENTS, REGISTRY, TEMPLATES, TOOLCHAINS
 from agent.userstore import ID_RE, MAX_UPLOAD, PART_MAX, Conflict, TooLarge, UserStore, _writable
 from server import auth, capture, render
 
@@ -145,10 +145,10 @@ def _work(rid, task, decisions):
     if not run_dir.exists():  # else: a crashed worker's uncommitted workspace, keep it
         STORE.checkout(user, project, run_dir)
     sb = Sandbox(run_dir / "ws", readonly=("uploads",), name=rid,
-                 mounts={skills.DIR: skills.MOUNT, delegate.DIR: delegate.MOUNT, VTOOLS: "/vtools"},
+                 mounts={skills.DIR: skills.MOUNT, delegate.DIR: delegate.MOUNT, codegen.DIR: codegen.MOUNT, VTOOLS: "/vtools"},
                  rw_mounts={STORE.cache_dir(user, project): "/workspace/cache"})
     settings = STORE.settings(user, project)
-    ctx = Context(sandbox=sb, skills=SKILLS, agents=AGENTS, docs=DocStore(str(ROOT / f"{sid}.docs.db")), notes=json.loads(notes),
+    ctx = Context(sandbox=sb, skills=SKILLS, agents=AGENTS, toolchains=TOOLCHAINS, docs=DocStore(str(ROOT / f"{sid}.docs.db")), notes=json.loads(notes),
                   git_dir=str(run_dir / "git"), remote_url=git_remote(settings.get("git_remote")),
                   memory=lambda note: STORE.remember(user, note, f"session {sid}, run {rid}"),
                   artifacts=artifacts(user, project, on_save=lambda meta: emit(rid, {"type": "artifact", **meta}),

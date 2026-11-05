@@ -22,3 +22,7 @@ RUN pip install --no-cache-dir polars==1.35.2 duckdb==1.4.2 pyarrow==22.0.0 pand
 # SBDF (Spotfire's data file) for export_spotfire: spotfire-python, BSD-3, x86_64 Linux wheels (docs/research/R7 §4)
 RUN pip install --no-cache-dir spotfire==2.4.2 && python -c "import spotfire.sbdf"
 COPY --from=stdf /out/ /usr/local/bin/
+# Loop 40: the compiler of the codegen loop's stand-in language (toolchains/: Ratfor -> Fortran 77 -> gfortran).
+# gfortran brings gcc, so the model's bash can compile C too. Debian packages; no network at run time.
+RUN apt-get update && apt-get install -y --no-install-recommends ratfor gfortran && rm -rf /var/lib/apt/lists/* \
+ && ratfor -C /dev/null >/dev/null && gfortran --version >/dev/null

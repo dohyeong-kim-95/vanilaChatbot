@@ -1,4 +1,5 @@
-"""Connected agents (Loop 21): agents other teams wrote as Python packages, used as tools.
+"""Connected agents (Loop 21): agents other teams wrote as Python packages, used as tools. Loop 40: or as an
+executable ("command": any language, built by the operator; argv in, stdout out, see agents/_runner.py).
 
 agents/{name}/agent.json + code, chosen by the operator (like skills). Each becomes a tool `agent__{name}`. The code is
 NOT trusted: each call runs in its own fresh container over the run's workspace (read-only but for an in-memory
@@ -39,8 +40,13 @@ def discover(root=DIR):
         name = m.get("name", "")
         if not NAME_RE.match(name) or name != f.parent.name:
             raise ValueError(f"{f}: name {name!r} must be a slug equal to its folder name")
-        if not m.get("description") or ":" not in m.get("entry", ""):
-            raise ValueError(f"{f}: description and entry 'module:function' are required")
+        cmd = m.get("command")
+        if cmd is not None and not (isinstance(cmd, list) and cmd and all(isinstance(a, str) and a for a in cmd)
+                                    and not cmd[0].startswith("/") and ".." not in cmd[0].split("/")):
+            raise ValueError(f"{f}: command must be argv with a program inside the agent's folder, e.g. [\"bin/x\"]")
+        if not m.get("description") or (":" not in m.get("entry", "")) == (cmd is None):
+            raise ValueError(f"{f}: description and one of entry 'module:function' (Python) or command (an "
+                             "executable) are required")
         m["timeout"] = min(int(m.get("timeout", 120)), MAX_TIMEOUT)
         m["llm_calls"] = min(int(m.get("llm_calls", 0)), MAX_LLM)
         out[name] = m
@@ -50,6 +56,8 @@ def discover(root=DIR):
 def register(agents, registry, make_schema):
     """Add one tool per agent to the tool registry (same shape as built-in tools)."""
     for name, m in agents.items():
+        if m.get("language"):  # a codegen agent: used by write_code (codegen.py) only, never by the model directly
+            continue
         params = {"task": {"type": "string", "description": "what you want this agent to do, in one sentence"},
                   **m.get("inputs", {})}
         registry[tool_name(name)] = {

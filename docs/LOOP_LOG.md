@@ -1485,3 +1485,38 @@ Nice: 한두 줄짜리만. N3(템플릿 뷰를 html로 rewrite하면 KeyError �
 | S5 | 앞 2MB에 줄바꿈이 없으면 `~0` → `?` |
 | S4 (남김) | SQL이 `ORDER BY series, x`면 x 순서가 섞임. tool 설명이 이미 "ORDER BY x"를 요구 |
 | Nit | 낡은 주석(outputs가 통째로만 저장), 쓰이지 않는 walrus, import 순서, `top: ""` 통과 → 고침. 크기 초과 파일의 빈 폴더, 409 뒤 다시 켜지는 승인 버튼 → 둠 |
+
+## Loop 40 — 모르는 언어의 코드 생성 루프 (가상 언어, Ratfor 대역)
+
+> 사용자 요청: "만약에~~ 에이전트 자체는 C로 만들어져있고, Ratfor codegen agent라면?? … 1. Ratfor codegen agent 하나 2. Ratfor 컴파일러 하나" → "네 그러면 그렇게 한번 해보시죠. 근데 ratfor는 C##(존재하지 않는 언어)를 표방한거라서, 의도 자체를 "가상의 언어" codegen과 그것의 컴파일러라고 생각해주시면 더 도움이 될듯." → "언어가 휙 하고 바뀌었을때 많은 부분을 살릴 수 있도록 만들어주세요"
+
+결정:
+| 항목 | 결정 | 이유 |
+|---|---|---|
+| 루프를 누가 돌리나 | 코드로 고정(`write_code`), 모델은 시작과 설명만 | 모델은 그 언어를 모른다. 모델이 돌리면 중간에 멈추거나 직접 고칠 수 있음 |
+| 언어별로 바뀌는 곳 | `toolchains/{language}/`(json + 변환기) + codegen 에이전트 | 사용자 요청 "언어가 바뀌어도 살리게". 루프는 `{ok, errors:[{stage, line, message}]}`만 봄 |
+| 오류 형식 | 변환기가 JSON을 출력하거나, 정규식 하나 | `file:line: msg`를 출력하는 컴파일러는 json만으로 붙음(Toy로 확인) |
+| C 에이전트 | 실행 파일 에이전트(`command`), argv 입력·stdout 결과·종료 코드 | C에게 JSON 줄 프로토콜을 시키지 않음. 기존 tar 전달·새 컨테이너·시간 제한은 그대로 |
+| 대역 | Ratfor(ratfor 1.07 + gfortran 14, Debian 패키지, 공개 도구) | 실제 컴파일러의 까다로운 점이 있음: 오류에도 종료 코드 0, 두 단계, 생성 파일 줄 번호 |
+| 줄 번호 | 소스 줄마다 `#@L<n>` 주석, `ratfor -C`가 남긴 표시로 되돌림. 모르면 `null` | 틀린 줄을 에이전트에 주는 것이 없는 것보다 나쁨 |
+| 배포 | 운영 `toolchains/`는 비움, 대역·mock은 `tests/fixtures/` | Loop 39 S3(운영에 mock을 두지 않음) |
+
+측정·확인:
+- ratfor는 오류가 있어도 종료 코드 0(stderr만). `if (i > ) {`는 ratfor를 통과하고 gfortran에서 실패. ratfor는 주석 줄을 세지 않아 표시를 넣어도 ratfor의 줄 번호가 원래 소스 줄(표시 있는/없는 파일 모두 "line 5"). 괄호가 안 닫히면 ratfor는 다음 줄까지 이어 읽어 알아챈 줄(5)을 말한다(실제 4).
+- docker `--tmpfs`는 기본 noexec: 빌드한 프로그램이 "Permission denied" → 에이전트 컨테이너만 `/tmp:size=256m,exec`(처음에는 run sandbox에 붙였다가 리뷰 40.1 Must로 옮김).
+- mock C codegen은 `-static`으로 빌드(호스트 glibc와 무관). 시도별 동작: `sum` ratfor 오류 → Fortran 오류 → 성공(55), `bounds` 실행 시 배열 범위 오류 → 성공, `stuck` 같은 오류 반복, `crash` SIGSEGV, `nofile` 파일 없음.
+
+테스트: `tests/test_l31_codegen.py` 10개(결정적, Docker + 호스트 gcc). 모델 확인은 하지 않음(사용자 결정: 모델 확인은 마지막에 한 번). 결정적 회귀: 159 PASS, 실패 5 중 4는 gateway가 꺼져 있어 생긴 연결 오류(l8 3, l2 1), 1은 l15가 fixture 에이전트 목록을 정확히 비교(새 fixture 2개 추가 → 기대값 갱신, codegen 에이전트가 `agent__*`로 안 보이는지 확인 추가).
+
+### 리뷰 40.1 (Workflow: 관점별 리뷰 3명 + 반박 검증 3명, 읽기 전용): Must 1 / Should 6 / Nit 9
+| 항목 | 고친 것 |
+|---|---|
+| Must (3명 모두) | 생성된 코드를 run의 sandbox에서 컴파일·실행: 거기서는 `/workspace`·프로젝트 cache(실행 사이에 남음)를 쓸 수 있고 `/tmp`(HOME)를 run의 python과 같이 써서 `.pth`를 심을 수 있음(delegate가 `fresh()`를 쓰는 바로 그 이유). `/tmp` exec도 이것 때문에 붙였음 → `write_code`마다 `fresh()` 컨테이너 하나에서 컴파일·실행, exec는 에이전트 컨테이너만. 테스트: `/tmp`와 workspace에 쓰는 프로그램(`plant`)이 run에 아무것도 남기지 않음, run의 `/tmp`는 여전히 실행 불가 |
+| S | 같은 id로 다시 부르면 옛 시도 파일을 이번 에이전트의 것으로 컴파일(쓰지 않는 에이전트가 "BUILT") → 시작할 때 `outputs/codegen/{id}` 삭제, 같은 id 재호출 테스트 |
+| S | 정규식 모드에서 종료 코드 0이어도 맞는 줄이 있으면 실패 → 경고가 있는 컴파일러가 영영 빌드 안 됨(README와 반대) → 종료 코드 0이면 빌드됨 |
+| S | 언어에 toolchain이 없는 codegen 에이전트가 조용히 사라짐(오타 포함), 한 언어에 에이전트 둘이면 이름순 → 서버 시작 때 실패 |
+| S | 오류가 많으면(약 120개) 변환기의 JSON 한 줄이 exec의 10KB 자르기에 걸려 줄 정보가 모두 사라짐 → 변환기가 20개까지, 규약에 10KB 명시, 400줄 오류 테스트 |
+| S | ratfor 단계 줄 테스트가 5줄 파일이라 줄을 파일 길이로 자르는 것에 가려짐 → 31줄 파일 11번째 줄 오류(ratfor는 12에서 알아챔) |
+| S | README만으로는 다른 팀이 붙일 수 없음(Python 에이전트 입력, errors.json 모양, 실행 환경) → 보강 |
+| Nit (고침) | json 모드에서 "ok" 뒤 변환기가 죽어도 빌드됨 → 종료 코드도 봄, 거대한 줄 번호 → null |
+| Nit (둠) | 전체 시간 제한 없음(시도당 에이전트·컴파일 시간 제한과 시도 수로 묶임), 200KB 상한을 JSON 인코딩 전에 셈, 대역 컴파일러가 운영 이미지에 있음(가상 언어로 바꿀 때 Dockerfile 한 줄), `compile_code`가 모델이 직접 쓰게 유도할 수 있음, `{}` 문자가 든 argv, 쓰이지 않는 `build` 필드(기록용), 링크 오류가 2건, mock이 `--prev`를 안 읽음 |

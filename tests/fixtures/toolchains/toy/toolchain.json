@@ -1,0 +1,8 @@
+{
+  "language": "toy",
+  "description": "Toy, a second made-up language: the same loop with only this folder and an agent changed",
+  "ext": ".toy",
+  "compile": ["sh", "/toolchains/toy/toyc.sh", "{src}", "{bin}"],
+  "errors": "^(?P<file>[^:\\n]+):(?P<line>\\d+): (?P<message>.+)$",
+  "timeout": 20
+}

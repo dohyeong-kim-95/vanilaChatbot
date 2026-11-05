@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 .venv/
 sandbox/stdf-rs/target/
+tests/fixtures/agents/*/bin/

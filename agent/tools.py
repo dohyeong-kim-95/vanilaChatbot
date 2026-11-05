@@ -11,7 +11,7 @@ import uuid
 import tempfile
 from pathlib import Path
 
-from . import dashboard, delegate, github, logview, report, shmoo
+from . import codegen, dashboard, delegate, github, logview, report, shmoo
 from .artifacts import MAX_SIZE as ARTIFACT_MAX
 from .sandbox import JOB_MAX
 from .userstore import DISK_RESERVE, MAX_OUTPUTS
@@ -465,12 +465,16 @@ def push_branch(ctx, branch):
 
 def schemas(names=None):
     # remember needs a user store, artifact/show_* an artifact store, use_skill skills, agent__* connected agents
-    # (ctx.agents); callers that have them name them
+    # (ctx.agents), write_code/compile_code toolchains; callers that have them name them
     return [t["schema"] for n, t in REGISTRY.items()
             if (n in names if names is not None else
-                n not in ("remember", "artifact", *TEMPLATES.values(), "use_skill", "ask_user") and not n.startswith("agent__"))]
+                n not in ("remember", "artifact", *TEMPLATES.values(), "use_skill", "ask_user", "write_code",
+                          "compile_code") and not n.startswith("agent__"))]
 
 
 # Connected agents (agent/delegate.py): one tool per agents/{name}/agent.json, run inside the sandbox.
 AGENTS = delegate.discover()  # the server passes these as ctx.agents
 delegate.register(AGENTS, REGISTRY, _schema)
+# Code generation in a language the model does not know (agent/codegen.py): toolchains/{language}/ + a codegen agent.
+TOOLCHAINS = codegen.discover()  # the server passes these as ctx.toolchains
+codegen.register(TOOLCHAINS, AGENTS, REGISTRY, _schema)

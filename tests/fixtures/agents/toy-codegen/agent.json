@@ -1,0 +1,7 @@
+{
+  "name": "toy-codegen",
+  "description": "Writes Toy programs (mock, Python): the second language of the swap test",
+  "language": "toy",
+  "entry": "toy:run",
+  "timeout": 30
+}

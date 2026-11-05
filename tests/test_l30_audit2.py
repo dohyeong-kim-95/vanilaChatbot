@@ -88,7 +88,8 @@ def t_mock_agents_not_deployed():  # S3
     from agent import delegate
     assert delegate.discover() == {}, "a mock agent is a tool in production"
     assert (ROOT / "agents" / "_runner.py").exists()
-    assert sorted(delegate.discover(ROOT / "tests" / "fixtures" / "agents")) == ["text-summary", "wafer-yield"]
+    assert sorted(delegate.discover(ROOT / "tests" / "fixtures" / "agents")) == ["ratfor-codegen", "text-summary",
+                                                                              "toy-codegen", "wafer-yield"]
 
 
 def t_sniff_big_file_estimates_lines():  # S4

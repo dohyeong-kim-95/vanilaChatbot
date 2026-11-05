@@ -1,0 +1,9 @@
+{
+  "language": "ratfor",
+  "description": "Ratfor (Rational Fortran), the stand-in for a fictional language in the tests: numeric programs that print with write(6,*)",
+  "ext": ".r",
+  "compile": ["python", "/toolchains/ratfor/compile.py", "{src}", "{bin}"],
+  "errors": "json",
+  "run": ["env", "GFORTRAN_ERROR_BACKTRACE=0", "{bin}"],
+  "timeout": 60
+}

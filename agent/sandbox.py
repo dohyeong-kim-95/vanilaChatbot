@@ -122,7 +122,8 @@ class Sandbox:
         subprocess.run(["docker", "rm", "-f", self.name, *old], capture_output=True)
         subprocess.run([
             "docker", "run", "-d", "--rm", "--name", self.name,
-            "--network", "none", "--read-only", "--tmpfs", "/tmp:size=256m",
+            # an agent's /tmp is exec: write_code runs the programs it builds there (codegen.py, Loop 40)
+            "--network", "none", "--read-only", "--tmpfs", "/tmp:size=256m" + (",exec" if agent else ""),
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--pids-limit", "256", "--memory", "1g", "--cpus", "1",
             "--user", OWNER, "-e", "HOME=/tmp", "-e", "PYTHONDONTWRITEBYTECODE=1",

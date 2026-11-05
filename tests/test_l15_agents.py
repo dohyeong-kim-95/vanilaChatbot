@@ -154,7 +154,8 @@ def call(ctx, name, **args):
 
 
 def t_discover_and_schema():
-    assert set(AGENTS) == {"wafer-yield", "text-summary", "rogue"}
+    assert set(AGENTS) == {"wafer-yield", "text-summary", "rogue", "ratfor-codegen", "toy-codegen"}  # + Loop 40 fixtures
+    assert "agent__ratfor_codegen" not in REGISTRY  # codegen agents: write_code only
     s = REGISTRY["agent__wafer_yield"]["schema"]["function"]
     assert s["parameters"]["required"] == ["task", "file"] and s["description"].startswith("[connected agent: wafer-yield]")
     bad = TMP / "bad" / "x"
