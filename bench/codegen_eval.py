@@ -80,7 +80,7 @@ def audit(box, tc, role, spec, code, name, seed, size, probes=False):
         if j is None or j["format"]:
             kinds["crash/format"] += len(c["categories"]) or 1
             continue
-        right += j["total"] - len(j["wrong"])
+        right += j["total"] - len(j["wrong"]) if c["categories"] else not j["wrong"]  # an empty case: one item
         kinds.update(w["category"] for w in j["wrong"])
     return right, total, kinds
 
