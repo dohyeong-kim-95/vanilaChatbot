@@ -10,7 +10,7 @@ names its Hesk line too.
 
 The language (the reference says it for the model):
   -- comment                       to the end of the line
-  var x, a[n], g[r, c].            top level only, before use; scalars 0, arrays of 0 (indexes from 0)
+  var x, a[n], g[r, c].            top level only, before use; scalars 0, arrays of 0 (indexes from 0, size 0 ok)
   x <- e.   g[i, j] <- e.          assignment
   read x, g[i, j].                 the next integers of stdin
   say e, "text", e.                one line, items separated by one space
@@ -26,7 +26,7 @@ import re
 import sys
 from pathlib import Path
 
-MAX_ERRORS, MAX_DEPTH, MAX_CELLS = 20, 40, 4_000_000
+MAX_ERRORS, MAX_DEPTH, MAX_EXPR, MAX_CELLS = 20, 20, 50, 4_000_000  # depth: Python nests at most 20 loops
 KEYWORDS = {"var", "read", "say", "if", "then", "elif", "else", "done", "while", "do", "for", "from", "below",
             "through", "stop", "skip", "and", "or", "not", "div", "mod"}
 FUNCS = {"min": 2, "max": 2, "abs": 1}
@@ -75,7 +75,8 @@ class Parser:
         self.names = {}       # name -> 0 scalar, 1 or 2 array dimensions
         self.loop_vars = []   # for-loop variables in force
         self.loops = 0        # loops around the current statement
-        self.depth = 0
+        self.depth = 0        # blocks
+        self.edepth = 0       # parentheses, not and unary minus
 
     # ---- tokens ----
     @property
@@ -85,10 +86,13 @@ class Parser:
     def at(self, text):
         return self.tok.kind in ("kw", "op") and self.tok.text == text
 
+    def before(self):  # a missing token is missing after the last one taken: that line, not the next statement's
+        return self.toks[self.i - 1].line if self.i else self.tok.line
+
     def take(self, text=None):
         t = self.tok
         if text is not None and not self.at(text):
-            raise Error(t.line, f"expected '{text}', found {t.show()}")
+            raise Error(self.before(), f"expected '{text}', found {t.show()}")
         if t.kind != "eof":
             self.i += 1
         return t
@@ -115,12 +119,12 @@ class Parser:
                 raise Error(self.tok.line, f"{self.tok.show()} without an open if/while/for")
             self.statement(0, top=True)
 
-    def block(self, indent, ends):
-        """Statements up to one of `ends` (not taken)."""
+    def block(self, indent, ends, opener):
+        """Statements up to one of `ends` (not taken). opener: (keyword, line) of the block, for the error."""
         start = len(self.out)
         while not any(self.at(e) for e in ends):
             if self.tok.kind == "eof":
-                raise Error(self.tok.line, f"expected {' or '.join(repr(e) for e in ends)} before the end of the file")
+                raise Error(opener[1], f"the '{opener[0]}' on line {opener[1]} has no 'done' (the file ended first)")
             self.statement(indent)
         if len(self.out) == start:
             self.emit(indent, "pass", self.tok.line)
@@ -141,7 +145,7 @@ class Parser:
     def end(self):
         t = self.tok
         if not self.at("."):
-            raise Error(t.line, f"expected '.' at the end of the statement, found {t.show()}")
+            raise Error(self.before(), f"expected '.' at the end of the statement, found {t.show()}")
         self.i += 1
 
     def var(self, indent, top):
@@ -229,7 +233,7 @@ class Parser:
             if self.tok.kind == "str":
                 items.append(repr(self.take().text[1:-1]))
             else:
-                items.append(f"str({self.expr('int')})")
+                items.append(self.expr("int"))
             if not self.at(","):
                 break
             self.take(",")
@@ -246,15 +250,16 @@ class Parser:
         self.nested(line)
         self.emit(indent, f"if {self.expr('bool')}:", line)
         self.take("then")
-        self.block(indent + 1, ("elif", "else", "done"))
+        opener = ("if", line)
+        self.block(indent + 1, ("elif", "else", "done"), opener)
         while self.at("elif"):
             line = self.take("elif").line
             self.emit(indent, f"elif {self.expr('bool')}:", line)
             self.take("then")
-            self.block(indent + 1, ("elif", "else", "done"))
+            self.block(indent + 1, ("elif", "else", "done"), opener)
         if self.at("else"):
             self.emit(indent, "else:", self.take("else").line)
-            self.block(indent + 1, ("done",))
+            self.block(indent + 1, ("done",), opener)
         self.take("done")
         self.depth -= 1
         self.end_block()
@@ -269,7 +274,7 @@ class Parser:
         self.emit(indent, f"while {self.expr('bool')}:", line)
         self.take("do")
         self.loops += 1
-        self.block(indent + 1, ("done",))
+        self.block(indent + 1, ("done",), ("while", line))
         self.loops -= 1
         self.take("done")
         self.depth -= 1
@@ -296,7 +301,7 @@ class Parser:
         self.emit(indent, f"for v_{n.text} in range({a}, {b}{' + 1' if kind == 'through' else ''}):", line)
         self.loops += 1
         self.loop_vars.append(n.text)
-        self.block(indent + 1, ("done",))
+        self.block(indent + 1, ("done",), ("for", line))
         self.loop_vars.pop()
         self.loops -= 1
         self.take("done")
@@ -326,27 +331,31 @@ class Parser:
         return code
 
     def nest(self):
-        self.depth += 1
-        if self.depth > 4 * MAX_DEPTH:
-            raise Error(self.tok.line, "expression nested too deep")
+        self.edepth += 1
+        if self.edepth > MAX_EXPR:
+            raise Error(self.tok.line, f"expression nested more than {MAX_EXPR} deep")
 
     def e_or(self):
         a, ta = self.e_and()
+        parts = [a]
         while self.at("or"):
             line = self.take().line
             b, tb = self.e_and()
             self.both_bool(line, "or", ta, tb)
-            a, ta = f"({a} or {b})", "bool"
-        return a, ta
+            parts.append(b)
+            ta = "bool"
+        return (f"({' or '.join(parts)})" if len(parts) > 1 else a), ta
 
     def e_and(self):
         a, ta = self.e_not()
+        parts = [a]
         while self.at("and"):
             line = self.take().line
             b, tb = self.e_not()
             self.both_bool(line, "and", ta, tb)
-            a, ta = f"({a} and {b})", "bool"
-        return a, ta
+            parts.append(b)
+            ta = "bool"
+        return (f"({' and '.join(parts)})" if len(parts) > 1 else a), ta
 
     def both_bool(self, line, op, ta, tb):
         if ta != "bool" or tb != "bool":
@@ -357,7 +366,7 @@ class Parser:
             line = self.take().line
             self.nest()
             a, ta = self.e_not()
-            self.depth -= 1
+            self.edepth -= 1
             if ta != "bool":
                 self.semantic(line, "'not' needs a condition (a comparison), not a number")
             return f"(not {a})", "bool"
@@ -379,22 +388,24 @@ class Parser:
 
     def e_add(self):
         a, ta = self.e_mul()
+        chain = a  # left to right, as Python reads it: one pair of parentheses around the whole chain
         while self.at("+") or self.at("-"):
             t = self.take()
             b, tb = self.e_mul()
             self.both_int(t, ta, tb)
-            a, ta = f"({a} {t.text} {b})", "int"
-        return a, ta
+            chain, ta = f"{chain} {t.text} {b}", "int"
+        return (f"({chain})" if chain is not a else a), ta
 
     def e_mul(self):
         a, ta = self.e_unary()
+        chain = a
         while self.at("*") or self.at("div") or self.at("mod"):
             t = self.take()
             b, tb = self.e_unary()
             self.both_int(t, ta, tb)
-            a = f"({a} * {b})" if t.text == "*" else f"_{t.text}({a}, {b})"
-            ta = "int"
-        return a, ta
+            # * binds left like div and mod: a * b div c is _div(a * b, c)
+            chain, ta = f"{chain} * {b}" if t.text == "*" else f"_{t.text}({chain}, {b})", "int"
+        return (f"({chain})" if chain is not a else a), ta
 
     def both_int(self, t, ta, tb):
         if ta != "int" or tb != "int":
@@ -405,7 +416,7 @@ class Parser:
             t = self.take()
             self.nest()
             a, ta = self.e_unary()
-            self.depth -= 1
+            self.edepth -= 1
             if ta != "int":
                 self.semantic(t.line, "'-' needs a number")
             return f"(-{a})", "int"
@@ -420,7 +431,7 @@ class Parser:
             self.take("(")
             self.nest()
             a, ta = self.e_or()
-            self.depth -= 1
+            self.edepth -= 1
             self.take(")")
             return a, ta
         if t.kind == "name":
@@ -456,10 +467,19 @@ def check(src):
         p.program()
     except Error as e:
         p.errors.append({"stage": "syntax", "line": e.line, "message": str(e)})
+    except RecursionError:
+        p.errors.append({"stage": "syntax", "line": p.tok.line, "message": "nested too deep"})
     if p.errors:
         return p.errors[:MAX_ERRORS], None
     code = "\n".join("    " * ind + c for ind, c, _ in p.out) + "\n"
-    return [], json.dumps({"py": code, "lines": [ln for _, _, ln in p.out]})
+    lines = [ln for _, _, ln in p.out]
+    try:  # what Python itself refuses (review 43.1): a check error on its Hesk line, never a traceback at run time
+        compile(code, "<hesk>", "exec")
+    except (SyntaxError, ValueError, RecursionError, MemoryError) as e:
+        at = getattr(e, "lineno", None)
+        return [{"stage": "check", "line": lines[at - 1] if at and at <= len(lines) else None,
+                 "message": f"too complex for Hesk: {getattr(e, 'msg', None) or type(e).__name__}"}], None
+    return [], json.dumps({"py": code, "lines": lines})
 
 
 # ---- run time ----
@@ -475,8 +495,8 @@ class Array(list):
 def _array(*dims):
     n = 1
     for d in dims:
-        if d < 1:
-            raise RunError(f"array size {d}: sizes are at least 1")
+        if d < 0:
+            raise RunError(f"array size {d}: sizes are at least 0")
         n *= d
     if n > MAX_CELLS:
         raise RunError(f"array of {n} cells: at most {MAX_CELLS}")
@@ -487,7 +507,7 @@ def _array(*dims):
 
 def _bad(a, idx):
     return RunError(f"index {', '.join(map(str, idx))} is outside the array "
-                    f"({', '.join(f'0..{n - 1}' for n in a.dims)})")
+                    f"({', '.join(f'0..{n - 1}' if n else 'empty' for n in a.dims)})")
 
 
 def _ix1(a, i):  # one per array access: kept short, it is most of a program's time
@@ -525,35 +545,37 @@ def run(program):
         w = next(words[0], None)
         if w is None:
             raise RunError("read: no more input")
-        if not re.fullmatch(r"-?[0-9]{1,30}", w):
+        if len(w) > 10000 or not re.fullmatch(r"-?[0-9]+", w):
             raise RunError(f"read: '{w[:20]}' is not an integer")
         return int(w)
 
     def _say(*items):
-        out.append(" ".join(items) + "\n")
+        out.append(" ".join(map(str, items)) + "\n")  # here, with full builtins: a huge int's str imports _pylong
         if len(out) > 512:
             sys.stdout.write("".join(out))
             out.clear()
 
-    env = {"__builtins__": {"range": range, "min": min, "max": max, "abs": abs, "str": str},
+    env = {"__builtins__": {"range": range, "min": min, "max": max, "abs": abs},
            "_array": _array, "_ix1": _ix1, "_ix2": _ix2, "_div": _div, "_mod": _mod, "_read": _read, "_say": _say}
     try:
         exec(compile(prog["py"], "<hesk>", "exec"), env)
-    except (RunError, MemoryError, RecursionError) as e:
-        sys.stdout.write("".join(out))
+    except Exception as e:  # ours (RunError) or Python's (MemoryError, ...): the line, never a traceback
         tb, line = e.__traceback__, None
         while tb is not None:
             if tb.tb_frame.f_code.co_filename == "<hesk>":
                 line = prog["lines"][tb.tb_lineno - 1]
             tb = tb.tb_next
-        why = str(e) if isinstance(e, RunError) else "out of memory"
+        why = str(e) if isinstance(e, RunError) else "out of memory" if isinstance(e, MemoryError) \
+            else f"{type(e).__name__}: {e}"[:200]
         sys.stderr.write(f"run error at line {line}: {why}\n" if line else f"run error: {why}\n")
         return 1
-    sys.stdout.write("".join(out))
+    finally:
+        sys.stdout.write("".join(out))  # what it printed before an error too
     return 0
 
 
 def main(argv):
+    sys.set_int_max_str_digits(0)  # "integers have no size limit" (the reference): also when printed or read
     if len(argv) == 3 and argv[0] == "check":
         errors, prog = check(Path(argv[1]).read_text(errors="replace"))
         if prog is not None:

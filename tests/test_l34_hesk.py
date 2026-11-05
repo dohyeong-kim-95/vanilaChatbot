@@ -49,11 +49,15 @@ def t_checker_errors():  # what the agent hears: the stage, the line it was noti
         ("var x.\nx = 3.\n", "syntax", 2, "expected '<-' (assignment)"),
         ("var x;\n", "syntax", 1, "unexpected character ';'"),
         ("var x.\nx <- 5 / 2.\n", "syntax", 2, "unexpected character '/'"),
-        ("var x.\nwhile x < 3 do\n  x <- x + 1.\n", "syntax", 4, "expected 'done' before the end"),
+        ("var x.\nwhile x < 3 do\n  x <- x + 1.\n", "syntax", 2, "the 'while' on line 2 has no 'done'"),
+        ("var x.\nif x = 1\n  say x.\ndone\n", "syntax", 2, "expected 'then', found 'say'"),  # review 43.1: not 3
+        ("var x.\nsay x\n\n-- comment\nx <- 1.\n", "syntax", 2, "expected '.' at the end of the statement"),
         ("var x.\nif x > 1 then say x. done.\n", "syntax", 2, "no '.' after 'done'"),
         ("var x.\nx <- 1 < x < 3.\n", "syntax", 2, "do not chain"),
         ("var x.\nfor x from 0 to 3 do done\n", "syntax", 2, "expected 'below' or 'through'"),
-        ("var x\nsay x.\n", "syntax", 2, "expected '.' at the end of the statement, found 'say'"),
+        ("var x\nsay x.\n", "syntax", 1, "expected '.' at the end of the statement, found 'say'"),
+        ("var x.\nx <- " + "(" * 60 + "1" + ")" * 60 + ".\n", "syntax", 2, "nested more than 50 deep"),
+        ("var i.\n" + "while i < 1 do\n" * 22 + "done\n" * 22, "syntax", 22, "nested more than 20 deep"),
         ("x <- 1.\n", "check", 1, "'x' is not declared"),
         ("var g[2, 3].\ng[1] <- 3.\n", "check", 2, "'g' has 2 indexes, not 1"),
         ("var a[3].\nsay a.\n", "check", 2, "'a' is an array"),
@@ -73,7 +77,7 @@ def t_checker_errors():  # what the agent hears: the stage, the line it was noti
                 (src, errs)
         # mistakes that do not stop the parse are all reported, up to the first syntax error
         ok, errs, _ = build(b, "var a[2].\na <- 1.\ny <- 2.\nstop.\nsay a[0]\n")
-        assert [(e["stage"], e["line"]) for e in errs] == [("check", 2), ("check", 3), ("check", 4), ("syntax", 6)], errs
+        assert [(e["stage"], e["line"]) for e in errs] == [("check", 2), ("check", 3), ("check", 4), ("syntax", 5)], errs
     finally:
         b.close()
         sb.close()
@@ -103,9 +107,17 @@ while 1 = 1 do skip. done
                                 ("var x.\n\nsay 1 div x.\n", "", "line 3: division by zero"),
                                 ("var x, y.\nread x.\nread y.\n", "5", "line 3: read: no more input"),
                                 ("var x.\nread x.\n", "2.5", "is not an integer"),
-                                ("var n.\nread n.\nvar a[n].\n", "0", "line 3: array size 0")]:
+                                ("var n.\nread n.\nvar a[n].\n", "-1", "line 3: array size -1"),
+                                ("var n.\nread n.\nvar a[n].\nsay 7.\nsay a[0].\n", "0", "line 5: index 0 is outside "
+                                 "the array (empty)")]:
             rc, out, err = run(b, src, stdin)
             assert rc == 1 and msg in err, (src, rc, err)
+        assert out == "7\n", "what it printed before the error is kept"
+        # review 43.1: what Python would refuse or choke on: long chains, huge integers (no size limit)
+        rc, out, err = run(b, "var x, i.\nx <- " + " + ".join(["1"] * 300) + ".\nsay x.\nx <- 10.\n"
+                           "for i from 0 below 14 do x <- x * x. done\nsay x mod 1000, x div x.\nsay x.\n")
+        lines = out.split("\n")
+        assert rc == 0 and lines[:2] == ["300", "0 1"] and lines[2] == "1" + "0" * 2 ** 14, (rc, err, out[:80])
     finally:
         b.close()
         sb.close()
@@ -239,7 +251,7 @@ def t_loop_with_the_agent():  # the evaluation's agent, on scripted replies: syn
         r = codegen.loop(ctx, "hesk", "", "w1", 4, role="wafermap", spec=spec)
         assert r["stop"] is None and len(r["history"]) == 3, r["stop"]
         assert "Hesk" in seen[0][0]["content"] and "```hesk" in seen[0][0]["content"], "the reference is the prompt"
-        assert "[syntax line 3] expected '.' at the end of the statement" in seen[1][-1]["content"], seen[1][-1]
+        assert "[syntax line 2] expected '.' at the end of the statement" in seen[1][-1]["content"], seen[1][-1]
         assert "example 1" in seen[2][-1]["content"] and "expected" in seen[2][-1]["content"], seen[2][-1]
     finally:
         sb.close()

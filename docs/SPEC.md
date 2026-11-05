@@ -228,6 +228,7 @@ def name(ctx, **args) -> str
 | v3 (경계 맵 정확, 모든 공유 프롬프트 대응) | 20/30 | 24 / 6 / 0 | 28 / 0 / 2 | 29 / 0 / 1 |
 
   컴파일 가드만으로는 오답 6–10개가 통과한다(90쌍 합계 23). 공개 예시 가드가 거의 다 잡는다(90쌍 중 놓친 것 1). 놓친 1개(v1)는 Haiku가 쓴 `10000_8`(Fortran 90 kind 표기)을 Ratfor가 `100008`로 바꾼 것: 반지름 30% 경계 바로 바깥 die 하나만 틀림. 숨긴 검사가 따로 잡은 것은 세 실행에서 0이다(그 실수가 v2·v3에서는 나오지 않음). 그 실수를 넣은 테스트 프로그램은 경계 맵에서 매번 걸린다(`tests/test_l33_wafermap.py`). 빌드 실패는 모두 에이전트가 같은 오류를 되풀이해 "같은 오류 두 번이면 멈춤"에 걸린 것. 과제 설명의 "10000 × d2가 2³¹을 넘을 수 있다"는 틀린 말이었고(최대 1.3×10⁹, 리뷰 42.1) v3에서 고쳤다.
+- 대역 언어 Hesk(Loop 43, `tests/fixtures/toolchains/hesk/hesk.py`): 이 레포에만 있는 가상 언어라 모델은 한 쪽짜리 레퍼런스(`bench/agents/haiku-hesk/REFERENCE.md`)로만 안다(Ratfor는 실제 언어라 학습에서 봤을 수 있음). 일부러 다른 언어와 다르게: 문장 끝 `.`, 대입 `<-`, 블록은 `done`으로 닫음, `div`/`mod`(0 쪽으로), `for i from a below b`, `var`는 맨 바깥에서 쓰기 전에, 정수만. 검사기가 파싱·타입 검사 후 Python으로 옮기고(문법 오류는 처음 하나에서 멈춤, 그 앞의 의미 오류는 모두), 실행기는 배열 범위를 검사해 모든 오류에 Hesk 줄을 붙인다. 256×256 전부 불량 맵에서 1.6초(케이스당 5초). 같은 조건(웨이퍼맵 30쌍)에서 Haiku low의 첫 답은 1/30만 오답(컴파일 오류 1, 다음 시도에 고침), G0·G1·G2 모두 30/30 정답(`docs/eval_codegen_wafermap_hesk.json`): Ratfor v3의 첫 답 오답 20/30(컴파일 오류 16, 모두 Ratfor 변환은 통과하고 gfortran 단계에서)과 대조된다. 낯선 문법 자체보다 레퍼런스가 말하지 않는 아래 언어(Fortran)의 규칙이 오답을 만든다. 측정은 리뷰 43.1 수정 전 검사기·레퍼런스(수정은 오류 줄, 크기 0 배열, 반복 뒤 변수 값과 예약어 명시).
 - 검사 격리: 시도마다 새 상자(앞 시도의 프로그램이 숨긴 입력을 `/tmp`나 남긴 프로세스에 두고 다음 시도의 예시 오류로 내보낼 수 있었음, 리뷰 42.1에서 재현), 프로그램 출력은 크기 한도가 있는 파일로(출력 폭주로 검사기가 죽어 배치 전체를 잃지 않게).
 
 ## 5. Sandbox
@@ -519,11 +520,11 @@ agent/views.py          템플릿 뷰 공용: 데이터 inline, 캡처 프로토
 agent/delegate.py       연결된 에이전트: 발견, tool 등록, sandbox 안 실행과 JSON 줄 프로토콜 감독
 agent/codegen.py        모르는 언어의 코드 생성 루프 (codegen 에이전트 → 컴파일 → 검사 → 오류 → 재생성), toolchain·역할 발견
 roles/                  역할: 프로그램이 해야 할 일과 그 검사 (binning, wafermap, 규약 README.md)
-bench/codegen_eval.py   가드 평가: Haiku low codegen(bench/agents/haiku-ratfor) × 가드 구성, 감사 세트로 채점
+bench/codegen_eval.py   가드 평가: Haiku low codegen(bench/agents/haiku-ratfor, haiku-hesk) × 가드 구성, 감사 세트로 채점
 agent/skills.py         skill 발견(SKILL.md frontmatter), 프롬프트 목록, `/skills` 마운트 경로
 skills/card-transactions/  첫 skill: 카드·은행 내보내기 로더(tx.py, 표준 라이브러리) + 도메인 규칙
 agents/                 연결된 에이전트(운영자가 넣음, 지금은 없음) + sandbox 안 실행기 _runner.py. 테스트용 mock(wafer-yield, text-summary, ratfor-codegen(C), toy-codegen)는 tests/fixtures/agents/ (Loop 39: 운영에서 모델이 mock을 고름)
-toolchains/             언어별 컴파일러 (운영에서는 비어 있음, 규약 README.md). 대역 ratfor·toy는 tests/fixtures/toolchains/
+toolchains/             언어별 컴파일러 (운영에서는 비어 있음, 규약 README.md). 대역 ratfor·hesk·toy는 tests/fixtures/toolchains/
 skills/log-triage/      처음 보는 파일 판정(sniff.py) + "무엇을 볼까요?" 질문 + 맞는 skill로 넘김
 skills/shmoo/           ATE 로그 → shmoo 격자, 이상 패턴(구멍·벽·천장·낮은 통과율), ASCII 출력
 server/app.py           채팅 서버 (durable run, 이벤트 로그, interrupt/resume, 취소, 복구, 아티팩트 API, UI 서빙)
@@ -560,6 +561,7 @@ tests/test_l30_audit2.py      Loop 39 (2차 audit: 연결 에이전트 LLM 가�
 tests/test_l31_codegen.py     Loop 40 (모르는 언어 코드 생성: Ratfor 변환기 두 단계·줄 되돌리기, 3번 만에 빌드, 실행 오류, 멈춤 조건, 두 번째 언어 Toy, tool 노출, 실행 파일 에이전트)
 tests/test_l32_guards.py      Loop 41 (가드: 정답 구현 손 계산, 약한 모델식 실수 7종이 각각 숨긴 검사에서 그 종류로 잡힘, 예시 답 박기, 숨긴 입력 노출 없음, 무한 루프)
 tests/test_l33_wafermap.py    Loop 42 (wafermap 역할: 정답 구현 손 계산, 따로 쓴 두 번째 구현과 일치, 실수 5종이 숨긴 검사에서 그 항목으로 잡힘, 프로그램이 숨긴 입력을 못 읽음, 실제 맵 분할)
+tests/test_l34_hesk.py        Loop 43 (가상 언어 Hesk: 검사기 오류의 단계·줄·문구, 실행 규칙과 실행 오류 줄, Hesk로 쓴 wafermap이 정답 구현과 일치·최대 맵 시간, 평가 에이전트의 루프)
 tests/test_l28_markdown.py    Loop 36–37 (답변 마크다운: 블록·인라인, 한국어 조사, HTML·스크립트 링크 없음, 비정상 답변, 표·코드 복사, 근거 칩)
 tests/test_l27_rust.py        Loop 34 (Rust와 Python STDF 리더의 표가 같음: 두 바이트 순서, 스펙 레코드, 재검사, 섞인 site, 잘린 끝)
 tests/test_l26_dashboard.py   Loop 33 (대시보드 렌더·이스케이프, 정답과 같은 수치, Spotfire 번들, 결과 파일 다운로드)
@@ -602,7 +604,8 @@ python tests/test_l30_audit2.py           # Docker(sandbox 이미지)·Chrome, L
 python tests/test_l31_codegen.py          # Docker(sandbox 이미지)·호스트 gcc, LLM 없이 30초 정도
 python tests/test_l32_guards.py           # Docker(sandbox 이미지), LLM 없이 30초 정도
 python tests/test_l33_wafermap.py         # Docker, LLM 없이 15초 정도
-python bench/codegen_eval.py [--role wafermap]   # gateway 필요, Haiku low, 20–40분, docs/eval_codegen_<role>.json
+python tests/test_l34_hesk.py              # Docker, LLM 없이 30초 정도
+python bench/codegen_eval.py [--role wafermap] [--language hesk]   # gateway 필요, Haiku low, 20–40분, docs/eval_codegen_<role>[_hesk].json
 python tests/test_l24_bigdata.py          # Docker·Chrome, LLM 없이 1분 정도
 python tests/test_l27_rust.py             # Docker(sandbox 이미지), 몇 초
 python tests/test_l26_dashboard.py        # Docker(sandbox 이미지)·Chrome, 몇 초

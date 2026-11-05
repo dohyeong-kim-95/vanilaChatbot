@@ -2,7 +2,7 @@
 
 The codegen agent is Haiku at low effort (bench/agents/haiku-<language>) writing a role (roles/binning or
 roles/wafermap) in a language it does not know well: Ratfor, real but rare, or (Loop 43) Hesk, made up for this repo
-and known to the model only from its one-page reference. Each spec runs under each guard setting:
+and known to the model only from its one-page reference (integers only: wafermap). Each spec runs under each guard setting:
   G0  compile only: the first program that builds is taken
   G1  + examples: the examples are run, a wrong answer goes back with its input and expected output
   G2  + hidden checks: many inputs the agent never sees, only counts and kinds of mistakes go back
@@ -217,6 +217,8 @@ def main():
     ap.add_argument("--maps", default=str(ROOT / "bench" / "data" / "wm811k_sample.json.gz"))
     ap.add_argument("--out")
     args = ap.parse_args()
+    if args.language == "hesk" and args.role != "wafermap":  # review 43.1: binning reads decimals, Hesk has integers
+        ap.error("--language hesk needs --role wafermap (Hesk has only integers)")
     from openai import OpenAI
     if args.role == "wafermap":
         MAPS[:] = load_maps(args.maps)

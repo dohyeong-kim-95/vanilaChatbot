@@ -7,9 +7,11 @@ language: read the rules, do not guess them from Python, C or Pascal.
   Newlines and indentation do not matter. `--` starts a comment to the end of the line.
 - Variables: declare every name before its first use with `var`, at the top level only (never inside a block).
   `var n, i, total.` gives integers set to 0. `var a[n].` an array of n integers, `var g[r, c].` a two-index array,
-  all 0; sizes can be any expression of earlier variables (`read r, c. var g[r, c].`). Indexes start at 0:
+  all 0; sizes can be any expression of earlier variables (`read r, c. var g[r, c].`), 0 included. Indexes start at 0:
   `a[0]` to `a[n - 1]`, `g[i, j]` with one pair of brackets. Only integers (no size limit), no booleans, no text
-  variables. Names: letters, digits, `_`, starting with a letter.
+  variables. Names: letters, digits, `_`, starting with a letter; upper and lower case differ. Reserved (not
+  names): `var read say if then elif else done while do for from below through stop skip and or not div mod`,
+  and `min max abs`.
 - Assignment: `x <- x + 1.`  `g[i, j] <- 2.` (`=` is a comparison, never an assignment.)
 - Arithmetic: `+ - *`, `div` (integer division, toward zero), `mod` (remainder, the sign of the left side),
   unary `-`, parentheses, `min(a, b)`, `max(a, b)`, `abs(a)`. There is no `/` and no `%`.
@@ -19,7 +21,8 @@ language: read the rules, do not guess them from Python, C or Pascal.
 - `while c do ... done`
 - `for i from a below b do ... done` runs i = a, a+1, ..., b-1 (`through b` instead of `below b`: up to b).
   a and b are computed once; i must be declared with var and cannot be assigned in the body; nothing runs
-  when a >= b (below). `stop.` leaves the loop, `skip.` goes to its next round.
+  when a >= b (below). After the loop, i holds the last value it took (b - 1 for `below b`, not b), or its
+  old value when the loop did not run. `stop.` leaves the loop, `skip.` goes to its next round.
 - `read x.` reads the next integer of stdin (spaces and newlines between numbers do not matter);
   `read r, c, g[i, j].` several in order.
 - `say a, b, c.` prints one line: the items separated by one space. An item is a number or "text in quotes".
