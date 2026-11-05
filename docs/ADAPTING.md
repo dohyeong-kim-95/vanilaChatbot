@@ -104,7 +104,7 @@
 - `random_spec(seed)`: 평가용 사양.
 - (선택) 경계 입력 표시 `case["probe"]`: 감사에서 실제 입력과 따로 센다. 없으면 모든 입력을 실제 입력으로 세고, 경계 입력 열은 비어 있다.
 - (wafermap만) `use_maps(maps)`: 실제 데이터를 넣는다. 다른 데이터면 로더(`--maps`처럼)는 `main()`에 두고 모듈 전역(`MAPS`처럼)을 채운다. 역할에 넘기는 호출은 `one()`의 `use_maps` 분기 옆에 둔다. `one()`은 작업마다 역할 모듈을 새로 읽으므로(`codegen.discover_roles`), `main()`에서 넘기면 데이터가 닿지 않는다. 그러면 wafermap식 `cases()`는 조용히 합성 데이터로 돌아간다. 풀이 비어 있지 않은지 확인하는 assert는 `one()`에서 로더를 부른 뒤에 둔다. `cases()` 안에 두면 안 된다.
-- **운영 서버의 검사는 합성 입력으로만 돈다.** 서버에서는 아무도 `use_maps`를 부르지 않는다(`agent/tools.py`의 `ROLES = codegen.discover_roles()`). `bench/data/`도 배포되지 않는다. 그래서 역할에는 모든 항목 종류와 경계를 덮는 합성 입력 생성기가 꼭 있어야 하고, 운영에서 가드를 맡는 것은 그 생성기다. 실제 데이터는 평가의 감사용이다. 운영에서 실제 데이터로 검사하는 길은 없다. 역할은 호스트에서 도는 신뢰 코드이고, 데이터를 둘 경로나 권한 규칙이 정해져 있지 않다. 필요하면 따로 설계한다.
+- **운영 서버의 검사는 합성 입력으로만 돈다.** 서버에서는 아무도 `use_maps`를 부르지 않는다(`agent/tools.py`의 `ROLES = codegen.discover_roles()`). `bench/data/`도 배포되지 않는다. 그래서 역할에는 모든 항목 종류와 경계를 덮는 합성 입력 생성기가 꼭 있어야 하고, 운영에서 가드를 맡는 것은 그 생성기다. 평가에서 실제 데이터 풀을 넣으면 감사뿐 아니라 공개 예시와 숨긴 검사도 그 풀에서 뽑힌다(wafermap `cases()`). 예시는 과제 설명에 그대로 들어가 LLM으로 가고, 틀린 예시의 기대값과 실제값도 돌아간다. 데이터가 호스트 밖으로 나가면 안 된다면 `cases()`가 실제 풀을 감사 seed(seed % 3 == 0)에만 쓰고, 예시와 숨긴 검사는 합성 입력으로 만들게 한다. 운영에서 실제 데이터로 검사하는 길은 없다. 역할은 호스트에서 도는 신뢰 코드이고, 데이터를 둘 경로나 권한 규칙이 정해져 있지 않다. 필요하면 따로 설계한다.
 
 `random_spec`이 없으면 테스트가 모두 통과해도 평가가 `AttributeError`로 죽는다. 실제 데이터를 쓰는 역할이면 `use_maps` 분기도 필요하다.
 
@@ -113,7 +113,7 @@
 **검사 입력**
 - 공개 예시는 작고 단순하게, 실수의 종류는 숨긴 검사에서 노린다.
 - **경계 입력은 경계에 정확히 놓는다.** 경계 근처로는 부족하다. 반지름 한계에 die가 정확히 걸리도록 맵의 기하를 고르자 1/8이 40/40이 됐다. 양쪽 개수를 다르게 해서 두 한계의 오류가 개수에서 상쇄되지 않게 한다(리뷰 42.1, `t_probes_sit_on_every_limit`).
-- 예시, 숨긴 검사, 평가 감사가 같은 입력을 쓰지 않게 나누고, 내용으로 중복을 없앤다(WM-811K에는 같은 맵 41장이 있었다, `t_real_maps_are_split`). 규약은 이미 정해져 있다. 공개 예시는 seed 1(`codegen.PUBLIC`), 숨긴 검사는 seed 2(`codegen.HIDDEN`), 평가 감사는 `300 + 3 × 사양 seed`(0 mod 3, `bench/codegen_eval.py` `audit_seed`)다. 실제 데이터 풀은 wafermap처럼 `seed % 3`으로 갈라 쓴다. 그냥 RNG로 고르면 감사가 숨긴 검사와 겹친다. `cases()`는 인자만으로 결과가 정해져야 한다. 같은 (spec, seed, n, size, example)이면 같은 목록이어야 한다. `random.Random(seed)`만 쓰고, 파일 목록은 정렬된 풀에서 고른다(wafermap처럼). 전역 `random`, 디렉터리 나열 순서, 정렬 안 된 set·dict 순서, 시각은 쓰지 않는다. 어기면 세 가지가 조용히 깨진다. 프롬프트에 보여 준 예시와 실제 공개 검사가 달라지고(`codegen.loop`과 `test_program`이 따로 부른다), 대응 비교의 공유 프롬프트가 갈리며(`FirstAnswers`는 프롬프트 글자로 묶는다), seed로 나눈 분할도 깨진다. 모듈을 다시 읽어 `cases()`를 두 번 부르고 같은지 assert하는 테스트 하나로 막는다. 입력 개수는 모듈 상수라 역할마다 다르게 할 수 없다. `cases(spec, seed, n, size, example)`의 `size`는 입력당 항목 수 힌트이고 역할이 뜻을 정한다. 값은 고정이다: 예시 5, 숨긴 검사 25, 평가는 `AUDIT[역할][1]`(None일 수 있다). 무시해도 되지만(wafermap) 이 값들을 모두 받아야 한다.
+- 예시, 숨긴 검사, 평가 감사가 같은 입력을 쓰지 않게 나누고, 내용으로 중복을 없앤다(WM-811K에는 같은 맵 41장이 있었다, `t_real_maps_are_split`). 규약은 이미 정해져 있다. 공개 예시는 seed 1(`codegen.PUBLIC`), 숨긴 검사는 seed 2(`codegen.HIDDEN`), 평가 감사는 `300 + 3 × 사양 seed`(0 mod 3, `bench/codegen_eval.py` `audit_seed`)다. 실제 데이터 풀은 wafermap처럼 `seed % 3`으로 갈라 쓴다. 그냥 RNG로 고르면 감사가 숨긴 검사와 겹친다. `cases()`는 인자만으로 결과가 정해져야 한다. 같은 (spec, seed, n, size, example)이면 같은 목록이어야 한다. `random.Random(seed)`만 쓰고, 파일 목록은 순서가 고정된 풀(정렬하거나 로더가 정한 순서)에서 고른다. 전역 `random`, 디렉터리 나열 순서, 정렬 안 된 set·dict 순서, 시각은 쓰지 않는다. 어기면 세 가지가 조용히 깨진다. 프롬프트에 보여 준 예시와 실제 공개 검사가 달라지고(`codegen.loop`과 `test_program`이 따로 부른다), 대응 비교의 공유 프롬프트가 갈리며(`FirstAnswers`는 프롬프트 글자로 묶는다), seed로 나눈 분할도 깨진다. 모듈을 다시 읽어 `cases()`를 두 번 부르고 같은지 assert하는 테스트 하나로 막는다. 입력 개수는 모듈 상수라 역할마다 다르게 할 수 없다. `cases(spec, seed, n, size, example)`의 `size`는 입력당 항목 수 힌트이고 역할이 뜻을 정한다. 값은 고정이다: 예시 5, 숨긴 검사 25, 평가는 `AUDIT[역할][1]`(None일 수 있다). 무시해도 되지만(wafermap) 이 값들을 모두 받아야 한다.
 
 **과제 설명의 문장 하나하나가 사실이어야 한다.** "10000 × d2가 2³¹을 넘을 수 있다"는 틀린 문장이었고(최대 1.3×10⁹), Haiku가 `10000_8`을 쓰게 부추겼을 수 있다(리뷰 42.1).
 
@@ -154,7 +154,7 @@
 
 ## 옮길 때 확인 목록
 
-1. `tests/fixtures/toolchains/<언어>/`에 `toolchain.json`(`run` 포함)과 컴파일러를 두고(그러면 `tests/test_l31_codegen.py` `t_discover`의 언어 목록에도 추가해야 그 테스트가 통과한다), `bench/agents/haiku-<언어>/`에 에이전트(`llm_calls: 1`, `REFERENCE.md`)를 둔다. 운영에 붙일 때는 같은 것을 `toolchains/`와 `agents/`에 두고, 둘 다 둔 뒤 `python -c 'from agent import tools; print(tools.TOOLCHAINS, "write_code" in tools.REGISTRY)'`로 확인한다(에이전트가 없으면 `write_code`는 `False`).
+1. `tests/fixtures/toolchains/<언어>/`에 `toolchain.json`(`run` 포함)과 컴파일러를 두고(그러면 `tests/test_l31_codegen.py` `t_discover`의 언어 목록에도 추가해야 그 테스트가 통과한다. 새 역할이면 `tests/test_l32_guards.py` `t_contract`의 역할 목록에도 추가한다), `bench/agents/haiku-<언어>/`에 에이전트(`llm_calls: 1`, `REFERENCE.md`)를 둔다. 운영에 붙일 때는 같은 것을 `toolchains/`와 `agents/`에 두고, 둘 다 둔 뒤 `python -c 'from agent import tools; print(tools.TOOLCHAINS, "write_code" in tools.REGISTRY)'`로 확인한다(에이전트가 없으면 `write_code`는 `False`). 운영 폴더에 실제로 붙이면 "운영에는 아무것도 배포되지 않았다"는 정책 테스트 셋이 일부러 실패한다: `tests/test_l31_codegen.py` `t_tools`의 `codegen.discover() == {}`와 `write_code` 없음, `tests/test_l30_audit2.py` `t_mock_agents_not_deployed`의 `delegate.discover() == {}`. 이것들을 붙인 언어와 에이전트만 정확히 있는지 확인하는 assert로 바꾼다. 테스트 fixture나 mock 에이전트가 `agents/`에 들어가지 않는다는 규칙은 지킨다.
 2. 틀린 프로그램 10여 개로 오류의 단계, 줄, 문구를 표로 테스트한다(`t_checker_errors`처럼).
 3. 레퍼런스 한 쪽을 쓴다. 함정과 경계 동작을 먼저 채운다.
 4. 오라클을 손 계산으로, 두 번째 구현으로, 실수 프로그램으로 확인한다.
