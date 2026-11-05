@@ -1,0 +1,391 @@
+{
+ "schema_version": 1,
+ "diagram_type": "architecture",
+ "meta": {
+  "title": "vanilaChatbot 구조: 오케스트레이터와 코드 생성 가드",
+  "output": "docs/architecture/architecture.html",
+  "quality_profile": "showcase",
+  "locale": "ko",
+  "repository": {
+   "url": "https://github.com/dohyeong-kim-95/vanilaChatbot.git",
+   "provider": "github",
+   "link_mode": "web",
+   "revision": "2a09919ad608f563d5ea2f57bd40abe56fa76ab9"
+  }
+ },
+ "components": [
+  {
+   "id": "renderer",
+   "type": "frontend",
+   "label": "렌더러",
+   "sublabel": "server/render.py :8201",
+   "pos": [
+    40,
+    40
+   ],
+   "size": [
+    150,
+    64
+   ],
+   "sources": [
+    {
+     "path": "server/render.py",
+     "line": 138,
+     "label": "FastAPI 렌더러 앱"
+    }
+   ]
+  },
+  {
+   "id": "sandbox",
+   "type": "backend",
+   "label": "run sandbox",
+   "sublabel": "Docker, 네트워크 없음",
+   "pos": [
+    280,
+    40
+   ],
+   "size": [
+    170,
+    64
+   ],
+   "sources": [
+    {
+     "path": "agent/sandbox.py",
+     "line": 126,
+     "label": "--network none, --read-only"
+    }
+   ]
+  },
+  {
+   "id": "browser",
+   "type": "external",
+   "label": "브라우저",
+   "sublabel": "채팅 UI",
+   "pos": [
+    40,
+    200
+   ],
+   "size": [
+    150,
+    64
+   ],
+   "sources": [
+    {
+     "path": "server/app.py",
+     "line": 769,
+     "label": "index.html 제공"
+    }
+   ]
+  },
+  {
+   "id": "server",
+   "type": "backend",
+   "label": "채팅 서버",
+   "sublabel": "오케스트레이터 :8200",
+   "pos": [
+    280,
+    200
+   ],
+   "size": [
+    170,
+    64
+   ],
+   "sources": [
+    {
+     "path": "server/app.py",
+     "line": 148,
+     "end_line": 151,
+     "label": "sandbox 마운트, Context"
+    },
+    {
+     "path": "agent/loop.py",
+     "line": 351,
+     "label": "에이전트 루프 run()"
+    }
+   ]
+  },
+  {
+   "id": "gateway",
+   "type": "backend",
+   "label": "gateway",
+   "sublabel": ":8100, OpenAI 호환",
+   "pos": [
+    600,
+    200
+   ],
+   "size": [
+    160,
+    64
+   ],
+   "sources": [
+    {
+     "path": "gateway/app.py",
+     "line": 61,
+     "end_line": 73,
+     "label": "claude -p 호출"
+    }
+   ]
+  },
+  {
+   "id": "llm",
+   "type": "external",
+   "label": "Haiku 5.5",
+   "sublabel": "LLM",
+   "pos": [
+    880,
+    200
+   ],
+   "size": [
+    140,
+    64
+   ],
+   "sources": [
+    {
+     "path": "gateway/app.py",
+     "line": 18,
+     "label": "GATEWAY_MODEL 기본값"
+    }
+   ]
+  },
+  {
+   "id": "codegen",
+   "type": "backend",
+   "label": "코드 생성 루프",
+   "sublabel": "write_code, 가드",
+   "pos": [
+    280,
+    380
+   ],
+   "size": [
+    170,
+    64
+   ],
+   "tag": "컴파일 → 예시 → 숨긴 검사",
+   "sources": [
+    {
+     "path": "agent/codegen.py",
+     "line": 305,
+     "label": "loop()"
+    },
+    {
+     "path": "agent/codegen.py",
+     "line": 233,
+     "label": "test_program: 예시·숨긴 검사"
+    },
+    {
+     "path": "agent/codegen.py",
+     "line": 354,
+     "label": "시도마다 fresh()"
+    }
+   ]
+  },
+  {
+   "id": "roles",
+   "type": "security",
+   "label": "역할 (채점관)",
+   "sublabel": "roles/wafermap 등",
+   "pos": [
+    600,
+    380
+   ],
+   "size": [
+    160,
+    64
+   ],
+   "tag": "정답 구현",
+   "sources": [
+    {
+     "path": "roles/wafermap/role.py",
+     "line": 110,
+     "label": "measure: 정답 구현"
+    },
+    {
+     "path": "roles/wafermap/role.py",
+     "line": 288,
+     "label": "judge"
+    }
+   ]
+  },
+  {
+   "id": "agents",
+   "type": "backend",
+   "label": "코드 작성 에이전트",
+   "sublabel": "haiku-hesk 등",
+   "pos": [
+    40,
+    560
+   ],
+   "size": [
+    170,
+    64
+   ],
+   "sources": [
+    {
+     "path": "agent/delegate.py",
+     "line": 70,
+     "end_line": 78,
+     "label": "run_agent: 새 컨테이너"
+    },
+    {
+     "path": "bench/agents/haiku-hesk/agent.py",
+     "line": 1,
+     "label": "레퍼런스로 코드 작성"
+    }
+   ]
+  },
+  {
+   "id": "toolbox",
+   "type": "backend",
+   "label": "toolchain",
+   "sublabel": "Hesk·Ratfor 컴파일·실행",
+   "pos": [
+    280,
+    560
+   ],
+   "size": [
+    170,
+    64
+   ],
+   "sources": [
+    {
+     "path": "agent/codegen.py",
+     "line": 163,
+     "label": "compile_source"
+    },
+    {
+     "path": "tests/fixtures/toolchains/hesk/hesk.py",
+     "line": 460,
+     "label": "Hesk 검사기"
+    },
+    {
+     "path": "toolchains/README.md",
+     "line": 1,
+     "label": "toolchain 규약"
+    }
+   ]
+  }
+ ],
+ "boundaries": [
+  {
+   "kind": "region",
+   "label": "신뢰하는 호스트 코드",
+   "wraps": [
+    "server",
+    "gateway",
+    "codegen",
+    "roles"
+   ]
+  },
+  {
+   "kind": "security-group",
+   "label": "run 컨테이너",
+   "wraps": [
+    "sandbox"
+   ]
+  },
+  {
+   "kind": "security-group",
+   "label": "호출·시도마다 새 컨테이너 (네트워크 없음)",
+   "wraps": [
+    "agents",
+    "toolbox"
+   ]
+  }
+ ],
+ "connections": [
+  {
+   "id": "ask",
+   "from": "browser",
+   "to": "server",
+   "label": "질문 · SSE 답",
+   "variant": "emphasis"
+  },
+  {
+   "id": "complete",
+   "from": "server",
+   "to": "gateway",
+   "label": "chat/completions",
+   "variant": "emphasis"
+  },
+  {
+   "id": "cli",
+   "from": "gateway",
+   "to": "llm",
+   "label": "claude -p"
+  },
+  {
+   "id": "tools",
+   "from": "server",
+   "to": "sandbox",
+   "label": "tool 실행"
+  },
+  {
+   "id": "view",
+   "from": "browser",
+   "to": "renderer",
+   "label": "결과 iframe",
+   "variant": "dashed"
+  },
+  {
+   "id": "write",
+   "from": "server",
+   "to": "codegen",
+   "label": "write_code"
+  },
+  {
+   "id": "judge",
+   "from": "codegen",
+   "to": "roles",
+   "label": "검사 입력 · 채점",
+   "variant": "security"
+  },
+  {
+   "id": "delegate",
+   "from": "codegen",
+   "to": "agents",
+   "label": "소스 요청 · 오류 전달"
+  },
+  {
+   "id": "compile",
+   "from": "codegen",
+   "to": "toolbox",
+   "label": "컴파일 · 검사 실행"
+  }
+ ],
+ "cards": [
+  {
+   "dot": "cyan",
+   "title": "질문 경로",
+   "items": [
+    "LLM은 tool을 고르기만 하고, 실행은 채팅 서버가 sandbox에서",
+    "gateway는 Haiku를 claude -p로 부르는 OpenAI 호환 창구"
+   ]
+  },
+  {
+   "dot": "rose",
+   "title": "가드는 오케스트레이터에",
+   "items": [
+    "정답과 채점은 호스트의 역할 코드에서만 나옴",
+    "숨긴 검사 입력은 stdin으로만, 에이전트에는 개수와 종류만",
+    "에이전트·생성 코드는 매번 버리는 컨테이너에서"
+   ]
+  },
+  {
+   "dot": "emerald",
+   "title": "바꿔 끼우는 세 축",
+   "items": [
+    "언어: toolchains/<언어>/ + 그 언어의 에이전트",
+    "역할: roles/<이름>/role.py",
+    "루프: agent/codegen.py, 둘 사이 약속은 stdin → stdout"
+   ]
+  },
+  {
+   "dot": "amber",
+   "title": "생략한 것",
+   "items": [
+    "로그인, 사용자 파일 저장소, RAG, 스킬, 리포트 캡처",
+    "렌더러는 아티팩트를 다른 origin에서 보여 주는 별도 프로세스"
+   ]
+  }
+ ]
+}
