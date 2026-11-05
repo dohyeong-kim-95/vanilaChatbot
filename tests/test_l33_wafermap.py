@@ -242,6 +242,11 @@ os.kill(os.getppid(), 9)
         except RuntimeError as e:
             text = str(e)
         assert "harness was killed" in text and not [h for h in hidden if h[:30] in text], text[:300]
+        try:  # review loop 11: results are keyed by id
+            codegen.run_cases(box, TC, bin, [{"id": "1", "input": ""}, {"id": "1", "input": ""}], "dup")
+            raise AssertionError("two cases with one id were run")
+        except ValueError as e:
+            assert "same id" in str(e), e
     finally:
         box.close()
         sb.close()
