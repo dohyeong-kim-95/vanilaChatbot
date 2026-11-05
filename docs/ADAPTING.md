@@ -51,7 +51,9 @@
 - 배열 접근 같은 핫 패스의 검사 함수는 짧게 둔다. `_ix(a, *idx)`를 `_ix1`/`_ix2`로 나누자 256×256 맵이 3.3초에서 1.6초가 됐다(케이스당 제한 5초).
 
 **실행 환경.** 컴파일러는 네트워크 없는 Linux 컨테이너에서 돈다. 루트 파일 시스템은 읽기 전용이고, 일반 사용자로, 1 CPU, 1 GB, 프로세스 256개, `/tmp` 256 MB(exec) 안에서 실행된다. 라이선스 서버나 다운로드가 필요한 컴파일러는 그대로는 안 된다. 자기 옆에 파일을 쓰는 컴파일러도 실패한다. `/toolchains`는 읽기 전용이니 캐시는 `/tmp`로 돌린다.
-- 컴파일러 바이너리는 `toolchains/<언어>/bin/`에 두거나 `sandbox/Dockerfile`에 설치한다. Dockerfile을 바꾸면 이미지 태그(소스의 해시, `agent/sandbox.py` `DEFAULT_IMAGE`)가 바뀌므로 다시 빌드해야 한다. 서버에는 커밋된 파일만 배포된다(`deploy/install.sh`가 `git archive HEAD`로 릴리스를 만든다). 커밋하지 않은 `bin/`은 서버에 없다. 그렇다고 공개 저장소에 배포 권한이 없는 벤더 바이너리를 커밋해서도 안 된다. 그런 컴파일러는 Dockerfile에서 로컬 파일이나 내부 미러로 설치하고, fixture 쪽 사본은 `.gitignore`에 넣는다. 이미지는 릴리스가 아니라 서버의 git checkout에서 `sandbox/`를 빌드 컨텍스트로 만든다(`deploy/install.sh`의 `docker build ... "$SRC/sandbox"`). 그래서 로컬 파일은 서버마다 checkout의 `sandbox/` 아래(예: `sandbox/vendor/`, `.gitignore`)에 손으로 둔다. 이미지 태그는 Dockerfile과 stdf-rs 소스의 해시뿐이라, 파일만 바꾸면 옛 이미지가 그대로 쓰인다. Dockerfile에 그 파일의 버전과 sha256 검사(`RUN echo '<sha256>  <파일>' | sha256sum -c`)를 적어서, 파일을 바꾸면 Dockerfile도 바뀌게 한다.
+- 컴파일러 바이너리는 `toolchains/<언어>/bin/`에 두거나 `sandbox/Dockerfile`에 설치한다. Dockerfile을 바꾸면 이미지 태그(소스의 해시, `agent/sandbox.py` `DEFAULT_IMAGE`)가 바뀌므로 다시 빌드해야 한다. 서버에는 커밋된 파일만 배포된다(`deploy/install.sh`가 `git archive HEAD`로 릴리스를 만든다). 커밋하지 않은 `bin/`은 서버에 없다. 그렇다고 공개 저장소에 배포 권한이 없는 벤더 바이너리를 커밋해서도 안 된다. 그런 컴파일러는 Dockerfile에서 로컬 파일이나 내부 미러로 설치하고, fixture 쪽 사본은 `.gitignore`에 넣는다. 공유 이미지를 커밋되지 않은 파일에 묶지 않는다. Dockerfile이 그 파일을 COPY하면 이미지 태그(Dockerfile의 해시)가 모든 checkout에서 바뀌고, 파일이 없는 곳에서는 sandbox 이미지 전체의 빌드가 실패한다. 다른 개발자, 새 서버, 공개 저장소를 받은 사람이 모두 해당한다. 방법은 둘이다.
+  - 저장소 밖에서 `vanilachatbot/sandbox:<태그>` 위에 컴파일러를 얹은 파생 이미지를 만들고, 서버 env에 `SANDBOX_IMAGE`로 지정한다(`deploy/install.sh`는 그 이미지가 있으면 빌드하지 않는다). 컴파일러를 바꾸면 파생 이미지의 태그도 바꾼다.
+  - Dockerfile에서 설치를 선택으로 만든다. stdf-rs 단계의 `|| echo "warning: ..."`처럼 하면, 파일이 없는 checkout에서도 이미지는 빌드되고 그 언어만 빠진다.
 
 **입력이 stdin이 아닌 프로그램** (파일을 여는 DSL, 예: 로그 파일 요약). 루프의 하네스(`codegen._CASES`)는 입력을 stdin으로만 넘기고, `run`에는 `{bin}`만 치환된다. 하네스를 고치지 말고 toolchain 쪽에 실행 래퍼를 둔다. 프로그램이 파일을 처음부터 끝까지 한 번 읽는다면 경로로 `/dev/stdin`을 넘긴다. 래퍼는 `run: ["sh", "/toolchains/<언어>/run.sh", "{bin}"]`처럼 `sh`로 부른다. 스크립트의 실행 비트에 기대지 않기 위해서다. `{bin}`은 toolchain.json 안에서만 치환되고 스크립트에는 `$1`로 들어오므로, 래퍼 안에서는 `exec <프로그램> "$1" /dev/stdin`을 실행한다. 인터프리터 언어라도 compile 단계는 `{bin}`에 무언가를 써야 한다. 검사만 하고 소스를 복사해도 된다(`tests/fixtures/toolchains/python`처럼).
 - **입력을 `/tmp` 파일로 저장하지 않는다.** 하네스는 실행하는 프로세스와 그 자식 전부에 RLIMIT_FSIZE = 64 KB(`codegen.MAX_CASE_OUT`)를 건다. 출력만이 아니라 쓰는 모든 파일이 그 크기를 넘으면 쓰기가 실패하거나 프로세스가 죽는다. wafermap의 숨긴 입력은 이미 94 KB까지 간다(리뷰 루프 1회차에서 측정). 프로그램이 파일을 여러 번 읽거나 이동(seek)해야 해서 파일이 꼭 필요하면 하네스를 바꿔야 한다.
@@ -62,6 +64,7 @@
 - 입력은 JSON 문자열이라 바이너리는 안 된다.
 - 출력은 ASCII로 읽힌다. 비ASCII 바이트는 하나하나 U+FFFD(�)가 되어 `judge`에 간다. 한글 한 글자면 3개다. 기대 출력은 ASCII로 정한다.
 - 출력은 케이스당 64 KB, 시간은 인터프리터 시작을 포함해 5초다(`codegen.MAX_CASE_OUT`, `CASE_SECONDS`).
+- 한 묶음의 입력은 한꺼번에 메모리에 올라간다. 숨긴 검사 20개, 감사 n개가 1 GB 컨테이너에서 검사 대상 프로그램과 메모리를 나눠 쓴다(`codegen.run_cases`가 JSON 하나로 넘김). 넘치면 하네스가 죽어 맞는 프로그램도 모든 항목이 `crash/format`이 된다. 큰 실제 로그는 `cases()`에서 잘라 쓰거나 표본을 뽑고, `AUDIT`의 n은 시간뿐 아니라 메모리로도 정한다.
 
 **에이전트.** `bench/agents/haiku-ratfor/agent.py`는 언어 중립이라 그대로 복사한다(코드 블록의 언어 표시는 무엇이든 받는다. 리뷰 루프 2회차에서 숫자와 `-`가 든 slug를 고쳤다). 바꾸는 것은 두 파일이다.
 - `agent.json`의 `name`과 `language`. `"llm_calls": 1`이 있어야 한다. 없으면 기본값 0이라 모든 LLM 호출이 거절된다(`agent/delegate.py`).
@@ -92,7 +95,8 @@
 **평가가 추가로 요구하는 함수.** 루프는 `codegen.ROLE_API`의 7개 이름만 요구한다(`roles/README.md`). 하지만 `bench/codegen_eval.py`는 다음도 쓴다.
 - `random_spec(seed)`: 평가용 사양.
 - (선택) 경계 입력 표시 `case["probe"]`: 감사에서 실제 입력과 따로 센다. 없으면 모든 입력을 실제 입력으로 세고, 경계 입력 열은 비어 있다.
-- (wafermap만) `use_maps(maps)`: 실제 데이터를 넣는다. 다른 데이터면 로더(`--maps`처럼)는 `main()`에 두고 모듈 전역(`MAPS`처럼)을 채운다. 역할에 넘기는 호출은 `one()`의 `use_maps` 분기 옆에 둔다. `one()`은 작업마다 역할 모듈을 새로 읽으므로(`codegen.discover_roles`), `main()`에서 넘기면 데이터가 닿지 않는다. 그러면 wafermap식 `cases()`는 조용히 합성 데이터로 돌아간다. 실제 데이터가 있어야 할 때 풀이 비어 있지 않은지 assert로 확인한다.
+- (wafermap만) `use_maps(maps)`: 실제 데이터를 넣는다. 다른 데이터면 로더(`--maps`처럼)는 `main()`에 두고 모듈 전역(`MAPS`처럼)을 채운다. 역할에 넘기는 호출은 `one()`의 `use_maps` 분기 옆에 둔다. `one()`은 작업마다 역할 모듈을 새로 읽으므로(`codegen.discover_roles`), `main()`에서 넘기면 데이터가 닿지 않는다. 그러면 wafermap식 `cases()`는 조용히 합성 데이터로 돌아간다. 풀이 비어 있지 않은지 확인하는 assert는 `one()`에서 로더를 부른 뒤에 둔다. `cases()` 안에 두면 안 된다.
+- **운영 서버의 검사는 합성 입력으로만 돈다.** 서버에서는 아무도 `use_maps`를 부르지 않는다(`agent/tools.py`의 `ROLES = codegen.discover_roles()`). `bench/data/`도 배포되지 않는다. 그래서 역할에는 모든 항목 종류와 경계를 덮는 합성 입력 생성기가 꼭 있어야 하고, 운영에서 가드를 맡는 것은 그 생성기다. 실제 데이터는 평가의 감사용이다. 운영에서도 실제 로그로 검사해야 하면 역할이 배포되는 경로에서 직접 읽어야 한다.
 
 `random_spec`이 없으면 테스트가 모두 통과해도 평가가 `AttributeError`로 죽는다. 실제 데이터를 쓰는 역할이면 `use_maps` 분기도 필요하다.
 
