@@ -51,7 +51,7 @@
 - 배열 접근 같은 핫 패스의 검사 함수는 짧게 둔다. `_ix(a, *idx)`를 `_ix1`/`_ix2`로 나누자 256×256 맵이 3.3초에서 1.6초가 됐다(케이스당 제한 5초).
 
 **실행 환경.** 컴파일러는 네트워크 없는 Linux 컨테이너에서 돈다. 루트 파일 시스템은 읽기 전용이고, 일반 사용자로, 1 CPU, 1 GB, 프로세스 256개, `/tmp` 256 MB(exec) 안에서 실행된다. 라이선스 서버나 다운로드가 필요한 컴파일러는 그대로는 안 된다. 자기 옆에 파일을 쓰는 컴파일러도 실패한다. `/toolchains`는 읽기 전용이니 캐시는 `/tmp`로 돌린다.
-- 컴파일러 바이너리는 `toolchains/<언어>/bin/`에 두거나 `sandbox/Dockerfile`에 설치한다. Dockerfile을 바꾸면 이미지 태그(소스의 해시, `agent/sandbox.py` `DEFAULT_IMAGE`)가 바뀌므로 다시 빌드해야 한다.
+- 컴파일러 바이너리는 `toolchains/<언어>/bin/`에 두거나 `sandbox/Dockerfile`에 설치한다. Dockerfile을 바꾸면 이미지 태그(소스의 해시, `agent/sandbox.py` `DEFAULT_IMAGE`)가 바뀌므로 다시 빌드해야 한다. 서버에는 커밋된 파일만 배포된다(`deploy/install.sh`가 `git archive HEAD`로 릴리스를 만든다). 커밋하지 않은 `bin/`은 서버에 없다. 그렇다고 공개 저장소에 배포 권한이 없는 벤더 바이너리를 커밋해서도 안 된다. 그런 컴파일러는 Dockerfile에서 로컬 파일이나 내부 미러로 설치하고, fixture 쪽 사본은 `.gitignore`에 넣는다.
 
 **입력이 stdin이 아닌 프로그램** (파일을 여는 DSL, 예: 로그 파일 요약). 루프의 하네스(`codegen._CASES`)는 입력을 stdin으로만 넘기고, `run`에는 `{bin}`만 치환된다. 하네스를 고치지 말고 toolchain 쪽에 실행 래퍼를 둔다. 프로그램이 파일을 처음부터 끝까지 한 번 읽는다면 경로로 `/dev/stdin`을 넘긴다. 래퍼는 `run: ["sh", "/toolchains/<언어>/run.sh", "{bin}"]`처럼 `sh`로 부른다. 스크립트의 실행 비트에 기대지 않기 위해서다. `{bin}`은 toolchain.json 안에서만 치환되고 스크립트에는 `$1`로 들어오므로, 래퍼 안에서는 `exec <프로그램> "$1" /dev/stdin`을 실행한다. 인터프리터 언어라도 compile 단계는 `{bin}`에 무언가를 써야 한다. 검사만 하고 소스를 복사해도 된다(`tests/fixtures/toolchains/python`처럼).
 - **입력을 `/tmp` 파일로 저장하지 않는다.** 하네스는 실행하는 프로세스와 그 자식 전부에 RLIMIT_FSIZE = 64 KB(`codegen.MAX_CASE_OUT`)를 건다. 출력만이 아니라 쓰는 모든 파일이 그 크기를 넘으면 쓰기가 실패하거나 프로세스가 죽는다. wafermap의 숨긴 입력은 이미 94 KB까지 간다(리뷰 루프 1회차에서 측정). 프로그램이 파일을 여러 번 읽거나 이동(seek)해야 해서 파일이 꼭 필요하면 하네스를 바꿔야 한다.
@@ -129,7 +129,7 @@
 - **할 수 없는 조합은 처음부터 막는다.** Hesk(정수만)를 소수 입력 역할과 짝지으면 모든 실행이 첫 `read`에서 실패해 의미 없는 표가 나온다(리뷰 43.1 Must). 지금은 `main()`에 하드코딩된 `if` 하나다. 새 언어나 새 역할이면 거기에 조건을 추가한다.
 - **새 언어나 새 역할을 평가에 넣을 때 `bench/codegen_eval.py`에서 고칠 곳.**
   - `--language` 선택지와, 그에 따른 `bench/agents/haiku-<언어>/` 복사
-  - `AUDIT` 사전: 역할별 감사 크기이고 `--role` 선택지도 여기서 나온다
+  - `AUDIT` 사전: 역할별 감사 크기이고 `--role` 선택지도 여기서 나온다. 한 묶음(숨긴 검사 20개, 감사 n개)은 실행 한 번에 돌고 전체 제한이 min(300초, n × 5 + 30초)다(`codegen.run_cases`). 넘으면 결과 파일이 안 써져서 감사의 모든 항목이 `crash/format`으로 잡힌다. 맞는 프로그램이라도 그렇다. 잰 케이스당 시간 × n이 300초보다 충분히 작게 n을 고른다(wafermap 150개면 평균 2초 미만)
   - 위의 조합 검사
   - 실제 데이터 로더 분기(`use_maps`)
   - 결과 파일 이름(`eval_codegen_<역할>[_<언어>].json`)
@@ -142,7 +142,7 @@
 
 ## 옮길 때 확인 목록
 
-1. `tests/fixtures/toolchains/<언어>/`에 `toolchain.json`(`run` 포함)과 컴파일러를 두고, `bench/agents/haiku-<언어>/`에 에이전트(`llm_calls: 1`, `REFERENCE.md`)를 둔다. 운영에 붙일 때는 같은 것을 `toolchains/`와 `agents/`에 두고, 둘 다 둔 뒤 `python -c 'from agent import tools; print(tools.TOOLCHAINS, "write_code" in tools.REGISTRY)'`로 확인한다(에이전트가 없으면 `write_code`는 `False`).
+1. `tests/fixtures/toolchains/<언어>/`에 `toolchain.json`(`run` 포함)과 컴파일러를 두고(그러면 `tests/test_l31_codegen.py` `t_discover`의 언어 목록에도 추가해야 그 테스트가 통과한다), `bench/agents/haiku-<언어>/`에 에이전트(`llm_calls: 1`, `REFERENCE.md`)를 둔다. 운영에 붙일 때는 같은 것을 `toolchains/`와 `agents/`에 두고, 둘 다 둔 뒤 `python -c 'from agent import tools; print(tools.TOOLCHAINS, "write_code" in tools.REGISTRY)'`로 확인한다(에이전트가 없으면 `write_code`는 `False`).
 2. 틀린 프로그램 10여 개로 오류의 단계, 줄, 문구를 표로 테스트한다(`t_checker_errors`처럼).
 3. 레퍼런스 한 쪽을 쓴다. 함정과 경계 동작을 먼저 채운다.
 4. 오라클을 손 계산으로, 두 번째 구현으로, 실수 프로그램으로 확인한다.
@@ -165,6 +165,6 @@
   - 끝 줄바꿈이 없는 로그
   - 형식이 깨진 줄, 너무 긴 줄
   - 중복 레코드
-- **가장 큰 실제 로그로 그 언어의 실행 시간을 잰다**(`t_wafermap_in_hesk`처럼). 케이스당 5초다.
+- **가장 큰 실제 로그로 그 언어의 실행 시간을 잰다**(`t_wafermap_in_hesk`처럼). 케이스당 5초이고, 한 묶음 전체는 300초다(5절 `AUDIT`).
 - **벤더 매뉴얼은 한 쪽이 아니다.** 함정 목록을 먼저 쓰고, 그다음 줄인 레퍼런스를 쓴다. 측정하는 동안에는 바이트 단위로 고정한다.
 - **실제 로그는 `bench/data/`에 두고 커밋하지 않는다.** `--maps` 같은 로더 옵션을 둔다.
