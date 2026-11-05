@@ -1,0 +1,9 @@
+{
+  "language": "python",
+  "description": "Python 3 (a known language, for testing roles apart from the stand-in language)",
+  "ext": ".py",
+  "compile": ["sh", "-c", "python -I -m py_compile \"$1\" && cp \"$1\" \"$2\"", "_", "{src}", "{bin}"],
+  "errors": "line (?P<line>\\d+)\\n(?:.*\\n)*?(?P<message>\\w+Error: .*)",
+  "run": ["python", "-I", "{bin}"],
+  "timeout": 30
+}

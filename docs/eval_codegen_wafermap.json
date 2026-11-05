@@ -1,0 +1,2004 @@
+{
+ "role": "wafermap",
+ "model": "claude-haiku-5-5",
+ "effort": "low",
+ "attempts": 5,
+ "paired": true,
+ "audit": [
+  150,
+  null
+ ],
+ "rows": [
+  {
+   "role": "wafermap",
+   "spec": 0,
+   "guards": "G0",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 10.0,
+   "llm_calls": 1,
+   "seconds": 30.3,
+   "final_code": "integer nrow, ncol, i, j, dr, dc, nr, nc, cr, cc, top, sz\ninteger ndies, nring, ncl, lmax\ninteger g(256,256), vis(256,256), sr(65536), sc(65536)\ninteger*8 bigd, d2, dx, dy\nread(5,*) nrow, ncol\nfor (i = 1; i <= nrow; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, ncol)\n}\nndies = 0\nbigd = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) >= 1) {\n      ndies = ndies + 1\n      dx = 2*(i-1) - (nrow-1)\n      dy = 2*(j-1) - (ncol-1)\n      d2 = dx*dx + dy*dy\n      if (d2 > bigd) bigd = d2\n    }\n  }\n}\nnring = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2) {\n      dx = 2*(i-1) - (nrow-1)\n      dy = 2*(j-1) - (ncol-1)\n      d2 = dx*dx + dy*dy\n      if (2500*bigd <= 10000*d2) nring = nring + 1\n    }\n  }\n}\nncl = 0\nlmax = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2) {\n      if (vis(i,j) == 0) {\n        vis(i,j) = 1\n        top = 1\n        sr(1) = i\n        sc(1) = j\n        sz = 0\n        while (top > 0) {\n          cr = sr(top)\n          cc = sc(top)\n          top = top - 1\n          sz = sz + 1\n          for (dr = -1; dr <= 1; dr = dr + 1) {\n            for (dc = -1; dc <= 1; dc = dc + 1) {\n              nr = cr + dr\n              nc = cc + dc\n              if (nr >= 1) {\n                if (nr <= nrow) {\n                  if (nc >= 1) {\n                    if (nc <= ncol) {\n                      if (g(nr,nc) == 2) {\n                        if (vis(nr,nc) == 0) {\n                          vis(nr,nc) = 1\n                          top = top + 1\n                          sr(top) = nr\n                          sc(top) = nc\n                        }\n                      }\n                    }\n                  }\n                }\n              }\n            }\n          }\n        }\n        if (sz >= 5) ncl = ncl + 1\n        if (sz > lmax) lmax = sz\n      }\n    }\n  }\n}\nwrite(6,*) nring, ndies, ncl, lmax\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 0,
+   "guards": "G0",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 17.0,
+   "llm_calls": 1,
+   "seconds": 21.9,
+   "final_code": "integer g(256,256), lab(256,256)\ninteger sr(65536), sc(65536)\ninteger nrow, ncol, r, c, dr, dc, nr, nc, sp, cr, cc, size\ninteger dies, nclus, largest, ringf\ninteger*8 d2, dmax, dr2, dc2\nread(5,*) nrow, ncol\ndo r = 1, nrow {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\ndies = 0\ndmax = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    lab(r,c) = 0\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      dr2 = 2*(r-1) - (nrow-1)\n      dc2 = 2*(c-1) - (ncol-1)\n      d2 = dr2*dr2 + dc2*dc2\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\nringf = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) {\n      dr2 = 2*(r-1) - (nrow-1)\n      dc2 = 2*(c-1) - (ncol-1)\n      d2 = dr2*dr2 + dc2*dc2\n      if (2500*dmax <= 10000*d2) ringf = ringf + 1\n    }\n  }\n}\nnclus = 0\nlargest = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) {\n      if (lab(r,c) == 0) {\n        lab(r,c) = 1\n        sp = 1\n        sr(1) = r\n        sc(1) = c\n        size = 0\n        while (sp > 0) {\n          cr = sr(sp)\n          cc = sc(sp)\n          sp = sp - 1\n          size = size + 1\n          do dr = -1, 1 {\n            do dc = -1, 1 {\n              if (dr != 0 | dc != 0) {\n                nr = cr + dr\n                nc = cc + dc\n                if (nr >= 1) {\n                  if (nr <= nrow) {\n                    if (nc >= 1) {\n                      if (nc <= ncol) {\n                        if (g(nr,nc) == 2) {\n                          if (lab(nr,nc) == 0) {\n                            lab(nr,nc) = 1\n                            sp = sp + 1\n                            sr(sp) = nr\n                            sc(sp) = nc\n                          }\n                        }\n                      }\n                    }\n                  }\n                }\n              }\n            }\n          }\n        }\n        if (size >= 5) nclus = nclus + 1\n        if (size > largest) largest = size\n      }\n    }\n  }\n}\nwrite(6,*) ringf, dies, nclus, largest\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 0,
+   "guards": "G0",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 17.5,
+   "llm_calls": 1,
+   "seconds": 24.2,
+   "final_code": "integer NRW, NCL, i, j, r, c, nr, nc, dr, dc, sp, sz, ringc, ndies, big, nclus\ninteger g(256,256), vis(256,256), srow(65536), scol(65536)\ninteger*8 DMAX, dd, t\n\nread(5,*) NRW, NCL\ndo i = 1, NRW {\n  read(5,*) (g(i,j), j = 1, NCL)\n}\n\nDMAX = 0\nndies = 0\ndo i = 1, NRW {\n  do j = 1, NCL {\n    if (g(i,j) != 0) {\n      ndies = ndies + 1\n      t = 2*(i-1) - (NRW-1)\n      dd = t*t\n      t = 2*(j-1) - (NCL-1)\n      dd = dd + t*t\n      if (dd > DMAX) DMAX = dd\n    }\n  }\n}\n\nringc = 0\ndo i = 1, NRW {\n  do j = 1, NCL {\n    if (g(i,j) == 2) {\n      t = 2*(i-1) - (NRW-1)\n      dd = t*t\n      t = 2*(j-1) - (NCL-1)\n      dd = dd + t*t\n      if (2500*DMAX <= 10000*dd) ringc = ringc + 1\n    }\n  }\n}\n\ndo i = 1, NRW {\n  do j = 1, NCL {\n    vis(i,j) = 0\n  }\n}\n\nnclus = 0\nbig = 0\ndo i = 1, NRW {\n  do j = 1, NCL {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      vis(i,j) = 1\n      sp = 1\n      srow(1) = i\n      scol(1) = j\n      sz = 0\n      while (sp > 0) {\n        r = srow(sp)\n        c = scol(sp)\n        sp = sp - 1\n        sz = sz + 1\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            nr = r + dr\n            nc = c + dc\n            if (nr >= 1 & nr <= NRW & nc >= 1 & nc <= NCL) {\n              if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n                vis(nr,nc) = 1\n                sp = sp + 1\n                srow(sp) = nr\n                scol(sp) = nc\n              }\n            }\n          }\n        }\n      }\n      if (sz >= 5) nclus = nclus + 1\n      if (sz > big) big = sz\n    }\n  }\n}\n\nwrite(6,*) ringc, ndies, nclus, big\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 0,
+   "guards": "G1",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 23.1,
+   "llm_calls": 2,
+   "seconds": 28.9,
+   "final_code": "integer nrow, ncol, i, j, dr, dc, ni, nj, ci, cj, top, sz\ninteger ndies, nring, ncl, lmax\ninteger g(256,256), vis(256,256), si(65536), sj(65536)\ninteger*8 bigd2, dd2, dx, dy\nread(5,*) nrow, ncol\nfor (i = 1; i <= nrow; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, ncol)\n}\nndies = 0\nbigd2 = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) >= 1) {\n      ndies = ndies + 1\n      dx = 2*(i-1) - (nrow-1)\n      dy = 2*(j-1) - (ncol-1)\n      dd2 = dx*dx + dy*dy\n      if (dd2 > bigd2) bigd2 = dd2\n    }\n  }\n}\nnring = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2) {\n      dx = 2*(i-1) - (nrow-1)\n      dy = 2*(j-1) - (ncol-1)\n      dd2 = dx*dx + dy*dy\n      if (2500*bigd2 <= 10000*dd2) nring = nring + 1\n    }\n  }\n}\nncl = 0\nlmax = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2) {\n      if (vis(i,j) == 0) {\n        vis(i,j) = 1\n        top = 1\n        si(1) = i\n        sj(1) = j\n        sz = 0\n        while (top > 0) {\n          ci = si(top)\n          cj = sj(top)\n          top = top - 1\n          sz = sz + 1\n          for (dr = -1; dr <= 1; dr = dr + 1) {\n            for (dc = -1; dc <= 1; dc = dc + 1) {\n              ni = ci + dr\n              nj = cj + dc\n              if (ni >= 1) {\n                if (ni <= nrow) {\n                  if (nj >= 1) {\n                    if (nj <= ncol) {\n                      if (g(ni,nj) == 2) {\n                        if (vis(ni,nj) == 0) {\n                          vis(ni,nj) = 1\n                          top = top + 1\n                          si(top) = ni\n                          sj(top) = nj\n                        }\n                      }\n                    }\n                  }\n                }\n              }\n            }\n          }\n        }\n        if (sz >= 5) ncl = ncl + 1\n        if (sz > lmax) lmax = sz\n      }\n    }\n  }\n}\nwrite(6,*) nring, ndies, ncl, lmax\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 0,
+   "guards": "G1",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 5.5,
+   "final_code": "integer g(256,256), lab(256,256)\ninteger sr(65536), sc(65536)\ninteger nrow, ncol, r, c, dr, dc, nr, nc, sp, cr, cc, size\ninteger dies, nclus, largest, ringf\ninteger*8 d2, dmax, dr2, dc2\nread(5,*) nrow, ncol\ndo r = 1, nrow {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\ndies = 0\ndmax = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    lab(r,c) = 0\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      dr2 = 2*(r-1) - (nrow-1)\n      dc2 = 2*(c-1) - (ncol-1)\n      d2 = dr2*dr2 + dc2*dc2\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\nringf = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) {\n      dr2 = 2*(r-1) - (nrow-1)\n      dc2 = 2*(c-1) - (ncol-1)\n      d2 = dr2*dr2 + dc2*dc2\n      if (2500*dmax <= 10000*d2) ringf = ringf + 1\n    }\n  }\n}\nnclus = 0\nlargest = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) {\n      if (lab(r,c) == 0) {\n        lab(r,c) = 1\n        sp = 1\n        sr(1) = r\n        sc(1) = c\n        size = 0\n        while (sp > 0) {\n          cr = sr(sp)\n          cc = sc(sp)\n          sp = sp - 1\n          size = size + 1\n          do dr = -1, 1 {\n            do dc = -1, 1 {\n              if (dr != 0 | dc != 0) {\n                nr = cr + dr\n                nc = cc + dc\n                if (nr >= 1) {\n                  if (nr <= nrow) {\n                    if (nc >= 1) {\n                      if (nc <= ncol) {\n                        if (g(nr,nc) == 2) {\n                          if (lab(nr,nc) == 0) {\n                            lab(nr,nc) = 1\n                            sp = sp + 1\n                            sr(sp) = nr\n                            sc(sp) = nc\n                          }\n                        }\n                      }\n                    }\n                  }\n                }\n              }\n            }\n          }\n        }\n        if (size >= 5) nclus = nclus + 1\n        if (size > largest) largest = size\n      }\n    }\n  }\n}\nwrite(6,*) ringf, dies, nclus, largest\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 0,
+   "guards": "G1",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 24.4,
+   "final_code": "integer NRW, NCL, i, j, r, c, nr, nc, dr, dc, sp, sz, ringc, ndies, big, nclus\ninteger g(256,256), vis(256,256), srow(65536), scol(65536)\ninteger*8 DMAX, dd, t\n\nread(5,*) NRW, NCL\ndo i = 1, NRW {\n  read(5,*) (g(i,j), j = 1, NCL)\n}\n\nDMAX = 0\nndies = 0\ndo i = 1, NRW {\n  do j = 1, NCL {\n    if (g(i,j) != 0) {\n      ndies = ndies + 1\n      t = 2*(i-1) - (NRW-1)\n      dd = t*t\n      t = 2*(j-1) - (NCL-1)\n      dd = dd + t*t\n      if (dd > DMAX) DMAX = dd\n    }\n  }\n}\n\nringc = 0\ndo i = 1, NRW {\n  do j = 1, NCL {\n    if (g(i,j) == 2) {\n      t = 2*(i-1) - (NRW-1)\n      dd = t*t\n      t = 2*(j-1) - (NCL-1)\n      dd = dd + t*t\n      if (2500*DMAX <= 10000*dd) ringc = ringc + 1\n    }\n  }\n}\n\ndo i = 1, NRW {\n  do j = 1, NCL {\n    vis(i,j) = 0\n  }\n}\n\nnclus = 0\nbig = 0\ndo i = 1, NRW {\n  do j = 1, NCL {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      vis(i,j) = 1\n      sp = 1\n      srow(1) = i\n      scol(1) = j\n      sz = 0\n      while (sp > 0) {\n        r = srow(sp)\n        c = scol(sp)\n        sp = sp - 1\n        sz = sz + 1\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            nr = r + dr\n            nc = c + dc\n            if (nr >= 1 & nr <= NRW & nc >= 1 & nc <= NCL) {\n              if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n                vis(nr,nc) = 1\n                sp = sp + 1\n                srow(sp) = nr\n                scol(sp) = nc\n              }\n            }\n          }\n        }\n      }\n      if (sz >= 5) nclus = nclus + 1\n      if (sz > big) big = sz\n    }\n  }\n}\n\nwrite(6,*) ringc, ndies, nclus, big\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 0,
+   "guards": "G2",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 10.8,
+   "llm_calls": 1,
+   "seconds": 32.1,
+   "final_code": "integer nrow, ncol, r, c, dr, dc, nr, nc, cr, cc, top, sz\ninteger ndies, nring, ncl, lmax\ninteger g(256,256), vis(256,256), sr(65536), sc(65536)\ninteger*8 dmax2, dd2, dx, dy\nread(5,*) nrow, ncol\nfor (r = 1; r <= nrow; r = r + 1) {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\nfor (r = 1; r <= 256; r = r + 1) {\n  for (c = 1; c <= 256; c = c + 1) {\n    vis(r,c) = 0\n  }\n}\nndies = 0\ndmax2 = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) >= 1) {\n      ndies = ndies + 1\n      dx = 2*(r-1) - (nrow-1)\n      dy = 2*(c-1) - (ncol-1)\n      dd2 = dx*dx + dy*dy\n      if (dd2 > dmax2) dmax2 = dd2\n    }\n  }\n}\nnring = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2) {\n      dx = 2*(r-1) - (nrow-1)\n      dy = 2*(c-1) - (ncol-1)\n      dd2 = dx*dx + dy*dy\n      if (2500*dmax2 <= 10000*dd2) nring = nring + 1\n    }\n  }\n}\nncl = 0\nlmax = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2) {\n      if (vis(r,c) == 0) {\n        vis(r,c) = 1\n        top = 1\n        sr(1) = r\n        sc(1) = c\n        sz = 0\n        while (top > 0) {\n          cr = sr(top)\n          cc = sc(top)\n          top = top - 1\n          sz = sz + 1\n          for (dr = -1; dr <= 1; dr = dr + 1) {\n            for (dc = -1; dc <= 1; dc = dc + 1) {\n              nr = cr + dr\n              nc = cc + dc\n              if (nr >= 1) {\n                if (nr <= nrow) {\n                  if (nc >= 1) {\n                    if (nc <= ncol) {\n                      if (g(nr,nc) == 2) {\n                        if (vis(nr,nc) == 0) {\n                          vis(nr,nc) = 1\n                          top = top + 1\n                          sr(top) = nr\n                          sc(top) = nc\n                        }\n                      }\n                    }\n                  }\n                }\n              }\n            }\n          }\n        }\n        if (sz >= 5) ncl = ncl + 1\n        if (sz > lmax) lmax = sz\n      }\n    }\n  }\n}\nwrite(6,*) nring, ndies, ncl, lmax\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 0,
+   "guards": "G2",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 6.7,
+   "final_code": "integer g(256,256), lab(256,256)\ninteger sr(65536), sc(65536)\ninteger nrow, ncol, r, c, dr, dc, nr, nc, sp, cr, cc, size\ninteger dies, nclus, largest, ringf\ninteger*8 d2, dmax, dr2, dc2\nread(5,*) nrow, ncol\ndo r = 1, nrow {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\ndies = 0\ndmax = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    lab(r,c) = 0\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      dr2 = 2*(r-1) - (nrow-1)\n      dc2 = 2*(c-1) - (ncol-1)\n      d2 = dr2*dr2 + dc2*dc2\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\nringf = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) {\n      dr2 = 2*(r-1) - (nrow-1)\n      dc2 = 2*(c-1) - (ncol-1)\n      d2 = dr2*dr2 + dc2*dc2\n      if (2500*dmax <= 10000*d2) ringf = ringf + 1\n    }\n  }\n}\nnclus = 0\nlargest = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) {\n      if (lab(r,c) == 0) {\n        lab(r,c) = 1\n        sp = 1\n        sr(1) = r\n        sc(1) = c\n        size = 0\n        while (sp > 0) {\n          cr = sr(sp)\n          cc = sc(sp)\n          sp = sp - 1\n          size = size + 1\n          do dr = -1, 1 {\n            do dc = -1, 1 {\n              if (dr != 0 | dc != 0) {\n                nr = cr + dr\n                nc = cc + dc\n                if (nr >= 1) {\n                  if (nr <= nrow) {\n                    if (nc >= 1) {\n                      if (nc <= ncol) {\n                        if (g(nr,nc) == 2) {\n                          if (lab(nr,nc) == 0) {\n                            lab(nr,nc) = 1\n                            sp = sp + 1\n                            sr(sp) = nr\n                            sc(sp) = nc\n                          }\n                        }\n                      }\n                    }\n                  }\n                }\n              }\n            }\n          }\n        }\n        if (size >= 5) nclus = nclus + 1\n        if (size > largest) largest = size\n      }\n    }\n  }\n}\nwrite(6,*) ringf, dies, nclus, largest\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 0,
+   "guards": "G2",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 22.8,
+   "final_code": "integer NRW, NCL, i, j, r, c, nr, nc, dr, dc, sp, sz, ringc, ndies, big, nclus\ninteger g(256,256), vis(256,256), srow(65536), scol(65536)\ninteger*8 DMAX, dd, t\n\nread(5,*) NRW, NCL\ndo i = 1, NRW {\n  read(5,*) (g(i,j), j = 1, NCL)\n}\n\nDMAX = 0\nndies = 0\ndo i = 1, NRW {\n  do j = 1, NCL {\n    if (g(i,j) != 0) {\n      ndies = ndies + 1\n      t = 2*(i-1) - (NRW-1)\n      dd = t*t\n      t = 2*(j-1) - (NCL-1)\n      dd = dd + t*t\n      if (dd > DMAX) DMAX = dd\n    }\n  }\n}\n\nringc = 0\ndo i = 1, NRW {\n  do j = 1, NCL {\n    if (g(i,j) == 2) {\n      t = 2*(i-1) - (NRW-1)\n      dd = t*t\n      t = 2*(j-1) - (NCL-1)\n      dd = dd + t*t\n      if (2500*DMAX <= 10000*dd) ringc = ringc + 1\n    }\n  }\n}\n\ndo i = 1, NRW {\n  do j = 1, NCL {\n    vis(i,j) = 0\n  }\n}\n\nnclus = 0\nbig = 0\ndo i = 1, NRW {\n  do j = 1, NCL {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      vis(i,j) = 1\n      sp = 1\n      srow(1) = i\n      scol(1) = j\n      sz = 0\n      while (sp > 0) {\n        r = srow(sp)\n        c = scol(sp)\n        sp = sp - 1\n        sz = sz + 1\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            nr = r + dr\n            nc = c + dc\n            if (nr >= 1 & nr <= NRW & nc >= 1 & nc <= NCL) {\n              if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n                vis(nr,nc) = 1\n                sp = sp + 1\n                srow(sp) = nr\n                scol(sp) = nc\n              }\n            }\n          }\n        }\n      }\n      if (sz >= 5) nclus = nclus + 1\n      if (sz > big) big = sz\n    }\n  }\n}\n\nwrite(6,*) ringc, ndies, nclus, big\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 1,
+   "guards": "G0",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 18.4,
+   "llm_calls": 1,
+   "seconds": 24.4,
+   "final_code": "integer nrow, ncol, r, c, g(256,256), vis(256,256)\ninteger stkr(65536), stkc(65536), sp, pr, pc, nr, nc, csz, ox, oy\ninteger ring, fails, clusters\ninteger*8 d2, dmax, dr, dc\nread(5,*) nrow, ncol\ndo r = 1, nrow {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\ndmax = 0\nfails = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    vis(r,c) = 0\n    if (g(r,c) != 0) {\n      dr = 2*r - nrow - 1\n      dc = 2*c - ncol - 1\n      d2 = dr*dr + dc*dc\n      if (d2 > dmax) dmax = d2\n    }\n    if (g(r,c) == 2) fails = fails + 1\n  }\n}\nring = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) {\n      dr = 2*r - nrow - 1\n      dc = 2*c - ncol - 1\n      d2 = dr*dr + dc*dc\n      if (0 <= 10000*d2 & 10000*d2 < 900*dmax) ring = ring + 1\n    }\n  }\n}\nclusters = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      vis(r,c) = 1\n      sp = 1\n      stkr(1) = r\n      stkc(1) = c\n      csz = 0\n      while (sp > 0) {\n        pr = stkr(sp)\n        pc = stkc(sp)\n        sp = sp - 1\n        csz = csz + 1\n        do ox = -1, 1 {\n          do oy = -1, 1 {\n            nr = pr + ox\n            nc = pc + oy\n            if (nr >= 1 & nr <= nrow & nc >= 1 & nc <= ncol) {\n              if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n                vis(nr,nc) = 1\n                sp = sp + 1\n                stkr(sp) = nr\n                stkc(sp) = nc\n              }\n            }\n          }\n        }\n      }\n      if (csz >= 10) clusters = clusters + 1\n    }\n  }\n}\nwrite(6,*) ring, fails, clusters\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 1,
+   "guards": "G0",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 26.9,
+   "llm_calls": 2,
+   "seconds": 34.3,
+   "final_code": "integer g(256,256), vis(256,256), stk(65536)\ninteger nrow, ncol, r, c, sp, sz, cur, cr, cc, nr, nc, dr, dc\ninteger ring, fails, clus\ninteger*8 ai, bi, d2, dmax\n\nread(5,*) nrow, ncol\nfor (r = 1; r <= nrow; r = r + 1) {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\n\ndmax = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    vis(r,c) = 0\n    if (g(r,c) != 0) {\n      ai = 2*r - nrow - 1\n      bi = 2*c - ncol - 1\n      d2 = ai*ai + bi*bi\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\n\nring = 0\nfails = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      ai = 2*r - nrow - 1\n      bi = 2*c - ncol - 1\n      d2 = ai*ai + bi*bi\n      if (10000*d2 < 900*dmax) ring = ring + 1\n    }\n  }\n}\n\nclus = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      vis(r,c) = 1\n      sp = 1\n      stk(sp) = r*256 + c\n      sz = 0\n      while (sp > 0) {\n        cur = stk(sp)\n        sp = sp - 1\n        sz = sz + 1\n        cr = cur / 256\n        cc = cur - cr*256\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            nr = cr + dr\n            nc = cc + dc\n            if (nr >= 1 & nr <= nrow & nc >= 1 & nc <= ncol) {\n              if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n                vis(nr,nc) = 1\n                sp = sp + 1\n                stk(sp) = nr*256 + nc\n              }\n            }\n          }\n        }\n      }\n      if (sz >= 10) clus = clus + 1\n    }\n  }\n}\n\nwrite(6,*) ring, fails, clus\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 1,
+   "guards": "G0",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 19.9,
+   "llm_calls": 2,
+   "seconds": 27.2,
+   "final_code": "integer nrows, ncols, r, c, ddr, ddc, nbr, nbc, cr, cc, h, t, sz, nclus, ring, fails\ninteger g(256,256), vis(256,256), qr(65536), qc(65536)\ninteger*8 d2, dmax\n\nread(5,*) nrows, ncols\nfor (r = 1; r <= nrows; r = r + 1)\n  read(5,*) (g(r,c), c = 1, ncols)\n\n# largest squared distance among dies\ndmax = 0\nfor (r = 1; r <= nrows; r = r + 1)\n  for (c = 1; c <= ncols; c = c + 1)\n    if (g(r,c) != 0) {\n      ddr = 2*(r-1) - (nrows-1)\n      ddc = 2*(c-1) - (ncols-1)\n      d2 = ddr*ddr + ddc*ddc\n      if (d2 > dmax) dmax = d2\n    }\n\n# failing dies in ring 0%..30%\nring = 0\nfails = 0\nfor (r = 1; r <= nrows; r = r + 1)\n  for (c = 1; c <= ncols; c = c + 1)\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      ddr = 2*(r-1) - (nrows-1)\n      ddc = 2*(c-1) - (ncols-1)\n      d2 = ddr*ddr + ddc*ddc\n      if (10000*d2 < 900*dmax) ring = ring + 1\n    }\n\n# count 8-connected clusters of failing dies with size >= 10\nfor (r = 1; r <= nrows; r = r + 1)\n  for (c = 1; c <= ncols; c = c + 1)\n    vis(r,c) = 0\n\nnclus = 0\nfor (r = 1; r <= nrows; r = r + 1)\n  for (c = 1; c <= ncols; c = c + 1)\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      vis(r,c) = 1\n      h = 1\n      t = 1\n      qr(1) = r\n      qc(1) = c\n      sz = 0\n      while (h <= t) {\n        cr = qr(h)\n        cc = qc(h)\n        h = h + 1\n        sz = sz + 1\n        for (ddr = -1; ddr <= 1; ddr = ddr + 1)\n          for (ddc = -1; ddc <= 1; ddc = ddc + 1) {\n            nbr = cr + ddr\n            nbc = cc + ddc\n            if (nbr >= 1 & nbr <= nrows & nbc >= 1 & nbc <= ncols) {\n              if (g(nbr,nbc) == 2 & vis(nbr,nbc) == 0) {\n                vis(nbr,nbc) = 1\n                t = t + 1\n                qr(t) = nbr\n                qc(t) = nbc\n              }\n            }\n          }\n      }\n      if (sz >= 10) nclus = nclus + 1\n    }\n\nwrite(6,*) ring, fails, nclus\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 1,
+   "guards": "G1",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 6.6,
+   "final_code": "integer nrow, ncol, r, c, g(256,256), vis(256,256)\ninteger stkr(65536), stkc(65536), sp, pr, pc, nr, nc, csz, ox, oy\ninteger ring, fails, clusters\ninteger*8 d2, dmax, dr, dc\nread(5,*) nrow, ncol\ndo r = 1, nrow {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\ndmax = 0\nfails = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    vis(r,c) = 0\n    if (g(r,c) != 0) {\n      dr = 2*r - nrow - 1\n      dc = 2*c - ncol - 1\n      d2 = dr*dr + dc*dc\n      if (d2 > dmax) dmax = d2\n    }\n    if (g(r,c) == 2) fails = fails + 1\n  }\n}\nring = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) {\n      dr = 2*r - nrow - 1\n      dc = 2*c - ncol - 1\n      d2 = dr*dr + dc*dc\n      if (0 <= 10000*d2 & 10000*d2 < 900*dmax) ring = ring + 1\n    }\n  }\n}\nclusters = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      vis(r,c) = 1\n      sp = 1\n      stkr(1) = r\n      stkc(1) = c\n      csz = 0\n      while (sp > 0) {\n        pr = stkr(sp)\n        pc = stkc(sp)\n        sp = sp - 1\n        csz = csz + 1\n        do ox = -1, 1 {\n          do oy = -1, 1 {\n            nr = pr + ox\n            nc = pc + oy\n            if (nr >= 1 & nr <= nrow & nc >= 1 & nc <= ncol) {\n              if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n                vis(nr,nc) = 1\n                sp = sp + 1\n                stkr(sp) = nr\n                stkc(sp) = nc\n              }\n            }\n          }\n        }\n      }\n      if (csz >= 10) clusters = clusters + 1\n    }\n  }\n}\nwrite(6,*) ring, fails, clusters\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 1,
+   "guards": "G1",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 7.8,
+   "llm_calls": 1,
+   "seconds": 27.3,
+   "final_code": "integer g(256,256), vis(256,256), stk(65536)\ninteger nrow, ncol, r, c, sp, sz, cur, cr, cc, pr, pc, dr, dc\ninteger ring, fails, clus\ninteger*8 ai, bi, ddist, dmax\n\nread(5,*) nrow, ncol\nfor (r = 1; r <= nrow; r = r + 1) {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\n\ndmax = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    vis(r,c) = 0\n    if (g(r,c) != 0) {\n      ai = 2*r - nrow - 1\n      bi = 2*c - ncol - 1\n      ddist = ai*ai + bi*bi\n      if (ddist > dmax) dmax = ddist\n    }\n  }\n}\n\nring = 0\nfails = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      ai = 2*r - nrow - 1\n      bi = 2*c - ncol - 1\n      ddist = ai*ai + bi*bi\n      if (10000*ddist < 900*dmax) ring = ring + 1\n    }\n  }\n}\n\nclus = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      vis(r,c) = 1\n      sp = 1\n      stk(sp) = r*256 + c\n      sz = 0\n      while (sp > 0) {\n        cur = stk(sp)\n        sp = sp - 1\n        sz = sz + 1\n        cr = cur / 256\n        cc = cur - cr*256\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            pr = cr + dr\n            pc = cc + dc\n            if (pr >= 1 & pr <= nrow & pc >= 1 & pc <= ncol) {\n              if (g(pr,pc) == 2 & vis(pr,pc) == 0) {\n                vis(pr,pc) = 1\n                sp = sp + 1\n                stk(sp) = pr*256 + pc\n              }\n            }\n          }\n        }\n      }\n      if (sz >= 10) clus = clus + 1\n    }\n  }\n}\n\nwrite(6,*) ring, fails, clus\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 1,
+   "guards": "G1",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 7.1,
+   "llm_calls": 1,
+   "seconds": 12.4,
+   "final_code": "integer nrw, ncl, r, c, ddr, ddc, nr, nc, cr, cc, h, t, sz, nclus, ring, fails\ninteger g(256,256), vis(256,256), qr(65536), qc(65536)\ninteger*8 d2, dmax\n\nread(5,*) nrw, ncl\nfor (r = 1; r <= nrw; r = r + 1)\n  read(5,*) (g(r,c), c = 1, ncl)\n\n# largest squared distance among dies\ndmax = 0\nfor (r = 1; r <= nrw; r = r + 1)\n  for (c = 1; c <= ncl; c = c + 1)\n    if (g(r,c) != 0) {\n      ddr = 2*(r-1) - (nrw-1)\n      ddc = 2*(c-1) - (ncl-1)\n      d2 = ddr*ddr + ddc*ddc\n      if (d2 > dmax) dmax = d2\n    }\n\n# failing dies in ring 0%..30%\nring = 0\nfails = 0\nfor (r = 1; r <= nrw; r = r + 1)\n  for (c = 1; c <= ncl; c = c + 1)\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      ddr = 2*(r-1) - (nrw-1)\n      ddc = 2*(c-1) - (ncl-1)\n      d2 = ddr*ddr + ddc*ddc\n      if (10000*d2 < 900*dmax) ring = ring + 1\n    }\n\n# count 8-connected clusters of failing dies with size >= 10\nfor (r = 1; r <= nrw; r = r + 1)\n  for (c = 1; c <= ncl; c = c + 1)\n    vis(r,c) = 0\n\nnclus = 0\nfor (r = 1; r <= nrw; r = r + 1)\n  for (c = 1; c <= ncl; c = c + 1)\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      vis(r,c) = 1\n      h = 1\n      t = 1\n      qr(1) = r\n      qc(1) = c\n      sz = 0\n      while (h <= t) {\n        cr = qr(h)\n        cc = qc(h)\n        h = h + 1\n        sz = sz + 1\n        for (ddr = -1; ddr <= 1; ddr = ddr + 1)\n          for (ddc = -1; ddc <= 1; ddc = ddc + 1) {\n            nr = cr + ddr\n            nc = cc + ddc\n            if (nr >= 1 & nr <= nrw & nc >= 1 & nc <= ncl) {\n              if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n                vis(nr,nc) = 1\n                t = t + 1\n                qr(t) = nr\n                qc(t) = nc\n              }\n            }\n          }\n      }\n      if (sz >= 10) nclus = nclus + 1\n    }\n\nwrite(6,*) ring, fails, nclus\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 1,
+   "guards": "G2",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 6.8,
+   "final_code": "integer nrow, ncol, r, c, g(256,256), vis(256,256)\ninteger stkr(65536), stkc(65536), sp, pr, pc, nr, nc, csz, ox, oy\ninteger ring, fails, clusters\ninteger*8 d2, dmax, dr, dc\nread(5,*) nrow, ncol\ndo r = 1, nrow {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\ndmax = 0\nfails = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    vis(r,c) = 0\n    if (g(r,c) != 0) {\n      dr = 2*r - nrow - 1\n      dc = 2*c - ncol - 1\n      d2 = dr*dr + dc*dc\n      if (d2 > dmax) dmax = d2\n    }\n    if (g(r,c) == 2) fails = fails + 1\n  }\n}\nring = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) {\n      dr = 2*r - nrow - 1\n      dc = 2*c - ncol - 1\n      d2 = dr*dr + dc*dc\n      if (0 <= 10000*d2 & 10000*d2 < 900*dmax) ring = ring + 1\n    }\n  }\n}\nclusters = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      vis(r,c) = 1\n      sp = 1\n      stkr(1) = r\n      stkc(1) = c\n      csz = 0\n      while (sp > 0) {\n        pr = stkr(sp)\n        pc = stkc(sp)\n        sp = sp - 1\n        csz = csz + 1\n        do ox = -1, 1 {\n          do oy = -1, 1 {\n            nr = pr + ox\n            nc = pc + oy\n            if (nr >= 1 & nr <= nrow & nc >= 1 & nc <= ncol) {\n              if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n                vis(nr,nc) = 1\n                sp = sp + 1\n                stkr(sp) = nr\n                stkc(sp) = nc\n              }\n            }\n          }\n        }\n      }\n      if (csz >= 10) clusters = clusters + 1\n    }\n  }\n}\nwrite(6,*) ring, fails, clusters\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 1,
+   "guards": "G2",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 7.7,
+   "llm_calls": 1,
+   "seconds": 26.9,
+   "final_code": "integer nrow, ncol, i, j, sp, sz, cur, ci, cj, ni, nj, di, dj\ninteger g(256,256), vis(256,256), stk(65536)\ninteger ring, fails, clus\ninteger*8 ai, bi, d2, dmax\n\nread(5,*) nrow, ncol\nfor (i = 1; i <= nrow; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, ncol)\n}\n\ndmax = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    vis(i,j) = 0\n    if (g(i,j) != 0) {\n      ai = 2*i - nrow - 1\n      bi = 2*j - ncol - 1\n      d2 = ai*ai + bi*bi\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\n\nring = 0\nfails = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2) {\n      fails = fails + 1\n      ai = 2*i - nrow - 1\n      bi = 2*j - ncol - 1\n      d2 = ai*ai + bi*bi\n      if (10000*d2 < 900*dmax) ring = ring + 1\n    }\n  }\n}\n\nclus = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      vis(i,j) = 1\n      sp = 1\n      stk(sp) = i*256 + j\n      sz = 0\n      while (sp > 0) {\n        cur = stk(sp)\n        sp = sp - 1\n        sz = sz + 1\n        ci = cur / 256\n        cj = cur - ci*256\n        for (di = -1; di <= 1; di = di + 1) {\n          for (dj = -1; dj <= 1; dj = dj + 1) {\n            ni = ci + di\n            nj = cj + dj\n            if (ni >= 1 & ni <= nrow & nj >= 1 & nj <= ncol) {\n              if (g(ni,nj) == 2 & vis(ni,nj) == 0) {\n                vis(ni,nj) = 1\n                sp = sp + 1\n                stk(sp) = ni*256 + nj\n              }\n            }\n          }\n        }\n      }\n      if (sz >= 10) clus = clus + 1\n    }\n  }\n}\n\nwrite(6,*) ring, fails, clus\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 1,
+   "guards": "G2",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 8.2,
+   "llm_calls": 1,
+   "seconds": 15.7,
+   "final_code": "integer nrow, ncol, r, c, ddr, ddc, nr, nc, cr, cc, h, t, sz, nclus, ring, fails\ninteger g(256,256), vis(256,256), qr(65536), qc(65536)\ninteger*8 d2, dmax\n\nread(5,*) nrow, ncol\nfor (r = 1; r <= nrow; r = r + 1)\n  read(5,*) (g(r,c), c = 1, ncol)\n\n# largest squared distance among dies\ndmax = 0\nfor (r = 1; r <= nrow; r = r + 1)\n  for (c = 1; c <= ncol; c = c + 1)\n    if (g(r,c) != 0) {\n      ddr = 2*(r-1) - (nrow-1)\n      ddc = 2*(c-1) - (ncol-1)\n      d2 = ddr*ddr + ddc*ddc\n      if (d2 > dmax) dmax = d2\n    }\n\n# failing dies in ring 0%..30%\nring = 0\nfails = 0\nfor (r = 1; r <= nrow; r = r + 1)\n  for (c = 1; c <= ncol; c = c + 1)\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      ddr = 2*(r-1) - (nrow-1)\n      ddc = 2*(c-1) - (ncol-1)\n      d2 = ddr*ddr + ddc*ddc\n      if (10000*d2 < 900*dmax) ring = ring + 1\n    }\n\n# count 8-connected clusters of failing dies with size >= 10\nfor (r = 1; r <= nrow; r = r + 1)\n  for (c = 1; c <= ncol; c = c + 1)\n    vis(r,c) = 0\n\nnclus = 0\nfor (r = 1; r <= nrow; r = r + 1)\n  for (c = 1; c <= ncol; c = c + 1)\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      vis(r,c) = 1\n      h = 1\n      t = 1\n      qr(1) = r\n      qc(1) = c\n      sz = 0\n      while (h <= t) {\n        cr = qr(h)\n        cc = qc(h)\n        h = h + 1\n        sz = sz + 1\n        for (ddr = -1; ddr <= 1; ddr = ddr + 1)\n          for (ddc = -1; ddc <= 1; ddc = ddc + 1) {\n            nr = cr + ddr\n            nc = cc + ddc\n            if (nr >= 1 & nr <= nrow & nc >= 1 & nc <= ncol) {\n              if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n                vis(nr,nc) = 1\n                t = t + 1\n                qr(t) = nr\n                qc(t) = nc\n              }\n            }\n          }\n      }\n      if (sz >= 10) nclus = nclus + 1\n    }\n\nwrite(6,*) ring, fails, nclus\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 2,
+   "guards": "G0",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 11.6,
+   "llm_calls": 1,
+   "seconds": 20.3,
+   "final_code": "integer R, C, i, j, di, dj, ni, nj, fails, ringf, edgef, isedge, a, b, g(256,256)\ninteger*8 dd, dmax\n\nread(5,*) R, C\ndo i = 1, R {\n  read(5,*) (g(i,j), j = 1, C)\n}\n\n# largest squared distance over all die cells (1-indexed i,j give 2r-(R-1) = 2i-R-1)\ndmax = 0\ndo i = 1, R {\n  do j = 1, C {\n    if (g(i,j) != 0) {\n      a = 2*i - R - 1\n      b = 2*j - C - 1\n      dd = a*a + b*b\n      if (dd > dmax) dmax = dd\n    }\n  }\n}\n\nfails = 0\nringf = 0\nedgef = 0\ndo i = 1, R {\n  do j = 1, C {\n    if (g(i,j) == 2) {\n      fails = fails + 1\n      a = 2*i - R - 1\n      b = 2*j - C - 1\n      dd = a*a + b*b\n      if (900*dmax <= 10000*dd & 10000*dd < 4900*dmax) ringf = ringf + 1\n      isedge = 0\n      do di = -1, 1 {\n        do dj = -1, 1 {\n          ni = i + di\n          nj = j + dj\n          if (ni < 1 | ni > R | nj < 1 | nj > C) {\n            isedge = 1\n          } else if (g(ni,nj) == 0) {\n            isedge = 1\n          }\n        }\n      }\n      if (isedge == 1) edgef = edgef + 1\n    }\n  }\n}\n\nwrite(6,*) fails, ringf, edgef\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 2,
+   "guards": "G0",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 10.2,
+   "llm_calls": 1,
+   "seconds": 18.3,
+   "final_code": "integer nr, nc, r, c, dr, dc, rr, cc, g(256,256)\ninteger fails, ringf, edgef, isedge, dr2, dc2\ninteger*8 d2, bigd, lhs1, lhs2\nread(5,*) nr, nc\ndo r = 1, nr {\n  read(5,*) (g(r,c), c = 1, nc)\n}\nbigd = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) != 0) {\n      dr2 = 2*r - nr - 1\n      dc2 = 2*c - nc - 1\n      d2 = dr2*dr2 + dc2*dc2\n      if (d2 > bigd) bigd = d2\n    }\n  }\n}\nfails = 0\nringf = 0\nedgef = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      dr2 = 2*r - nr - 1\n      dc2 = 2*c - nc - 1\n      d2 = dr2*dr2 + dc2*dc2\n      lhs1 = 900*bigd\n      lhs2 = 10000*d2\n      if (lhs1 <= lhs2 & lhs2 < 4900*bigd) {\n        ringf = ringf + 1\n      }\n      isedge = 0\n      do dr = -1, 1 {\n        do dc = -1, 1 {\n          if (dr == 0 & dc == 0) next\n          rr = r + dr\n          cc = c + dc\n          if (rr < 1 | rr > nr | cc < 1 | cc > nc) {\n            isedge = 1\n          } else {\n            if (g(rr,cc) == 0) isedge = 1\n          }\n        }\n      }\n      if (isedge == 1) edgef = edgef + 1\n    }\n  }\n}\nwrite(6,*) fails, ringf, edgef\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 2,
+   "guards": "G0",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 10.6,
+   "llm_calls": 1,
+   "seconds": 17.5,
+   "final_code": "integer R, C, i, j, di, dj, ni, nj, fails, ringf, edgef, edge\ninteger g(256,256)\ninteger*8 d2, dmax\nread(5,*) R, C\nfor (i = 1; i <= R; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, C)\n}\ndmax = 0\nfor (i = 1; i <= R; i = i + 1) {\n  for (j = 1; j <= C; j = j + 1) {\n    if (g(i,j) != 0) {\n      d2 = (2*i - R - 1)**2 + (2*j - C - 1)**2\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\nfails = 0\nringf = 0\nedgef = 0\nfor (i = 1; i <= R; i = i + 1) {\n  for (j = 1; j <= C; j = j + 1) {\n    if (g(i,j) == 2) {\n      fails = fails + 1\n      d2 = (2*i - R - 1)**2 + (2*j - C - 1)**2\n      if (900*dmax <= 10000*d2 & 10000*d2 < 4900*dmax) ringf = ringf + 1\n      edge = 0\n      for (di = -1; di <= 1; di = di + 1) {\n        for (dj = -1; dj <= 1; dj = dj + 1) {\n          if (!(di == 0 & dj == 0)) {\n            ni = i + di\n            nj = j + dj\n            if (ni < 1 | ni > R | nj < 1 | nj > C) {\n              edge = 1\n            } else if (g(ni,nj) == 0) {\n              edge = 1\n            }\n          }\n        }\n      }\n      if (edge == 1) edgef = edgef + 1\n    }\n  }\n}\nwrite(6,*) fails, ringf, edgef\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 2,
+   "guards": "G1",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 20.2,
+   "final_code": "integer R, C, i, j, di, dj, ni, nj, fails, ringf, edgef, isedge, a, b, g(256,256)\ninteger*8 dd, dmax\n\nread(5,*) R, C\ndo i = 1, R {\n  read(5,*) (g(i,j), j = 1, C)\n}\n\n# largest squared distance over all die cells (1-indexed i,j give 2r-(R-1) = 2i-R-1)\ndmax = 0\ndo i = 1, R {\n  do j = 1, C {\n    if (g(i,j) != 0) {\n      a = 2*i - R - 1\n      b = 2*j - C - 1\n      dd = a*a + b*b\n      if (dd > dmax) dmax = dd\n    }\n  }\n}\n\nfails = 0\nringf = 0\nedgef = 0\ndo i = 1, R {\n  do j = 1, C {\n    if (g(i,j) == 2) {\n      fails = fails + 1\n      a = 2*i - R - 1\n      b = 2*j - C - 1\n      dd = a*a + b*b\n      if (900*dmax <= 10000*dd & 10000*dd < 4900*dmax) ringf = ringf + 1\n      isedge = 0\n      do di = -1, 1 {\n        do dj = -1, 1 {\n          ni = i + di\n          nj = j + dj\n          if (ni < 1 | ni > R | nj < 1 | nj > C) {\n            isedge = 1\n          } else if (g(ni,nj) == 0) {\n            isedge = 1\n          }\n        }\n      }\n      if (isedge == 1) edgef = edgef + 1\n    }\n  }\n}\n\nwrite(6,*) fails, ringf, edgef\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 2,
+   "guards": "G1",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 14.1,
+   "final_code": "integer nr, nc, r, c, dr, dc, rr, cc, g(256,256)\ninteger fails, ringf, edgef, isedge, dr2, dc2\ninteger*8 d2, bigd, lhs1, lhs2\nread(5,*) nr, nc\ndo r = 1, nr {\n  read(5,*) (g(r,c), c = 1, nc)\n}\nbigd = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) != 0) {\n      dr2 = 2*r - nr - 1\n      dc2 = 2*c - nc - 1\n      d2 = dr2*dr2 + dc2*dc2\n      if (d2 > bigd) bigd = d2\n    }\n  }\n}\nfails = 0\nringf = 0\nedgef = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      dr2 = 2*r - nr - 1\n      dc2 = 2*c - nc - 1\n      d2 = dr2*dr2 + dc2*dc2\n      lhs1 = 900*bigd\n      lhs2 = 10000*d2\n      if (lhs1 <= lhs2 & lhs2 < 4900*bigd) {\n        ringf = ringf + 1\n      }\n      isedge = 0\n      do dr = -1, 1 {\n        do dc = -1, 1 {\n          if (dr == 0 & dc == 0) next\n          rr = r + dr\n          cc = c + dc\n          if (rr < 1 | rr > nr | cc < 1 | cc > nc) {\n            isedge = 1\n          } else {\n            if (g(rr,cc) == 0) isedge = 1\n          }\n        }\n      }\n      if (isedge == 1) edgef = edgef + 1\n    }\n  }\n}\nwrite(6,*) fails, ringf, edgef\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 2,
+   "guards": "G1",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 6.3,
+   "final_code": "integer R, C, i, j, di, dj, ni, nj, fails, ringf, edgef, edge\ninteger g(256,256)\ninteger*8 d2, dmax\nread(5,*) R, C\nfor (i = 1; i <= R; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, C)\n}\ndmax = 0\nfor (i = 1; i <= R; i = i + 1) {\n  for (j = 1; j <= C; j = j + 1) {\n    if (g(i,j) != 0) {\n      d2 = (2*i - R - 1)**2 + (2*j - C - 1)**2\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\nfails = 0\nringf = 0\nedgef = 0\nfor (i = 1; i <= R; i = i + 1) {\n  for (j = 1; j <= C; j = j + 1) {\n    if (g(i,j) == 2) {\n      fails = fails + 1\n      d2 = (2*i - R - 1)**2 + (2*j - C - 1)**2\n      if (900*dmax <= 10000*d2 & 10000*d2 < 4900*dmax) ringf = ringf + 1\n      edge = 0\n      for (di = -1; di <= 1; di = di + 1) {\n        for (dj = -1; dj <= 1; dj = dj + 1) {\n          if (!(di == 0 & dj == 0)) {\n            ni = i + di\n            nj = j + dj\n            if (ni < 1 | ni > R | nj < 1 | nj > C) {\n              edge = 1\n            } else if (g(ni,nj) == 0) {\n              edge = 1\n            }\n          }\n        }\n      }\n      if (edge == 1) edgef = edgef + 1\n    }\n  }\n}\nwrite(6,*) fails, ringf, edgef\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 2,
+   "guards": "G2",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 9.1,
+   "final_code": "integer R, C, i, j, di, dj, ni, nj, fails, ringf, edgef, isedge, a, b, g(256,256)\ninteger*8 dd, dmax\n\nread(5,*) R, C\ndo i = 1, R {\n  read(5,*) (g(i,j), j = 1, C)\n}\n\n# largest squared distance over all die cells (1-indexed i,j give 2r-(R-1) = 2i-R-1)\ndmax = 0\ndo i = 1, R {\n  do j = 1, C {\n    if (g(i,j) != 0) {\n      a = 2*i - R - 1\n      b = 2*j - C - 1\n      dd = a*a + b*b\n      if (dd > dmax) dmax = dd\n    }\n  }\n}\n\nfails = 0\nringf = 0\nedgef = 0\ndo i = 1, R {\n  do j = 1, C {\n    if (g(i,j) == 2) {\n      fails = fails + 1\n      a = 2*i - R - 1\n      b = 2*j - C - 1\n      dd = a*a + b*b\n      if (900*dmax <= 10000*dd & 10000*dd < 4900*dmax) ringf = ringf + 1\n      isedge = 0\n      do di = -1, 1 {\n        do dj = -1, 1 {\n          ni = i + di\n          nj = j + dj\n          if (ni < 1 | ni > R | nj < 1 | nj > C) {\n            isedge = 1\n          } else if (g(ni,nj) == 0) {\n            isedge = 1\n          }\n        }\n      }\n      if (isedge == 1) edgef = edgef + 1\n    }\n  }\n}\n\nwrite(6,*) fails, ringf, edgef\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 2,
+   "guards": "G2",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 14.9,
+   "final_code": "integer nr, nc, r, c, dr, dc, rr, cc, g(256,256)\ninteger fails, ringf, edgef, isedge, dr2, dc2\ninteger*8 d2, bigd, lhs1, lhs2\nread(5,*) nr, nc\ndo r = 1, nr {\n  read(5,*) (g(r,c), c = 1, nc)\n}\nbigd = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) != 0) {\n      dr2 = 2*r - nr - 1\n      dc2 = 2*c - nc - 1\n      d2 = dr2*dr2 + dc2*dc2\n      if (d2 > bigd) bigd = d2\n    }\n  }\n}\nfails = 0\nringf = 0\nedgef = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      dr2 = 2*r - nr - 1\n      dc2 = 2*c - nc - 1\n      d2 = dr2*dr2 + dc2*dc2\n      lhs1 = 900*bigd\n      lhs2 = 10000*d2\n      if (lhs1 <= lhs2 & lhs2 < 4900*bigd) {\n        ringf = ringf + 1\n      }\n      isedge = 0\n      do dr = -1, 1 {\n        do dc = -1, 1 {\n          if (dr == 0 & dc == 0) next\n          rr = r + dr\n          cc = c + dc\n          if (rr < 1 | rr > nr | cc < 1 | cc > nc) {\n            isedge = 1\n          } else {\n            if (g(rr,cc) == 0) isedge = 1\n          }\n        }\n      }\n      if (isedge == 1) edgef = edgef + 1\n    }\n  }\n}\nwrite(6,*) fails, ringf, edgef\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 2,
+   "guards": "G2",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 6.9,
+   "final_code": "integer R, C, i, j, di, dj, ni, nj, fails, ringf, edgef, edge\ninteger g(256,256)\ninteger*8 d2, dmax\nread(5,*) R, C\nfor (i = 1; i <= R; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, C)\n}\ndmax = 0\nfor (i = 1; i <= R; i = i + 1) {\n  for (j = 1; j <= C; j = j + 1) {\n    if (g(i,j) != 0) {\n      d2 = (2*i - R - 1)**2 + (2*j - C - 1)**2\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\nfails = 0\nringf = 0\nedgef = 0\nfor (i = 1; i <= R; i = i + 1) {\n  for (j = 1; j <= C; j = j + 1) {\n    if (g(i,j) == 2) {\n      fails = fails + 1\n      d2 = (2*i - R - 1)**2 + (2*j - C - 1)**2\n      if (900*dmax <= 10000*d2 & 10000*d2 < 4900*dmax) ringf = ringf + 1\n      edge = 0\n      for (di = -1; di <= 1; di = di + 1) {\n        for (dj = -1; dj <= 1; dj = dj + 1) {\n          if (!(di == 0 & dj == 0)) {\n            ni = i + di\n            nj = j + dj\n            if (ni < 1 | ni > R | nj < 1 | nj > C) {\n              edge = 1\n            } else if (g(ni,nj) == 0) {\n              edge = 1\n            }\n          }\n        }\n      }\n      if (edge == 1) edgef = edgef + 1\n    }\n  }\n}\nwrite(6,*) fails, ringf, edgef\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 3,
+   "guards": "G0",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 17.3,
+   "llm_calls": 1,
+   "seconds": 23.9,
+   "final_code": "integer g(256,256), i, j, rows, cols, dr, dc, ni, nj, zero, isedge\ninteger ai, bj, dies, fails, ringf, edgef, yield\ninteger*8 d2, dmax, lhs, rhs\n\nread(5,*) rows, cols\nfor (i = 1; i <= rows; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, cols)\n}\n\ndmax = 0\ndies = 0\nfails = 0\nfor (i = 1; i <= rows; i = i + 1) {\n  for (j = 1; j <= cols; j = j + 1) {\n    if (g(i,j) != 0) {\n      dies = dies + 1\n      if (g(i,j) == 2) fails = fails + 1\n      ai = 2*i - rows - 1\n      bj = 2*j - cols - 1\n      d2 = ai*ai + bj*bj\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\n\nringf = 0\nedgef = 0\nfor (i = 1; i <= rows; i = i + 1) {\n  for (j = 1; j <= cols; j = j + 1) {\n    if (g(i,j) == 2) {\n      ai = 2*i - rows - 1\n      bj = 2*j - cols - 1\n      d2 = ai*ai + bj*bj\n      lhs = 4900*dmax\n      rhs = 10000*d2\n      if (lhs <= rhs) ringf = ringf + 1\n\n      isedge = 0\n      for (dr = -1; dr <= 1; dr = dr + 1) {\n        for (dc = -1; dc <= 1; dc = dc + 1) {\n          if (dr != 0 | dc != 0) {\n            ni = i + dr\n            nj = j + dc\n            zero = 0\n            if (ni < 1 | ni > rows | nj < 1 | nj > cols) {\n              zero = 1\n            } else if (g(ni,nj) == 0) {\n              zero = 1\n            }\n            if (zero == 1) isedge = 1\n          }\n        }\n      }\n      if (isedge == 1) edgef = edgef + 1\n    }\n  }\n}\n\nif (dies > 0) {\n  yield = 1000*(dies - fails)/dies\n} else {\n  yield = 0\n}\n\nwrite(6,*) ringf, edgef, yield\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 3,
+   "guards": "G0",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 13.2,
+   "llm_calls": 1,
+   "seconds": 20.4,
+   "final_code": "integer rows, cols, r, c, j, dr, dc, nr, nc, g(256,256)\ninteger a, b, d2, dmax2, ringf, edgef, dies, fails, flag, ypm\nread(5,*) rows, cols\nfor (r = 1; r <= rows; r = r + 1)\n  read(5,*) (g(r,j), j = 1, cols)\ndmax2 = 0\nfor (r = 1; r <= rows; r = r + 1) {\n  for (c = 1; c <= cols; c = c + 1) {\n    if (g(r,c) != 0) {\n      a = 2*r - rows - 1\n      b = 2*c - cols - 1\n      d2 = a*a + b*b\n      if (d2 > dmax2) dmax2 = d2\n    }\n  }\n}\nringf = 0\nedgef = 0\ndies = 0\nfails = 0\nfor (r = 1; r <= rows; r = r + 1) {\n  for (c = 1; c <= cols; c = c + 1) {\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      if (g(r,c) == 2) {\n        fails = fails + 1\n        a = 2*r - rows - 1\n        b = 2*c - cols - 1\n        d2 = a*a + b*b\n        # 70^2*D2 <= 100^2*d2  <=>  49*D2 <= 100*d2\n        if (49*dmax2 <= 100*d2) ringf = ringf + 1\n        flag = 0\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            if (dr != 0 | dc != 0) {\n              nr = r + dr\n              nc = c + dc\n              if (nr < 1 | nr > rows | nc < 1 | nc > cols) {\n                flag = 1\n              } else if (g(nr,nc) == 0) {\n                flag = 1\n              }\n            }\n          }\n        }\n        if (flag == 1) edgef = edgef + 1\n      }\n    }\n  }\n}\nif (dies > 0)\n  ypm = 1000*(dies - fails)/dies\nelse\n  ypm = 0\nwrite(6,*) ringf, edgef, ypm\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 3,
+   "guards": "G0",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 14.4,
+   "llm_calls": 1,
+   "seconds": 21.7,
+   "final_code": "# Wafer map measurement: ring fails, edge fails, yield per mille\ninteger nrow, ncol, r, c, dr, dc, nr, nc, ii, jj\ninteger g(256,256)\ninteger*8 d2, d2max, lhs, rhs\ninteger ringf, edgef, dies, fails, yld, edge\n\nringf = 0\nedgef = 0\ndies = 0\nfails = 0\nd2max = 0\n\nread(5,*) nrow, ncol\nfor (r = 1; r <= nrow; r = r + 1) {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\n\n# First pass: count dies and find the largest squared distance D2\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      if (g(r,c) == 2) fails = fails + 1\n      ii = 2*r - nrow - 1\n      jj = 2*c - ncol - 1\n      d2 = ii*ii + jj*jj\n      if (d2 > d2max) d2max = d2\n    }\n  }\n}\n\n# Second pass: ring fails and edge fails for failing dies\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2) {\n      ii = 2*r - nrow - 1\n      jj = 2*c - ncol - 1\n      d2 = ii*ii + jj*jj\n      lhs = 4900 * d2max\n      rhs = 10000 * d2\n      if (lhs <= rhs) ringf = ringf + 1\n\n      edge = 0\n      for (dr = -1; dr <= 1; dr = dr + 1) {\n        for (dc = -1; dc <= 1; dc = dc + 1) {\n          if (dr == 0 & dc == 0) next\n          nr = r + dr\n          nc = c + dc\n          if (nr < 1 | nr > nrow | nc < 1 | nc > ncol) {\n            edge = 1\n          } else {\n            if (g(nr,nc) == 0) edge = 1\n          }\n        }\n      }\n      if (edge == 1) edgef = edgef + 1\n    }\n  }\n}\n\nif (dies > 0) {\n  yld = (1000 * (dies - fails)) / dies\n} else {\n  yld = 0\n}\n\nwrite(6,*) ringf, edgef, yld\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 3,
+   "guards": "G1",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 20.7,
+   "final_code": "integer g(256,256), i, j, rows, cols, dr, dc, ni, nj, zero, isedge\ninteger ai, bj, dies, fails, ringf, edgef, yield\ninteger*8 d2, dmax, lhs, rhs\n\nread(5,*) rows, cols\nfor (i = 1; i <= rows; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, cols)\n}\n\ndmax = 0\ndies = 0\nfails = 0\nfor (i = 1; i <= rows; i = i + 1) {\n  for (j = 1; j <= cols; j = j + 1) {\n    if (g(i,j) != 0) {\n      dies = dies + 1\n      if (g(i,j) == 2) fails = fails + 1\n      ai = 2*i - rows - 1\n      bj = 2*j - cols - 1\n      d2 = ai*ai + bj*bj\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\n\nringf = 0\nedgef = 0\nfor (i = 1; i <= rows; i = i + 1) {\n  for (j = 1; j <= cols; j = j + 1) {\n    if (g(i,j) == 2) {\n      ai = 2*i - rows - 1\n      bj = 2*j - cols - 1\n      d2 = ai*ai + bj*bj\n      lhs = 4900*dmax\n      rhs = 10000*d2\n      if (lhs <= rhs) ringf = ringf + 1\n\n      isedge = 0\n      for (dr = -1; dr <= 1; dr = dr + 1) {\n        for (dc = -1; dc <= 1; dc = dc + 1) {\n          if (dr != 0 | dc != 0) {\n            ni = i + dr\n            nj = j + dc\n            zero = 0\n            if (ni < 1 | ni > rows | nj < 1 | nj > cols) {\n              zero = 1\n            } else if (g(ni,nj) == 0) {\n              zero = 1\n            }\n            if (zero == 1) isedge = 1\n          }\n        }\n      }\n      if (isedge == 1) edgef = edgef + 1\n    }\n  }\n}\n\nif (dies > 0) {\n  yield = 1000*(dies - fails)/dies\n} else {\n  yield = 0\n}\n\nwrite(6,*) ringf, edgef, yield\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 3,
+   "guards": "G1",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 6.1,
+   "final_code": "integer rows, cols, r, c, j, dr, dc, nr, nc, g(256,256)\ninteger a, b, d2, dmax2, ringf, edgef, dies, fails, flag, ypm\nread(5,*) rows, cols\nfor (r = 1; r <= rows; r = r + 1)\n  read(5,*) (g(r,j), j = 1, cols)\ndmax2 = 0\nfor (r = 1; r <= rows; r = r + 1) {\n  for (c = 1; c <= cols; c = c + 1) {\n    if (g(r,c) != 0) {\n      a = 2*r - rows - 1\n      b = 2*c - cols - 1\n      d2 = a*a + b*b\n      if (d2 > dmax2) dmax2 = d2\n    }\n  }\n}\nringf = 0\nedgef = 0\ndies = 0\nfails = 0\nfor (r = 1; r <= rows; r = r + 1) {\n  for (c = 1; c <= cols; c = c + 1) {\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      if (g(r,c) == 2) {\n        fails = fails + 1\n        a = 2*r - rows - 1\n        b = 2*c - cols - 1\n        d2 = a*a + b*b\n        # 70^2*D2 <= 100^2*d2  <=>  49*D2 <= 100*d2\n        if (49*dmax2 <= 100*d2) ringf = ringf + 1\n        flag = 0\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            if (dr != 0 | dc != 0) {\n              nr = r + dr\n              nc = c + dc\n              if (nr < 1 | nr > rows | nc < 1 | nc > cols) {\n                flag = 1\n              } else if (g(nr,nc) == 0) {\n                flag = 1\n              }\n            }\n          }\n        }\n        if (flag == 1) edgef = edgef + 1\n      }\n    }\n  }\n}\nif (dies > 0)\n  ypm = 1000*(dies - fails)/dies\nelse\n  ypm = 0\nwrite(6,*) ringf, edgef, ypm\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 3,
+   "guards": "G1",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 19.6,
+   "final_code": "# Wafer map measurement: ring fails, edge fails, yield per mille\ninteger nrow, ncol, r, c, dr, dc, nr, nc, ii, jj\ninteger g(256,256)\ninteger*8 d2, d2max, lhs, rhs\ninteger ringf, edgef, dies, fails, yld, edge\n\nringf = 0\nedgef = 0\ndies = 0\nfails = 0\nd2max = 0\n\nread(5,*) nrow, ncol\nfor (r = 1; r <= nrow; r = r + 1) {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\n\n# First pass: count dies and find the largest squared distance D2\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      if (g(r,c) == 2) fails = fails + 1\n      ii = 2*r - nrow - 1\n      jj = 2*c - ncol - 1\n      d2 = ii*ii + jj*jj\n      if (d2 > d2max) d2max = d2\n    }\n  }\n}\n\n# Second pass: ring fails and edge fails for failing dies\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2) {\n      ii = 2*r - nrow - 1\n      jj = 2*c - ncol - 1\n      d2 = ii*ii + jj*jj\n      lhs = 4900 * d2max\n      rhs = 10000 * d2\n      if (lhs <= rhs) ringf = ringf + 1\n\n      edge = 0\n      for (dr = -1; dr <= 1; dr = dr + 1) {\n        for (dc = -1; dc <= 1; dc = dc + 1) {\n          if (dr == 0 & dc == 0) next\n          nr = r + dr\n          nc = c + dc\n          if (nr < 1 | nr > nrow | nc < 1 | nc > ncol) {\n            edge = 1\n          } else {\n            if (g(nr,nc) == 0) edge = 1\n          }\n        }\n      }\n      if (edge == 1) edgef = edgef + 1\n    }\n  }\n}\n\nif (dies > 0) {\n  yld = (1000 * (dies - fails)) / dies\n} else {\n  yld = 0\n}\n\nwrite(6,*) ringf, edgef, yld\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 3,
+   "guards": "G2",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 18.8,
+   "final_code": "integer g(256,256), i, j, rows, cols, dr, dc, ni, nj, zero, isedge\ninteger ai, bj, dies, fails, ringf, edgef, yield\ninteger*8 d2, dmax, lhs, rhs\n\nread(5,*) rows, cols\nfor (i = 1; i <= rows; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, cols)\n}\n\ndmax = 0\ndies = 0\nfails = 0\nfor (i = 1; i <= rows; i = i + 1) {\n  for (j = 1; j <= cols; j = j + 1) {\n    if (g(i,j) != 0) {\n      dies = dies + 1\n      if (g(i,j) == 2) fails = fails + 1\n      ai = 2*i - rows - 1\n      bj = 2*j - cols - 1\n      d2 = ai*ai + bj*bj\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\n\nringf = 0\nedgef = 0\nfor (i = 1; i <= rows; i = i + 1) {\n  for (j = 1; j <= cols; j = j + 1) {\n    if (g(i,j) == 2) {\n      ai = 2*i - rows - 1\n      bj = 2*j - cols - 1\n      d2 = ai*ai + bj*bj\n      lhs = 4900*dmax\n      rhs = 10000*d2\n      if (lhs <= rhs) ringf = ringf + 1\n\n      isedge = 0\n      for (dr = -1; dr <= 1; dr = dr + 1) {\n        for (dc = -1; dc <= 1; dc = dc + 1) {\n          if (dr != 0 | dc != 0) {\n            ni = i + dr\n            nj = j + dc\n            zero = 0\n            if (ni < 1 | ni > rows | nj < 1 | nj > cols) {\n              zero = 1\n            } else if (g(ni,nj) == 0) {\n              zero = 1\n            }\n            if (zero == 1) isedge = 1\n          }\n        }\n      }\n      if (isedge == 1) edgef = edgef + 1\n    }\n  }\n}\n\nif (dies > 0) {\n  yield = 1000*(dies - fails)/dies\n} else {\n  yield = 0\n}\n\nwrite(6,*) ringf, edgef, yield\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 3,
+   "guards": "G2",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 6.5,
+   "final_code": "integer rows, cols, r, c, j, dr, dc, nr, nc, g(256,256)\ninteger a, b, d2, dmax2, ringf, edgef, dies, fails, flag, ypm\nread(5,*) rows, cols\nfor (r = 1; r <= rows; r = r + 1)\n  read(5,*) (g(r,j), j = 1, cols)\ndmax2 = 0\nfor (r = 1; r <= rows; r = r + 1) {\n  for (c = 1; c <= cols; c = c + 1) {\n    if (g(r,c) != 0) {\n      a = 2*r - rows - 1\n      b = 2*c - cols - 1\n      d2 = a*a + b*b\n      if (d2 > dmax2) dmax2 = d2\n    }\n  }\n}\nringf = 0\nedgef = 0\ndies = 0\nfails = 0\nfor (r = 1; r <= rows; r = r + 1) {\n  for (c = 1; c <= cols; c = c + 1) {\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      if (g(r,c) == 2) {\n        fails = fails + 1\n        a = 2*r - rows - 1\n        b = 2*c - cols - 1\n        d2 = a*a + b*b\n        # 70^2*D2 <= 100^2*d2  <=>  49*D2 <= 100*d2\n        if (49*dmax2 <= 100*d2) ringf = ringf + 1\n        flag = 0\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            if (dr != 0 | dc != 0) {\n              nr = r + dr\n              nc = c + dc\n              if (nr < 1 | nr > rows | nc < 1 | nc > cols) {\n                flag = 1\n              } else if (g(nr,nc) == 0) {\n                flag = 1\n              }\n            }\n          }\n        }\n        if (flag == 1) edgef = edgef + 1\n      }\n    }\n  }\n}\nif (dies > 0)\n  ypm = 1000*(dies - fails)/dies\nelse\n  ypm = 0\nwrite(6,*) ringf, edgef, ypm\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 3,
+   "guards": "G2",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 16.8,
+   "final_code": "# Wafer map measurement: ring fails, edge fails, yield per mille\ninteger nrow, ncol, r, c, dr, dc, nr, nc, ii, jj\ninteger g(256,256)\ninteger*8 d2, d2max, lhs, rhs\ninteger ringf, edgef, dies, fails, yld, edge\n\nringf = 0\nedgef = 0\ndies = 0\nfails = 0\nd2max = 0\n\nread(5,*) nrow, ncol\nfor (r = 1; r <= nrow; r = r + 1) {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\n\n# First pass: count dies and find the largest squared distance D2\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      if (g(r,c) == 2) fails = fails + 1\n      ii = 2*r - nrow - 1\n      jj = 2*c - ncol - 1\n      d2 = ii*ii + jj*jj\n      if (d2 > d2max) d2max = d2\n    }\n  }\n}\n\n# Second pass: ring fails and edge fails for failing dies\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2) {\n      ii = 2*r - nrow - 1\n      jj = 2*c - ncol - 1\n      d2 = ii*ii + jj*jj\n      lhs = 4900 * d2max\n      rhs = 10000 * d2\n      if (lhs <= rhs) ringf = ringf + 1\n\n      edge = 0\n      for (dr = -1; dr <= 1; dr = dr + 1) {\n        for (dc = -1; dc <= 1; dc = dc + 1) {\n          if (dr == 0 & dc == 0) next\n          nr = r + dr\n          nc = c + dc\n          if (nr < 1 | nr > nrow | nc < 1 | nc > ncol) {\n            edge = 1\n          } else {\n            if (g(nr,nc) == 0) edge = 1\n          }\n        }\n      }\n      if (edge == 1) edgef = edgef + 1\n    }\n  }\n}\n\nif (dies > 0) {\n  yld = (1000 * (dies - fails)) / dies\n} else {\n  yld = 0\n}\n\nwrite(6,*) ringf, edgef, yld\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 4,
+   "guards": "G0",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 339,
+   "audit_total": 450,
+   "audit_wrong_kinds": {
+    "ring_fails(lo=0, hi=30)": 111
+   },
+   "first_right": false,
+   "replay": {
+    "G1": true,
+    "G2": true
+   },
+   "stop": null,
+   "llm_s": 14.6,
+   "llm_calls": 1,
+   "seconds": 21.2,
+   "final_code": "integer n, m, r, c, k1, k2, i, j, rr, cc, sp, sz, clus, fails, ringc, dmax, d2, x, y\ninteger g(256,256), vis(256,256), sr(65536), sc(65536)\ninteger*8 p, q\n\nread(5,*) n, m\ndo r = 1, n {\n  read(5,*) (g(r,c), c = 1, m)\n  do c = 1, m {\n    vis(r,c) = 0\n  }\n}\n\ndmax = 0\ndo r = 1, n {\n  do c = 1, m {\n    if (g(r,c) != 0) {\n      x = 2*r - (n-1)\n      y = 2*c - (m-1)\n      d2 = x*x + y*y\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\n\nfails = 0\nringc = 0\ndo r = 1, n {\n  do c = 1, m {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      x = 2*r - (n-1)\n      y = 2*c - (m-1)\n      d2 = x*x + y*y\n      p = d2\n      p = p * 10000\n      q = dmax\n      q = q * 900\n      if (p < q) ringc = ringc + 1\n    }\n  }\n}\n\nclus = 0\ndo r = 1, n {\n  do c = 1, m {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      sp = 1\n      sr(1) = r\n      sc(1) = c\n      vis(r,c) = 1\n      sz = 0\n      while (sp > 0) {\n        i = sr(sp)\n        j = sc(sp)\n        sp = sp - 1\n        sz = sz + 1\n        do k1 = -1, 1 {\n          do k2 = -1, 1 {\n            rr = i + k1\n            cc = j + k2\n            if (rr >= 1 & rr <= n & cc >= 1 & cc <= m) {\n              if (g(rr,cc) == 2 & vis(rr,cc) == 0) {\n                vis(rr,cc) = 1\n                sp = sp + 1\n                sr(sp) = rr\n                sc(sp) = cc\n              }\n            }\n          }\n        }\n      }\n      if (sz >= 3) clus = clus + 1\n    }\n  }\n}\n\nwrite(6,*) clus, fails, ringc\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 4,
+   "guards": "G0",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 339,
+   "audit_total": 450,
+   "audit_wrong_kinds": {
+    "ring_fails(lo=0, hi=30)": 111
+   },
+   "first_right": false,
+   "replay": {
+    "G1": true,
+    "G2": true
+   },
+   "stop": null,
+   "llm_s": 25.1,
+   "llm_calls": 2,
+   "seconds": 31.1,
+   "final_code": "integer rows, cols, r, c, k, n, top, cr, cc, dr, dc, nr, nc\ninteger clusters, fails, ringf\ninteger g(256,256), vis(256,256), stk(65536)\ninteger*8 d2, dmax, t1, t2, lim\n\nread(5,*) rows, cols\nfor (r = 1; r <= rows; r = r + 1) {\n  read(5,*) (g(r,c), c = 1, cols)\n}\n\n# largest squared distance over all die cells (value 1 or 2)\ndmax = 0\nfor (r = 1; r <= rows; r = r + 1) {\n  for (c = 1; c <= cols; c = c + 1) {\n    if (g(r,c) != 0) {\n      t1 = 2*r - rows + 1\n      t2 = 2*c - cols + 1\n      d2 = t1*t1 + t2*t2\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\n\n# count failing dies and ring failures\nfails = 0\nringf = 0\nfor (r = 1; r <= rows; r = r + 1) {\n  for (c = 1; c <= cols; c = c + 1) {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      t1 = 2*r - rows + 1\n      t2 = 2*c - cols + 1\n      d2 = t1*t1 + t2*t2\n      lim = 10000*d2\n      if ((0 <= lim) & (lim < 900*dmax)) ringf = ringf + 1\n    }\n  }\n}\n\n# clusters of failing dies, 8-connectivity, iterative flood fill\nfor (r = 1; r <= rows; r = r + 1) {\n  for (c = 1; c <= cols; c = c + 1) {\n    vis(r,c) = 0\n  }\n}\n\nclusters = 0\nfor (r = 1; r <= rows; r = r + 1) {\n  for (c = 1; c <= cols; c = c + 1) {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      vis(r,c) = 1\n      top = 1\n      stk(1) = (r-1)*cols + c\n      n = 0\n      while (top > 0) {\n        k = stk(top)\n        top = top - 1\n        n = n + 1\n        cr = (k-1)/cols + 1\n        cc = k - (cr-1)*cols\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            nr = cr + dr\n            nc = cc + dc\n            if ((nr >= 1) & (nr <= rows) & (nc >= 1) & (nc <= cols)) {\n              if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n                vis(nr,nc) = 1\n                top = top + 1\n                stk(top) = (nr-1)*cols + nc\n              }\n            }\n          }\n        }\n      }\n      if (n >= 3) clusters = clusters + 1\n    }\n  }\n}\n\nwrite(6,*) clusters, fails, ringf\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 4,
+   "guards": "G0",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 27.5,
+   "llm_calls": 2,
+   "seconds": 35.5,
+   "final_code": "integer nrow, ncol, r, c, j, sp, cr, cc, nr, nc, dr, dc, sz\ninteger ta, tb, clusters, fails, ringf\ninteger g(256,256), vis(256,256), sr(65536), sc(65536)\ninteger*8 dist2, maxd2\n\nread(5,*) nrow, ncol\nfor (r = 1; r <= nrow; r = r + 1) {\n  read(5,*) (g(r,j), j = 1, ncol)\n}\n\nclusters = 0\nfails = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    vis(r,c) = 0\n    if (g(r,c) == 2) fails = fails + 1\n  }\n}\n\n# 8-connected clusters of failing dies, counted if size >= 3\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      vis(r,c) = 1\n      sp = 1\n      sr(sp) = r\n      sc(sp) = c\n      sz = 0\n      while (sp > 0) {\n        cr = sr(sp)\n        cc = sc(sp)\n        sp = sp - 1\n        sz = sz + 1\n        for (dr = -1; dr <= 1; dr = dr + 1)\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            nr = cr + dr\n            nc = cc + dc\n            if (nr < 1 | nr > nrow | nc < 1 | nc > ncol) next\n            if (g(nr,nc) != 2 | vis(nr,nc) != 0) next\n            vis(nr,nc) = 1\n            sp = sp + 1\n            sr(sp) = nr\n            sc(sp) = nc\n          }\n      }\n      if (sz >= 3) clusters = clusters + 1\n    }\n  }\n}\n\n# largest squared distance over all dies\nmaxd2 = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) != 0) {\n      ta = 2*(r-1) - (nrow-1)\n      tb = 2*(c-1) - (ncol-1)\n      dist2 = ta*ta + tb*tb\n      if (dist2 > maxd2) maxd2 = dist2\n    }\n  }\n}\n\n# failing dies in ring 0%..30%: 10000*dist2 < 900*maxd2\nringf = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2) {\n      ta = 2*(r-1) - (nrow-1)\n      tb = 2*(c-1) - (ncol-1)\n      dist2 = ta*ta + tb*tb\n      if (10000*dist2 < 900*maxd2) ringf = ringf + 1\n    }\n  }\n}\n\nwrite(6,*) clusters, fails, ringf\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 4,
+   "guards": "G1",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "examples",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 14.9,
+   "llm_calls": 1,
+   "seconds": 22.7,
+   "final_code": "integer n, m, r, c, k1, k2, i, j, rr, cc, sp, sz, clus, fails, ringc, dmax, d2, x, y\ninteger g(256,256), vis(256,256), sr(65536), sc(65536)\ninteger*8 p, q\n\nread(5,*) n, m\ndo r = 1, n {\n  read(5,*) (g(r,c), c = 1, m)\n  do c = 1, m {\n    vis(r,c) = 0\n  }\n}\n\ndmax = 0\ndo r = 1, n {\n  do c = 1, m {\n    if (g(r,c) != 0) {\n      x = 2*(r-1) - (n-1)\n      y = 2*(c-1) - (m-1)\n      d2 = x*x + y*y\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\n\nfails = 0\nringc = 0\ndo r = 1, n {\n  do c = 1, m {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      x = 2*(r-1) - (n-1)\n      y = 2*(c-1) - (m-1)\n      d2 = x*x + y*y\n      p = d2\n      p = p * 10000\n      q = dmax\n      q = q * 900\n      if (p < q) ringc = ringc + 1\n    }\n  }\n}\n\nclus = 0\ndo r = 1, n {\n  do c = 1, m {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      sp = 1\n      sr(1) = r\n      sc(1) = c\n      vis(r,c) = 1\n      sz = 0\n      while (sp > 0) {\n        i = sr(sp)\n        j = sc(sp)\n        sp = sp - 1\n        sz = sz + 1\n        do k1 = -1, 1 {\n          do k2 = -1, 1 {\n            rr = i + k1\n            cc = j + k2\n            if (rr >= 1 & rr <= n & cc >= 1 & cc <= m) {\n              if (g(rr,cc) == 2 & vis(rr,cc) == 0) {\n                vis(rr,cc) = 1\n                sp = sp + 1\n                sr(sp) = rr\n                sc(sp) = cc\n              }\n            }\n          }\n        }\n      }\n      if (sz >= 3) clus = clus + 1\n    }\n  }\n}\n\nwrite(6,*) clus, fails, ringc\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 4,
+   "guards": "G1",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 3,
+   "stages": [
+    "fortran",
+    "examples",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 19.2,
+   "llm_calls": 2,
+   "seconds": 36.9,
+   "final_code": "integer nrow, ncol, i, j, k, n, top, cr, cc, dr, dc, nr, nc\ninteger clusters, fails, ringf\ninteger g(256,256), vis(256,256), stk(65536)\ninteger*8 d2, dmax, t1, t2, lim\n\nread(5,*) nrow, ncol\nfor (i = 1; i <= nrow; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, ncol)\n}\n\n# largest squared distance over all die cells (value 1 or 2)\n# r and c count from 0, so 2*r - (R-1) = 2*i - R - 1 with i counting from 1\ndmax = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) != 0) {\n      t1 = 2*i - nrow - 1\n      t2 = 2*j - ncol - 1\n      d2 = t1*t1 + t2*t2\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\n\n# count failing dies and ring failures\nfails = 0\nringf = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2) {\n      fails = fails + 1\n      t1 = 2*i - nrow - 1\n      t2 = 2*j - ncol - 1\n      d2 = t1*t1 + t2*t2\n      lim = 10000*d2\n      if ((0 <= lim) & (lim < 900*dmax)) ringf = ringf + 1\n    }\n  }\n}\n\n# clusters of failing dies, 8-connectivity, iterative flood fill\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    vis(i,j) = 0\n  }\n}\n\nclusters = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      vis(i,j) = 1\n      top = 1\n      stk(1) = (i-1)*ncol + j\n      n = 0\n      while (top > 0) {\n        k = stk(top)\n        top = top - 1\n        n = n + 1\n        cr = (k-1)/ncol + 1\n        cc = k - (cr-1)*ncol\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            nr = cr + dr\n            nc = cc + dc\n            if ((nr >= 1) & (nr <= nrow) & (nc >= 1) & (nc <= ncol)) {\n              if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n                vis(nr,nc) = 1\n                top = top + 1\n                stk(top) = (nr-1)*ncol + nc\n              }\n            }\n          }\n        }\n      }\n      if (n >= 3) clusters = clusters + 1\n    }\n  }\n}\n\nwrite(6,*) clusters, fails, ringf\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 4,
+   "guards": "G1",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 8.3,
+   "llm_calls": 1,
+   "seconds": 25.7,
+   "final_code": "integer nrow, ncol, r, c, j, sp, cr, cc, nr, nc, dr, dc, sz\ninteger ta, tb, clusters, fails, ringf\ninteger g(256,256), vis(256,256), sr(65536), sc(65536)\ninteger*8 dist2, dmax\n\nread(5,*) nrow, ncol\nfor (r = 1; r <= nrow; r = r + 1) {\n  read(5,*) (g(r,j), j = 1, ncol)\n}\n\nclusters = 0\nfails = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    vis(r,c) = 0\n    if (g(r,c) == 2) fails = fails + 1\n  }\n}\n\n# 8-connected clusters of failing dies, counted if size >= 3\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      vis(r,c) = 1\n      sp = 1\n      sr(sp) = r\n      sc(sp) = c\n      sz = 0\n      while (sp > 0) {\n        cr = sr(sp)\n        cc = sc(sp)\n        sp = sp - 1\n        sz = sz + 1\n        for (dr = -1; dr <= 1; dr = dr + 1)\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            nr = cr + dr\n            nc = cc + dc\n            if (nr < 1 | nr > nrow | nc < 1 | nc > ncol) next\n            if (g(nr,nc) != 2 | vis(nr,nc) != 0) next\n            vis(nr,nc) = 1\n            sp = sp + 1\n            sr(sp) = nr\n            sc(sp) = nc\n          }\n      }\n      if (sz >= 3) clusters = clusters + 1\n    }\n  }\n}\n\n# largest squared distance over all dies\ndmax = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) != 0) {\n      ta = 2*(r-1) - (nrow-1)\n      tb = 2*(c-1) - (ncol-1)\n      dist2 = ta*ta + tb*tb\n      if (dist2 > dmax) dmax = dist2\n    }\n  }\n}\n\n# failing dies in ring 0%..30%: 10000*dist2 < 900*dmax\nringf = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2) {\n      ta = 2*(r-1) - (nrow-1)\n      tb = 2*(c-1) - (ncol-1)\n      dist2 = ta*ta + tb*tb\n      if (10000*dist2 < 900*dmax) ringf = ringf + 1\n    }\n  }\n}\n\nwrite(6,*) clusters, fails, ringf\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 4,
+   "guards": "G2",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "examples",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 13.8,
+   "llm_calls": 1,
+   "seconds": 22.2,
+   "final_code": "integer n, m, r, c, k1, k2, i, j, rr, cc, sp, sz, clus, fails, ringc, dmax, d2, x, y\ninteger g(256,256), vis(256,256), sr(65536), sc(65536)\ninteger*8 p, q\n\nread(5,*) n, m\ndo r = 1, n {\n  read(5,*) (g(r,c), c = 1, m)\n  do c = 1, m {\n    vis(r,c) = 0\n  }\n}\n\ndmax = 0\ndo r = 1, n {\n  do c = 1, m {\n    if (g(r,c) != 0) {\n      x = 2*r - n - 1\n      y = 2*c - m - 1\n      d2 = x*x + y*y\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\n\nfails = 0\nringc = 0\ndo r = 1, n {\n  do c = 1, m {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      x = 2*r - n - 1\n      y = 2*c - m - 1\n      d2 = x*x + y*y\n      p = d2\n      p = p * 10000\n      q = dmax\n      q = q * 900\n      if (p < q) ringc = ringc + 1\n    }\n  }\n}\n\nclus = 0\ndo r = 1, n {\n  do c = 1, m {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      sp = 1\n      sr(1) = r\n      sc(1) = c\n      vis(r,c) = 1\n      sz = 0\n      while (sp > 0) {\n        i = sr(sp)\n        j = sc(sp)\n        sp = sp - 1\n        sz = sz + 1\n        do k1 = -1, 1 {\n          do k2 = -1, 1 {\n            rr = i + k1\n            cc = j + k2\n            if (rr >= 1 & rr <= n & cc >= 1 & cc <= m) {\n              if (g(rr,cc) == 2 & vis(rr,cc) == 0) {\n                vis(rr,cc) = 1\n                sp = sp + 1\n                sr(sp) = rr\n                sc(sp) = cc\n              }\n            }\n          }\n        }\n      }\n      if (sz >= 3) clus = clus + 1\n    }\n  }\n}\n\nwrite(6,*) clus, fails, ringc\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 4,
+   "guards": "G2",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 3,
+   "stages": [
+    "fortran",
+    "examples",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 17.3,
+   "llm_calls": 2,
+   "seconds": 24.2,
+   "final_code": "integer nrow, ncol, i, j, k, n, top, cr, cc, dr, dc, nr, nc\ninteger clusters, fails, ringf\ninteger g(256,256), vis(256,256), stk(65536)\ninteger*8 d2, dmax, t1, t2, lim\n\nread(5,*) nrow, ncol\nfor (i = 1; i <= nrow; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, ncol)\n}\n\n# largest squared distance over all die cells (value 1 or 2)\n# row index r = i-1, so 2r-(R-1) = 2i-R-1\ndmax = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) != 0) {\n      t1 = 2*i - nrow - 1\n      t2 = 2*j - ncol - 1\n      d2 = t1*t1 + t2*t2\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\n\n# count failing dies and ring failures\nfails = 0\nringf = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2) {\n      fails = fails + 1\n      t1 = 2*i - nrow - 1\n      t2 = 2*j - ncol - 1\n      d2 = t1*t1 + t2*t2\n      lim = 10000*d2\n      if ((0 <= lim) & (lim < 900*dmax)) ringf = ringf + 1\n    }\n  }\n}\n\n# clusters of failing dies, 8-connectivity, iterative flood fill\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    vis(i,j) = 0\n  }\n}\n\nclusters = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      vis(i,j) = 1\n      top = 1\n      stk(1) = (i-1)*ncol + j\n      n = 0\n      while (top > 0) {\n        k = stk(top)\n        top = top - 1\n        n = n + 1\n        cr = (k-1)/ncol + 1\n        cc = k - (cr-1)*ncol\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            nr = cr + dr\n            nc = cc + dc\n            if ((nr >= 1) & (nr <= nrow) & (nc >= 1) & (nc <= ncol)) {\n              if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n                vis(nr,nc) = 1\n                top = top + 1\n                stk(top) = (nr-1)*ncol + nc\n              }\n            }\n          }\n        }\n      }\n      if (n >= 3) clusters = clusters + 1\n    }\n  }\n}\n\nwrite(6,*) clusters, fails, ringf\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 4,
+   "guards": "G2",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 7.9,
+   "llm_calls": 1,
+   "seconds": 17.0,
+   "final_code": "integer NR, NC, r, c, j, sp, cr, cc, nr2, nc2, dr, dc, sz\ninteger ta, tb, clusters, fails, ringf\ninteger g(256,256), vis(256,256), sr(65536), sc(65536)\ninteger*8 dd2, bigd2\n\nread(5,*) NR, NC\nfor (r = 1; r <= NR; r = r + 1) {\n  read(5,*) (g(r,j), j = 1, NC)\n}\n\nclusters = 0\nfails = 0\nfor (r = 1; r <= NR; r = r + 1) {\n  for (c = 1; c <= NC; c = c + 1) {\n    vis(r,c) = 0\n    if (g(r,c) == 2) fails = fails + 1\n  }\n}\n\n# 8-connected clusters of failing dies, counted if size >= 3\nfor (r = 1; r <= NR; r = r + 1) {\n  for (c = 1; c <= NC; c = c + 1) {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      vis(r,c) = 1\n      sp = 1\n      sr(sp) = r\n      sc(sp) = c\n      sz = 0\n      while (sp > 0) {\n        cr = sr(sp)\n        cc = sc(sp)\n        sp = sp - 1\n        sz = sz + 1\n        for (dr = -1; dr <= 1; dr = dr + 1)\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            nr2 = cr + dr\n            nc2 = cc + dc\n            if (nr2 < 1 | nr2 > NR | nc2 < 1 | nc2 > NC) next\n            if (g(nr2,nc2) != 2 | vis(nr2,nc2) != 0) next\n            vis(nr2,nc2) = 1\n            sp = sp + 1\n            sr(sp) = nr2\n            sc(sp) = nc2\n          }\n      }\n      if (sz >= 3) clusters = clusters + 1\n    }\n  }\n}\n\n# largest squared distance over all dies\nbigd2 = 0\nfor (r = 1; r <= NR; r = r + 1) {\n  for (c = 1; c <= NC; c = c + 1) {\n    if (g(r,c) != 0) {\n      ta = 2*(r-1) - (NR-1)\n      tb = 2*(c-1) - (NC-1)\n      dd2 = ta*ta + tb*tb\n      if (dd2 > bigd2) bigd2 = dd2\n    }\n  }\n}\n\n# failing dies in ring 0%..30%: 10000*d2 < 900*D2\nringf = 0\nfor (r = 1; r <= NR; r = r + 1) {\n  for (c = 1; c <= NC; c = c + 1) {\n    if (g(r,c) == 2) {\n      ta = 2*(r-1) - (NR-1)\n      tb = 2*(c-1) - (NC-1)\n      dd2 = ta*ta + tb*tb\n      if (10000*dd2 < 900*bigd2) ringf = ringf + 1\n    }\n  }\n}\n\nwrite(6,*) clusters, fails, ringf\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 5,
+   "guards": "G0",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 640,
+   "audit_total": 750,
+   "audit_wrong_kinds": {
+    "ring_fails(lo=0, hi=30)": 110
+   },
+   "first_right": false,
+   "replay": {
+    "G1": true,
+    "G2": true
+   },
+   "stop": null,
+   "llm_s": 32.3,
+   "llm_calls": 1,
+   "seconds": 39.1,
+   "final_code": "subroutine flood(g, vis, nr, nc, r0, c0, conn, sr, sc, sz)\ninteger g(256,256), vis(256,256), nr, nc, r0, c0, conn, sr(65536), sc(65536), sz\ninteger sp, r, c, dr, dc, nrr, ncc\nvis(r0,c0) = 1\nsp = 1\nsr(1) = r0\nsc(1) = c0\nsz = 0\nwhile (sp > 0) {\n  r = sr(sp)\n  c = sc(sp)\n  sp = sp - 1\n  sz = sz + 1\n  for (dr = -1; dr <= 1; dr = dr + 1) {\n    for (dc = -1; dc <= 1; dc = dc + 1) {\n      if (dr == 0 & dc == 0) next\n      if (conn == 4 & dr != 0 & dc != 0) next\n      nrr = r + dr\n      ncc = c + dc\n      if (nrr >= 1 & nrr <= nr & ncc >= 1 & ncc <= nc) {\n        if (g(nrr,ncc) == 2 & vis(nrr,ncc) == 0) {\n          vis(nrr,ncc) = 1\n          sp = sp + 1\n          sr(sp) = nrr\n          sc(sp) = ncc\n        }\n      }\n    }\n  }\n}\nend\n\ninteger g(256,256), vis(256,256), sr(65536), sc(65536)\ninteger nr, nc, r, c, j, ndies, d2, maxd2, t, u, nclus, nedge, nring, big, sz, edge\n\nread(5,*) nr, nc\ndo r = 1, nr {\n  read(5,*) (g(r,j), j = 1, nc)\n}\n\nndies = 0\nmaxd2 = -1\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) != 0) {\n      ndies = ndies + 1\n      t = 2*r - nr + 1\n      u = 2*c - nc + 1\n      d2 = t*t + u*u\n      if (d2 > maxd2) maxd2 = d2\n    }\n  }\n}\n\nnedge = 0\nnring = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2) {\n      edge = 0\n      if (r == 1 | r == nr | c == 1 | c == nc) edge = 1\n      if (edge == 0) {\n        if (g(r-1,c) == 0 | g(r+1,c) == 0 | g(r,c-1) == 0 | g(r,c+1) == 0) edge = 1\n      }\n      if (edge == 1) nedge = nedge + 1\n      t = 2*r - nr + 1\n      u = 2*c - nc + 1\n      d2 = t*t + u*u\n      if (100*d2 < 9*maxd2) nring = nring + 1\n    }\n  }\n}\n\ndo r = 1, nr {\n  do j = 1, nc {\n    vis(r,j) = 0\n  }\n}\nnclus = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call flood(g, vis, nr, nc, r, c, 4, sr, sc, sz)\n      if (sz >= 2) nclus = nclus + 1\n    }\n  }\n}\n\ndo r = 1, nr {\n  do j = 1, nc {\n    vis(r,j) = 0\n  }\n}\nbig = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call flood(g, vis, nr, nc, r, c, 8, sr, sc, sz)\n      if (sz > big) big = sz\n    }\n  }\n}\n\nwrite(6,*) nclus, nedge, ndies, nring, big\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 5,
+   "guards": "G0",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 750,
+   "audit_total": 750,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 27.8,
+   "llm_calls": 1,
+   "seconds": 35.2,
+   "final_code": "subroutine fill(g, vis, sr, sc, r0, c0, diag, sz)\ninteger g(258,258), vis(258,258), sr(66564), sc(66564)\ninteger r0, c0, diag, sz\ninteger top, r, c, dr, dc, nr, nc\nvis(r0,c0) = 1\ntop = 1\nsr(1) = r0\nsc(1) = c0\nsz = 0\nwhile (top > 0) {\n  r = sr(top)\n  c = sc(top)\n  top = top - 1\n  sz = sz + 1\n  for (dr = -1; dr <= 1; dr = dr + 1) {\n    for (dc = -1; dc <= 1; dc = dc + 1) {\n      if (dr == 0 & dc == 0) next\n      if (diag == 0 & dr != 0 & dc != 0) next\n      nr = r + dr\n      nc = c + dc\n      if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n        vis(nr,nc) = 1\n        top = top + 1\n        sr(top) = nr\n        sc(top) = nc\n      }\n    }\n  }\n}\nend\n\ninteger g(258,258), vis(258,258), sr(66564), sc(66564)\ninteger R, C, i, j, sz, nclus, efail, ndies, nring, lmax\ninteger dr, dc, nb\ninteger*8 d2, d2max\n\nread(5,*) R, C\ndo i = 1, R {\n  read(5,*) (g(i+1,j+1), j = 1, C)\n}\n\n# phase 1: clusters of failing dies, 4-connectivity, size >= 2\ndo i = 1, R+2 {\n  do j = 1, C+2 {\n    vis(i,j) = 0\n  }\n}\nnclus = 0\ndo i = 2, R+1 {\n  do j = 2, C+1 {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      call fill(g, vis, sr, sc, i, j, 0, sz)\n      if (sz >= 2) nclus = nclus + 1\n    }\n  }\n}\n\n# phase 2 and 3: edge fails and dies, plus largest d2 over dies\nefail = 0\nndies = 0\nd2max = 0\ndo i = 2, R+1 {\n  do j = 2, C+1 {\n    if (g(i,j) == 1 | g(i,j) == 2) {\n      ndies = ndies + 1\n      dr = 2*(i-1) - (R+1)\n      dc = 2*(j-1) - (C+1)\n      d2 = dr*dr + dc*dc\n      if (d2 > d2max) d2max = d2\n    }\n    if (g(i,j) == 2) {\n      nb = 0\n      if (g(i-1,j) == 0) nb = 1\n      if (g(i+1,j) == 0) nb = 1\n      if (g(i,j-1) == 0) nb = 1\n      if (g(i,j+1) == 0) nb = 1\n      if (nb == 1) efail = efail + 1\n    }\n  }\n}\n\n# phase 4: ring fails, 0% to 30% band\nnring = 0\ndo i = 2, R+1 {\n  do j = 2, C+1 {\n    if (g(i,j) == 2) {\n      dr = 2*(i-1) - (R+1)\n      dc = 2*(j-1) - (C+1)\n      d2 = dr*dr + dc*dc\n      if (10000*d2 < 900*d2max) nring = nring + 1\n    }\n  }\n}\n\n# phase 5: largest cluster of failing dies, 8-connectivity\ndo i = 1, R+2 {\n  do j = 1, C+2 {\n    vis(i,j) = 0\n  }\n}\nlmax = 0\ndo i = 2, R+1 {\n  do j = 2, C+1 {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      call fill(g, vis, sr, sc, i, j, 1, sz)\n      if (sz > lmax) lmax = sz\n    }\n  }\n}\n\nwrite(6,*) nclus, efail, ndies, nring, lmax\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 5,
+   "guards": "G0",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 640,
+   "audit_total": 750,
+   "audit_wrong_kinds": {
+    "ring_fails(lo=0, hi=30)": 110
+   },
+   "first_right": false,
+   "replay": {
+    "G1": true,
+    "G2": true
+   },
+   "stop": null,
+   "llm_s": 39.1,
+   "llm_calls": 2,
+   "seconds": 51.6,
+   "final_code": "integer nrow, ncol, g(256,256), vis(256,256), sr(65536), sc(65536), sp\ncommon /wafer/ nrow, ncol, g, vis, sr, sc, sp\ninteger r, c, ncl, big, sz, efail, dies, rfail, cellv\ninteger*8 a, b, dd, dmax\n\nread(5,*) nrow, ncol\ndo r = 1, nrow {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\n\ndies = 0\ndmax = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      a = 2*r - (nrow-1)\n      b = 2*c - (ncol-1)\n      dd = a*a + b*b\n      if (dd > dmax) dmax = dd\n    }\n  }\n}\n\nrfail = 0\nefail = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) {\n      a = 2*r - (nrow-1)\n      b = 2*c - (ncol-1)\n      dd = a*a + b*b\n      if (0*dmax <= 10000*dd & 10000*dd < 900*dmax) rfail = rfail + 1\n      if (cellv(r-1,c) == 0 | cellv(r+1,c) == 0 | cellv(r,c-1) == 0 | cellv(r,c+1) == 0) efail = efail + 1\n    }\n  }\n}\n\ndo r = 1, nrow {\n  do c = 1, ncol {\n    vis(r,c) = 0\n  }\n}\n\nncl = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call fill(r, c, 4, sz)\n      if (sz >= 2) ncl = ncl + 1\n    }\n  }\n}\n\ndo r = 1, nrow {\n  do c = 1, ncol {\n    vis(r,c) = 0\n  }\n}\n\nbig = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call fill(r, c, 8, sz)\n      if (sz > big) big = sz\n    }\n  }\n}\n\nwrite(6,*) ncl, efail, dies, rfail, big\nend\n\nsubroutine fill(r0, c0, conn, sz)\ninteger r0, c0, conn, sz, r, c, dr, dc, nr, nc\ninteger nrow, ncol, g(256,256), vis(256,256), sr(65536), sc(65536), sp\ncommon /wafer/ nrow, ncol, g, vis, sr, sc, sp\n\nsp = 1\nsr(1) = r0\nsc(1) = c0\nvis(r0,c0) = 1\nsz = 0\nwhile (sp > 0) {\n  r = sr(sp)\n  c = sc(sp)\n  sp = sp - 1\n  sz = sz + 1\n  for (dr = -1; dr <= 1; dr = dr + 1)\n    for (dc = -1; dc <= 1; dc = dc + 1) {\n      if (dr == 0 & dc == 0) next\n      if (conn == 4 & dr != 0 & dc != 0) next\n      nr = r + dr\n      nc = c + dc\n      if (nr < 1 | nr > nrow) next\n      if (nc < 1 | nc > ncol) next\n      if (g(nr,nc) != 2) next\n      if (vis(nr,nc) != 0) next\n      vis(nr,nc) = 1\n      sp = sp + 1\n      sr(sp) = nr\n      sc(sp) = nc\n    }\n}\nreturn\nend\n\ninteger function cellv(r, c)\ninteger r, c\ninteger nrow, ncol, g(256,256), vis(256,256), sr(65536), sc(65536), sp\ncommon /wafer/ nrow, ncol, g, vis, sr, sc, sp\n\nif (r < 1 | r > nrow | c < 1 | c > ncol) {\n  cellv = 0\n} else {\n  cellv = g(r,c)\n}\nreturn\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 5,
+   "guards": "G1",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 3,
+   "stages": [
+    "examples",
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 750,
+   "audit_total": 750,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 23.4,
+   "llm_calls": 2,
+   "seconds": 52.7,
+   "final_code": "subroutine flood(g, vis, nr, nc, r0, c0, conn, sr, sc, sz)\ninteger g(256,256), vis(256,256), nr, nc, r0, c0, conn, sr(65536), sc(65536), sz\ninteger sp, r, c, dr, dc, nrr, ncc\nvis(r0,c0) = 1\nsp = 1\nsr(1) = r0\nsc(1) = c0\nsz = 0\nwhile (sp > 0) {\n  r = sr(sp)\n  c = sc(sp)\n  sp = sp - 1\n  sz = sz + 1\n  for (dr = -1; dr <= 1; dr = dr + 1) {\n    for (dc = -1; dc <= 1; dc = dc + 1) {\n      if (dr == 0 & dc == 0) next\n      if (conn == 4 & dr != 0 & dc != 0) next\n      nrr = r + dr\n      ncc = c + dc\n      if (nrr >= 1 & nrr <= nr & ncc >= 1 & ncc <= nc) {\n        if (g(nrr,ncc) == 2 & vis(nrr,ncc) == 0) {\n          vis(nrr,ncc) = 1\n          sp = sp + 1\n          sr(sp) = nrr\n          sc(sp) = ncc\n        }\n      }\n    }\n  }\n}\nend\n\ninteger g(256,256), vis(256,256), sr(65536), sc(65536)\ninteger nr, nc, r, c, j, ndies, t, u, nclus, nedge, nring, big, sz, edge\ninteger*8 d2, maxd2\n\nread(5,*) nr, nc\ndo r = 1, nr {\n  read(5,*) (g(r,j), j = 1, nc)\n}\n\nndies = 0\nmaxd2 = -1\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) != 0) {\n      ndies = ndies + 1\n      t = 2*(r-1) - (nr-1)\n      u = 2*(c-1) - (nc-1)\n      d2 = t*t + u*u\n      if (d2 > maxd2) maxd2 = d2\n    }\n  }\n}\n\nnedge = 0\nnring = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2) {\n      edge = 0\n      if (r == 1 | r == nr | c == 1 | c == nc) edge = 1\n      if (edge == 0) {\n        if (g(r-1,c) == 0 | g(r+1,c) == 0 | g(r,c-1) == 0 | g(r,c+1) == 0) edge = 1\n      }\n      if (edge == 1) nedge = nedge + 1\n      t = 2*(r-1) - (nr-1)\n      u = 2*(c-1) - (nc-1)\n      d2 = t*t + u*u\n      if (10000*d2 < 900*maxd2) nring = nring + 1\n    }\n  }\n}\n\ndo r = 1, nr {\n  do j = 1, nc {\n    vis(r,j) = 0\n  }\n}\nnclus = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call flood(g, vis, nr, nc, r, c, 4, sr, sc, sz)\n      if (sz >= 2) nclus = nclus + 1\n    }\n  }\n}\n\ndo r = 1, nr {\n  do j = 1, nc {\n    vis(r,j) = 0\n  }\n}\nbig = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call flood(g, vis, nr, nc, r, c, 8, sr, sc, sz)\n      if (sz > big) big = sz\n    }\n  }\n}\n\nwrite(6,*) nclus, nedge, ndies, nring, big\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 5,
+   "guards": "G1",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 750,
+   "audit_total": 750,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 9.1,
+   "final_code": "subroutine fill(g, vis, sr, sc, r0, c0, diag, sz)\ninteger g(258,258), vis(258,258), sr(66564), sc(66564)\ninteger r0, c0, diag, sz\ninteger top, r, c, dr, dc, nr, nc\nvis(r0,c0) = 1\ntop = 1\nsr(1) = r0\nsc(1) = c0\nsz = 0\nwhile (top > 0) {\n  r = sr(top)\n  c = sc(top)\n  top = top - 1\n  sz = sz + 1\n  for (dr = -1; dr <= 1; dr = dr + 1) {\n    for (dc = -1; dc <= 1; dc = dc + 1) {\n      if (dr == 0 & dc == 0) next\n      if (diag == 0 & dr != 0 & dc != 0) next\n      nr = r + dr\n      nc = c + dc\n      if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n        vis(nr,nc) = 1\n        top = top + 1\n        sr(top) = nr\n        sc(top) = nc\n      }\n    }\n  }\n}\nend\n\ninteger g(258,258), vis(258,258), sr(66564), sc(66564)\ninteger R, C, i, j, sz, nclus, efail, ndies, nring, lmax\ninteger dr, dc, nb\ninteger*8 d2, d2max\n\nread(5,*) R, C\ndo i = 1, R {\n  read(5,*) (g(i+1,j+1), j = 1, C)\n}\n\n# phase 1: clusters of failing dies, 4-connectivity, size >= 2\ndo i = 1, R+2 {\n  do j = 1, C+2 {\n    vis(i,j) = 0\n  }\n}\nnclus = 0\ndo i = 2, R+1 {\n  do j = 2, C+1 {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      call fill(g, vis, sr, sc, i, j, 0, sz)\n      if (sz >= 2) nclus = nclus + 1\n    }\n  }\n}\n\n# phase 2 and 3: edge fails and dies, plus largest d2 over dies\nefail = 0\nndies = 0\nd2max = 0\ndo i = 2, R+1 {\n  do j = 2, C+1 {\n    if (g(i,j) == 1 | g(i,j) == 2) {\n      ndies = ndies + 1\n      dr = 2*(i-1) - (R+1)\n      dc = 2*(j-1) - (C+1)\n      d2 = dr*dr + dc*dc\n      if (d2 > d2max) d2max = d2\n    }\n    if (g(i,j) == 2) {\n      nb = 0\n      if (g(i-1,j) == 0) nb = 1\n      if (g(i+1,j) == 0) nb = 1\n      if (g(i,j-1) == 0) nb = 1\n      if (g(i,j+1) == 0) nb = 1\n      if (nb == 1) efail = efail + 1\n    }\n  }\n}\n\n# phase 4: ring fails, 0% to 30% band\nnring = 0\ndo i = 2, R+1 {\n  do j = 2, C+1 {\n    if (g(i,j) == 2) {\n      dr = 2*(i-1) - (R+1)\n      dc = 2*(j-1) - (C+1)\n      d2 = dr*dr + dc*dc\n      if (10000*d2 < 900*d2max) nring = nring + 1\n    }\n  }\n}\n\n# phase 5: largest cluster of failing dies, 8-connectivity\ndo i = 1, R+2 {\n  do j = 1, C+2 {\n    vis(i,j) = 0\n  }\n}\nlmax = 0\ndo i = 2, R+1 {\n  do j = 2, C+1 {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      call fill(g, vis, sr, sc, i, j, 1, sz)\n      if (sz > lmax) lmax = sz\n    }\n  }\n}\n\nwrite(6,*) nclus, efail, ndies, nring, lmax\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 5,
+   "guards": "G1",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 3,
+   "stages": [
+    "fortran",
+    "examples",
+    "ok"
+   ],
+   "audit_right": 750,
+   "audit_total": 750,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 29.7,
+   "llm_calls": 2,
+   "seconds": 61.6,
+   "final_code": "integer nrow, ncol, g(256,256), vis(256,256), sr(65536), sc(65536), sp\ncommon /wafer/ nrow, ncol, g, vis, sr, sc, sp\ninteger r, c, ncl, big, sz, efail, dies, rfail, cellv\ninteger*8 a, b, dd, dmax\n\nread(5,*) nrow, ncol\ndo r = 1, nrow {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\n\ndies = 0\ndmax = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      a = 2*(r-1) - (nrow-1)\n      b = 2*(c-1) - (ncol-1)\n      dd = a*a + b*b\n      if (dd > dmax) dmax = dd\n    }\n  }\n}\n\nrfail = 0\nefail = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) {\n      a = 2*(r-1) - (nrow-1)\n      b = 2*(c-1) - (ncol-1)\n      dd = a*a + b*b\n      if (0*dmax <= 10000*dd & 10000*dd < 900*dmax) rfail = rfail + 1\n      if (cellv(r-1,c) == 0 | cellv(r+1,c) == 0 | cellv(r,c-1) == 0 | cellv(r,c+1) == 0) efail = efail + 1\n    }\n  }\n}\n\ndo r = 1, nrow {\n  do c = 1, ncol {\n    vis(r,c) = 0\n  }\n}\n\nncl = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call fill(r, c, 4, sz)\n      if (sz >= 2) ncl = ncl + 1\n    }\n  }\n}\n\ndo r = 1, nrow {\n  do c = 1, ncol {\n    vis(r,c) = 0\n  }\n}\n\nbig = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call fill(r, c, 8, sz)\n      if (sz > big) big = sz\n    }\n  }\n}\n\nwrite(6,*) ncl, efail, dies, rfail, big\nend\n\nsubroutine fill(r0, c0, conn, sz)\ninteger r0, c0, conn, sz, r, c, dr, dc, nr, nc\ninteger nrow, ncol, g(256,256), vis(256,256), sr(65536), sc(65536), sp\ncommon /wafer/ nrow, ncol, g, vis, sr, sc, sp\n\nsp = 1\nsr(1) = r0\nsc(1) = c0\nvis(r0,c0) = 1\nsz = 0\nwhile (sp > 0) {\n  r = sr(sp)\n  c = sc(sp)\n  sp = sp - 1\n  sz = sz + 1\n  for (dr = -1; dr <= 1; dr = dr + 1)\n    for (dc = -1; dc <= 1; dc = dc + 1) {\n      if (dr == 0 & dc == 0) next\n      if (conn == 4 & dr != 0 & dc != 0) next\n      nr = r + dr\n      nc = c + dc\n      if (nr < 1 | nr > nrow) next\n      if (nc < 1 | nc > ncol) next\n      if (g(nr,nc) != 2) next\n      if (vis(nr,nc) != 0) next\n      vis(nr,nc) = 1\n      sp = sp + 1\n      sr(sp) = nr\n      sc(sp) = nc\n    }\n}\nreturn\nend\n\ninteger function cellv(r, c)\ninteger r, c\ninteger nrow, ncol, g(256,256), vis(256,256), sr(65536), sc(65536), sp\ncommon /wafer/ nrow, ncol, g, vis, sr, sc, sp\n\nif (r < 1 | r > nrow | c < 1 | c > ncol) {\n  cellv = 0\n} else {\n  cellv = g(r,c)\n}\nreturn\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 5,
+   "guards": "G2",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "examples",
+    "ok"
+   ],
+   "audit_right": 750,
+   "audit_total": 750,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 9.6,
+   "llm_calls": 1,
+   "seconds": 41.9,
+   "final_code": "subroutine flood(g, vis, nr, nc, r0, c0, conn, sr, sc, sz)\ninteger g(256,256), vis(256,256), nr, nc, r0, c0, conn, sr(65536), sc(65536), sz\ninteger sp, r, c, dr, dc, nrr, ncc\nvis(r0,c0) = 1\nsp = 1\nsr(1) = r0\nsc(1) = c0\nsz = 0\nwhile (sp > 0) {\n  r = sr(sp)\n  c = sc(sp)\n  sp = sp - 1\n  sz = sz + 1\n  for (dr = -1; dr <= 1; dr = dr + 1) {\n    for (dc = -1; dc <= 1; dc = dc + 1) {\n      if (dr == 0 & dc == 0) next\n      if (conn == 4 & dr != 0 & dc != 0) next\n      nrr = r + dr\n      ncc = c + dc\n      if (nrr >= 1 & nrr <= nr & ncc >= 1 & ncc <= nc) {\n        if (g(nrr,ncc) == 2 & vis(nrr,ncc) == 0) {\n          vis(nrr,ncc) = 1\n          sp = sp + 1\n          sr(sp) = nrr\n          sc(sp) = ncc\n        }\n      }\n    }\n  }\n}\nend\n\ninteger g(256,256), vis(256,256), sr(65536), sc(65536)\ninteger nr, nc, r, c, j, ndies, d2, maxd2, t, u, nclus, nedge, nring, big, sz, edge\n\nread(5,*) nr, nc\ndo r = 1, nr {\n  read(5,*) (g(r,j), j = 1, nc)\n}\n\nndies = 0\nmaxd2 = -1\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) != 0) {\n      ndies = ndies + 1\n      t = 2*r - nr - 1\n      u = 2*c - nc - 1\n      d2 = t*t + u*u\n      if (d2 > maxd2) maxd2 = d2\n    }\n  }\n}\n\nnedge = 0\nnring = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2) {\n      edge = 0\n      if (r == 1 | r == nr | c == 1 | c == nc) edge = 1\n      if (edge == 0) {\n        if (g(r-1,c) == 0 | g(r+1,c) == 0 | g(r,c-1) == 0 | g(r,c+1) == 0) edge = 1\n      }\n      if (edge == 1) nedge = nedge + 1\n      t = 2*r - nr - 1\n      u = 2*c - nc - 1\n      d2 = t*t + u*u\n      if (100*d2 < 9*maxd2) nring = nring + 1\n    }\n  }\n}\n\ndo r = 1, nr {\n  do j = 1, nc {\n    vis(r,j) = 0\n  }\n}\nnclus = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call flood(g, vis, nr, nc, r, c, 4, sr, sc, sz)\n      if (sz >= 2) nclus = nclus + 1\n    }\n  }\n}\n\ndo r = 1, nr {\n  do j = 1, nc {\n    vis(r,j) = 0\n  }\n}\nbig = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call flood(g, vis, nr, nc, r, c, 8, sr, sc, sz)\n      if (sz > big) big = sz\n    }\n  }\n}\n\nwrite(6,*) nclus, nedge, ndies, nring, big\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 5,
+   "guards": "G2",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 750,
+   "audit_total": 750,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 9.0,
+   "final_code": "subroutine fill(g, vis, sr, sc, r0, c0, diag, sz)\ninteger g(258,258), vis(258,258), sr(66564), sc(66564)\ninteger r0, c0, diag, sz\ninteger top, r, c, dr, dc, nr, nc\nvis(r0,c0) = 1\ntop = 1\nsr(1) = r0\nsc(1) = c0\nsz = 0\nwhile (top > 0) {\n  r = sr(top)\n  c = sc(top)\n  top = top - 1\n  sz = sz + 1\n  for (dr = -1; dr <= 1; dr = dr + 1) {\n    for (dc = -1; dc <= 1; dc = dc + 1) {\n      if (dr == 0 & dc == 0) next\n      if (diag == 0 & dr != 0 & dc != 0) next\n      nr = r + dr\n      nc = c + dc\n      if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n        vis(nr,nc) = 1\n        top = top + 1\n        sr(top) = nr\n        sc(top) = nc\n      }\n    }\n  }\n}\nend\n\ninteger g(258,258), vis(258,258), sr(66564), sc(66564)\ninteger R, C, i, j, sz, nclus, efail, ndies, nring, lmax\ninteger dr, dc, nb\ninteger*8 d2, d2max\n\nread(5,*) R, C\ndo i = 1, R {\n  read(5,*) (g(i+1,j+1), j = 1, C)\n}\n\n# phase 1: clusters of failing dies, 4-connectivity, size >= 2\ndo i = 1, R+2 {\n  do j = 1, C+2 {\n    vis(i,j) = 0\n  }\n}\nnclus = 0\ndo i = 2, R+1 {\n  do j = 2, C+1 {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      call fill(g, vis, sr, sc, i, j, 0, sz)\n      if (sz >= 2) nclus = nclus + 1\n    }\n  }\n}\n\n# phase 2 and 3: edge fails and dies, plus largest d2 over dies\nefail = 0\nndies = 0\nd2max = 0\ndo i = 2, R+1 {\n  do j = 2, C+1 {\n    if (g(i,j) == 1 | g(i,j) == 2) {\n      ndies = ndies + 1\n      dr = 2*(i-1) - (R+1)\n      dc = 2*(j-1) - (C+1)\n      d2 = dr*dr + dc*dc\n      if (d2 > d2max) d2max = d2\n    }\n    if (g(i,j) == 2) {\n      nb = 0\n      if (g(i-1,j) == 0) nb = 1\n      if (g(i+1,j) == 0) nb = 1\n      if (g(i,j-1) == 0) nb = 1\n      if (g(i,j+1) == 0) nb = 1\n      if (nb == 1) efail = efail + 1\n    }\n  }\n}\n\n# phase 4: ring fails, 0% to 30% band\nnring = 0\ndo i = 2, R+1 {\n  do j = 2, C+1 {\n    if (g(i,j) == 2) {\n      dr = 2*(i-1) - (R+1)\n      dc = 2*(j-1) - (C+1)\n      d2 = dr*dr + dc*dc\n      if (10000*d2 < 900*d2max) nring = nring + 1\n    }\n  }\n}\n\n# phase 5: largest cluster of failing dies, 8-connectivity\ndo i = 1, R+2 {\n  do j = 1, C+2 {\n    vis(i,j) = 0\n  }\n}\nlmax = 0\ndo i = 2, R+1 {\n  do j = 2, C+1 {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      call fill(g, vis, sr, sc, i, j, 1, sz)\n      if (sz > lmax) lmax = sz\n    }\n  }\n}\n\nwrite(6,*) nclus, efail, ndies, nring, lmax\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 5,
+   "guards": "G2",
+   "rep": 2,
+   "accepted": false,
+   "attempts": 3,
+   "stages": [
+    "fortran",
+    "examples",
+    "examples"
+   ],
+   "audit_right": 640,
+   "audit_total": 750,
+   "audit_wrong_kinds": {
+    "ring_fails(lo=0, hi=30)": 110
+   },
+   "first_right": false,
+   "replay": {},
+   "stop": "attempt 3 gave the same errors as attempt 2; stopped (the agent is not fixing them)",
+   "llm_s": 27.0,
+   "llm_calls": 2,
+   "seconds": 57.2,
+   "final_code": "integer nrow, ncol, g(256,256), vis(256,256), sr(65536), sc(65536), sp\ncommon /wafer/ nrow, ncol, g, vis, sr, sc, sp\ninteger r, c, ncl, big, sz, efail, dies, rfail, cellv\ninteger*8 a, b, dd, dmax, lo2, hi2, dd10k\n\nread(5,*) nrow, ncol\ndo r = 1, nrow {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\n\ndies = 0\ndmax = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      a = 2*r - (nrow-1)\n      b = 2*c - (ncol-1)\n      dd = a*a + b*b\n      if (dd > dmax) dmax = dd\n    }\n  }\n}\n\n# ring: lo=0, hi=30 percent; D2 = dmax\n# counts failing die iff 0*D2 <= 10000*d2 and 10000*d2 < 900*D2\nlo2 = 0\nhi2 = 900\n\nrfail = 0\nefail = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) {\n      a = 2*r - (nrow-1)\n      b = 2*c - (ncol-1)\n      dd = a*a + b*b\n      dd10k = 10000*dd\n      if (lo2*dmax <= dd10k & dd10k < hi2*dmax) rfail = rfail + 1\n      if (cellv(r-1,c) == 0 | cellv(r+1,c) == 0 | cellv(r,c-1) == 0 | cellv(r,c+1) == 0) efail = efail + 1\n    }\n  }\n}\n\ndo r = 1, nrow {\n  do c = 1, ncol {\n    vis(r,c) = 0\n  }\n}\n\nncl = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call fill(r, c, 4, sz)\n      if (sz >= 2) ncl = ncl + 1\n    }\n  }\n}\n\ndo r = 1, nrow {\n  do c = 1, ncol {\n    vis(r,c) = 0\n  }\n}\n\nbig = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call fill(r, c, 8, sz)\n      if (sz > big) big = sz\n    }\n  }\n}\n\nwrite(6,*) ncl, efail, dies, rfail, big\nend\n\nsubroutine fill(r0, c0, conn, sz)\ninteger r0, c0, conn, sz, r, c, dr, dc, nr, nc\ninteger nrow, ncol, g(256,256), vis(256,256), sr(65536), sc(65536), sp\ncommon /wafer/ nrow, ncol, g, vis, sr, sc, sp\n\nsp = 1\nsr(1) = r0\nsc(1) = c0\nvis(r0,c0) = 1\nsz = 0\nwhile (sp > 0) {\n  r = sr(sp)\n  c = sc(sp)\n  sp = sp - 1\n  sz = sz + 1\n  for (dr = -1; dr <= 1; dr = dr + 1)\n    for (dc = -1; dc <= 1; dc = dc + 1) {\n      if (dr == 0 & dc == 0) next\n      if (conn == 4 & dr != 0 & dc != 0) next\n      nr = r + dr\n      nc = c + dc\n      if (nr < 1 | nr > nrow) next\n      if (nc < 1 | nc > ncol) next\n      if (g(nr,nc) != 2) next\n      if (vis(nr,nc) != 0) next\n      vis(nr,nc) = 1\n      sp = sp + 1\n      sr(sp) = nr\n      sc(sp) = nc\n    }\n}\nreturn\nend\n\ninteger function cellv(r, c)\ninteger r, c\ninteger nrow, ncol, g(256,256), vis(256,256), sr(65536), sc(65536), sp\ncommon /wafer/ nrow, ncol, g, vis, sr, sc, sp\n\nif (r < 1 | r > nrow | c < 1 | c > ncol) {\n  cellv = 0\n} else {\n  cellv = g(r,c)\n}\nreturn\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 6,
+   "guards": "G0",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 629,
+   "audit_total": 750,
+   "audit_wrong_kinds": {
+    "ring_fails(lo=70, hi=100)": 121
+   },
+   "first_right": false,
+   "replay": {
+    "G1": true,
+    "G2": true
+   },
+   "stop": null,
+   "llm_s": 38.3,
+   "llm_calls": 2,
+   "seconds": 47.7,
+   "final_code": "subroutine flood(g, vis, nrw, ncl, sri, sci, cn, sz, stkr, stkc)\ninteger nrw, ncl, sri, sci, cn, sz\ninteger g(256,256), vis(256,256), stkr(65536), stkc(65536)\ninteger top, pr, pc, dr, dc, qr, qc\ntop = 1\nstkr(1) = sri\nstkc(1) = sci\nvis(sri,sci) = 1\nsz = 0\nwhile (top > 0) {\n  pr = stkr(top)\n  pc = stkc(top)\n  top = top - 1\n  sz = sz + 1\n  for (dr = -1; dr <= 1; dr = dr + 1) {\n    for (dc = -1; dc <= 1; dc = dc + 1) {\n      if (dr == 0 & dc == 0) next\n      if (cn == 4 & dr != 0 & dc != 0) next\n      qr = pr + dr\n      qc = pc + dc\n      if (qr < 1 | qr > nrw | qc < 1 | qc > ncl) next\n      if (g(qr,qc) == 2 & vis(qr,qc) == 0) {\n        vis(qr,qc) = 1\n        top = top + 1\n        stkr(top) = qr\n        stkc(top) = qc\n      }\n    }\n  }\n}\nreturn\nend\n\ninteger g(256,256), vis(256,256), stkr(65536), stkc(65536)\ninteger nrow, ncol, i, j, fails, dies, big4, ncl8, sz, ri, ci, ring\ninteger*8 dmax2, dd, lhs, rhs\n\nread(5,*) nrow, ncol\ndo i = 1, nrow {\n  read(5,*) (g(i,j), j = 1, ncol)\n}\n\nfails = 0\ndies = 0\ndo i = 1, nrow {\n  do j = 1, ncol {\n    if (g(i,j) == 2) fails = fails + 1\n    if (g(i,j) == 1 | g(i,j) == 2) dies = dies + 1\n  }\n}\n\ndo i = 1, nrow {\n  do j = 1, ncol {\n    vis(i,j) = 0\n  }\n}\n\nbig4 = 0\ndo i = 1, nrow {\n  do j = 1, ncol {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      call flood(g, vis, nrow, ncol, i, j, 4, sz, stkr, stkc)\n      if (sz > big4) big4 = sz\n    }\n  }\n}\n\ndo i = 1, nrow {\n  do j = 1, ncol {\n    vis(i,j) = 0\n  }\n}\n\nncl8 = 0\ndo i = 1, nrow {\n  do j = 1, ncol {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      call flood(g, vis, nrow, ncol, i, j, 8, sz, stkr, stkc)\n      if (sz >= 5) ncl8 = ncl8 + 1\n    }\n  }\n}\n\ndmax2 = 0\ndo i = 1, nrow {\n  do j = 1, ncol {\n    if (g(i,j) == 1 | g(i,j) == 2) {\n      ri = 2*i - (nrow - 1)\n      ci = 2*j - (ncol - 1)\n      dd = ri*ri + ci*ci\n      if (dd > dmax2) dmax2 = dd\n    }\n  }\n}\n\nring = 0\ndo i = 1, nrow {\n  do j = 1, ncol {\n    if (g(i,j) == 2) {\n      ri = 2*i - (nrow - 1)\n      ci = 2*j - (ncol - 1)\n      dd = ri*ri + ci*ci\n      lhs = 4900 * dmax2\n      rhs = 10000 * dd\n      if (lhs <= rhs) ring = ring + 1\n    }\n  }\n}\n\nwrite(6,*) fails, big4, ncl8, dies, ring\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 6,
+   "guards": "G0",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 750,
+   "audit_total": 750,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 20.8,
+   "llm_calls": 1,
+   "seconds": 29.7,
+   "final_code": "integer R, C, i, j, fails, dies, mx, ncl8, sz, ringf, a, b\ninteger grid(256,256), v4(256,256), v8(256,256)\ninteger*8 d2, dmax, lhs, rhs\nread(5,*) R, C\ndo i = 1, R {\n  read(5,*) (grid(i,j), j = 1, C)\n}\ndo i = 1, 256 {\n  do j = 1, 256 {\n    v4(i,j) = 0\n    v8(i,j) = 0\n  }\n}\nfails = 0\ndies = 0\ndmax = 0\ndo i = 1, R {\n  do j = 1, C {\n    if (grid(i,j) == 2) fails = fails + 1\n    if (grid(i,j) == 1 | grid(i,j) == 2) {\n      dies = dies + 1\n      a = 2*i - R - 1\n      b = 2*j - C - 1\n      d2 = a*a + b*b\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\nmx = 0\nncl8 = 0\ndo i = 1, R {\n  do j = 1, C {\n    if (grid(i,j) == 2 & v4(i,j) == 0) {\n      call flood(grid, v4, R, C, i, j, 4, sz)\n      if (sz > mx) mx = sz\n    }\n    if (grid(i,j) == 2 & v8(i,j) == 0) {\n      call flood(grid, v8, R, C, i, j, 8, sz)\n      if (sz >= 5) ncl8 = ncl8 + 1\n    }\n  }\n}\nringf = 0\nlhs = 4900*dmax\ndo i = 1, R {\n  do j = 1, C {\n    if (grid(i,j) == 2) {\n      a = 2*i - R - 1\n      b = 2*j - C - 1\n      d2 = a*a + b*b\n      rhs = 10000*d2\n      if (lhs <= rhs) ringf = ringf + 1\n    }\n  }\n}\nwrite(6,*) fails, mx, ncl8, dies, ringf\nend\n\nsubroutine flood(g, vis, n, m, si, sj, conn, sz)\ninteger n, m, si, sj, conn, sz\ninteger g(256,256), vis(256,256)\ninteger sr(65536), sc(65536), sp, cr, cc, dr, dc, nr, nc\nvis(si,sj) = 1\nsp = 1\nsr(1) = si\nsc(1) = sj\nsz = 0\nwhile (sp > 0) {\n  cr = sr(sp)\n  cc = sc(sp)\n  sp = sp - 1\n  sz = sz + 1\n  for (dr = -1; dr <= 1; dr = dr + 1) {\n    for (dc = -1; dc <= 1; dc = dc + 1) {\n      if (dr == 0 & dc == 0) next\n      if (conn == 4 & dr != 0 & dc != 0) next\n      nr = cr + dr\n      nc = cc + dc\n      if (nr < 1 | nr > n | nc < 1 | nc > m) next\n      if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n        vis(nr,nc) = 1\n        sp = sp + 1\n        sr(sp) = nr\n        sc(sp) = nc\n      }\n    }\n  }\n}\nreturn\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 6,
+   "guards": "G0",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 381,
+   "audit_total": 750,
+   "audit_wrong_kinds": {
+    "largest_cluster(connectivity=4)": 141,
+    "clusters(connectivity=8, min_size=5)": 107,
+    "ring_fails(lo=70, hi=100)": 121
+   },
+   "first_right": false,
+   "replay": {
+    "G1": true,
+    "G2": true
+   },
+   "stop": null,
+   "llm_s": 29.0,
+   "llm_calls": 1,
+   "seconds": 36.1,
+   "final_code": "integer nr, nc, r, c, i, j, fails, dies, lg4, cl8, sz, ring\ninteger g(256,256), seen(256,256), stk(65536)\ninteger*8 d2, bigd, lhs, rhs, t1, t2\n\nread(5,*) nr, nc\nfor (r = 1; r <= nr; r = r + 1) {\n  read(5,*) (g(r,j), j = 1, nc)\n}\n\nfails = 0\ndies = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2) fails = fails + 1\n    if (g(r,c) >= 1) dies = dies + 1\n  }\n}\n\n# largest 4-connected cluster of failing dies\nfor (i = 1; i <= nr; i = i + 1) {\n  for (j = 1; j <= nc; j = j + 1) seen(i,j) = 0\n}\nlg4 = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2 & seen(r,c) == 0) {\n      call flood(g, nr, nc, seen, stk, r, c, 4, sz)\n      if (sz > lg4) lg4 = sz\n    }\n  }\n}\n\n# count 8-connected clusters of failing dies with size >= 5\nfor (i = 1; i <= nr; i = i + 1) {\n  for (j = 1; j <= nc; j = j + 1) seen(i,j) = 0\n}\ncl8 = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2 & seen(r,c) == 0) {\n      call flood(g, nr, nc, seen, stk, r, c, 8, sz)\n      if (sz >= 5) cl8 = cl8 + 1\n    }\n  }\n}\n\n# largest squared distance D2 over all dies\nbigd = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) >= 1) {\n      t1 = 2*r - (nr - 1)\n      t2 = 2*c - (nc - 1)\n      d2 = t1*t1 + t2*t2\n      if (d2 > bigd) bigd = d2\n    }\n  }\n}\n\n# failing dies with 70^2 * D2 <= 10000 * d2\nring = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2) {\n      t1 = 2*r - (nr - 1)\n      t2 = 2*c - (nc - 1)\n      d2 = t1*t1 + t2*t2\n      lhs = 4900*bigd\n      rhs = 10000*d2\n      if (lhs <= rhs) ring = ring + 1\n    }\n  }\n}\n\nwrite(6,*) fails, lg4, cl8, dies, ring\nend\n\nsubroutine flood(g, nr, nc, seen, stk, r0, c0, conn, sz)\ninteger nr, nc, r0, c0, conn, sz\ninteger g(nr,nc), seen(nr,nc), stk(65536)\ninteger top, cur, r, c, k, nd, rr, cc\ninteger dr(8), dc(8)\ndata dr /-1,1,0,0,-1,-1,1,1/\ndata dc /0,0,-1,1,-1,1,-1,1/\n\nnd = 8\nif (conn == 4) nd = 4\nsz = 0\ntop = 1\nstk(1) = r0*512 + c0\nseen(r0,c0) = 1\nwhile (top > 0) {\n  cur = stk(top)\n  top = top - 1\n  r = cur/512\n  c = mod(cur,512)\n  sz = sz + 1\n  for (k = 1; k <= nd; k = k + 1) {\n    rr = r + dr(k)\n    cc = c + dc(k)\n    if (rr >= 1 & rr <= nr & cc >= 1 & cc <= nc) {\n      if (g(rr,cc) == 2 & seen(rr,cc) == 0) {\n        seen(rr,cc) = 1\n        top = top + 1\n        stk(top) = rr*512 + cc\n      }\n    }\n  }\n}\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 6,
+   "guards": "G1",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 3,
+   "stages": [
+    "fortran",
+    "examples",
+    "ok"
+   ],
+   "audit_right": 750,
+   "audit_total": 750,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 27.5,
+   "llm_calls": 2,
+   "seconds": 37.9,
+   "final_code": "subroutine flood(g, vis, nr, nc, sr, sc, conn, sz, stkr, stkc)\ninteger nr, nc, sr, sc, conn, sz\ninteger g(256,256), vis(256,256), stkr(65536), stkc(65536)\ninteger top, cr, cc, dr, dc, nr2, nc2\ntop = 1\nstkr(1) = sr\nstkc(1) = sc\nvis(sr,sc) = 1\nsz = 0\nwhile (top > 0) {\n  cr = stkr(top)\n  cc = stkc(top)\n  top = top - 1\n  sz = sz + 1\n  for (dr = -1; dr <= 1; dr = dr + 1)\n    for (dc = -1; dc <= 1; dc = dc + 1) {\n      if (dr == 0 & dc == 0) next\n      if (conn == 4 & dr != 0 & dc != 0) next\n      nr2 = cr + dr\n      nc2 = cc + dc\n      if (nr2 < 1 | nr2 > nr | nc2 < 1 | nc2 > nc) next\n      if (g(nr2,nc2) == 2 & vis(nr2,nc2) == 0) {\n        vis(nr2,nc2) = 1\n        top = top + 1\n        stkr(top) = nr2\n        stkc(top) = nc2\n      }\n    }\n}\nreturn\nend\n\ninteger g(256,256), vis(256,256), stkr(65536), stkc(65536)\ninteger nrow, ncol, r, c, fails, dies, big4, nclus8, sz, rr, cc, ring\ninteger*8 d2, d2max, lhs, rhs\n\nread(5,*) nrow, ncol\ndo r = 1, nrow {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\n\nfails = 0\ndies = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) fails = fails + 1\n    if (g(r,c) == 1 | g(r,c) == 2) dies = dies + 1\n  }\n}\n\ndo r = 1, nrow {\n  do c = 1, ncol {\n    vis(r,c) = 0\n  }\n}\n\nbig4 = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call flood(g, vis, nrow, ncol, r, c, 4, sz, stkr, stkc)\n      if (sz > big4) big4 = sz\n    }\n  }\n}\n\ndo r = 1, nrow {\n  do c = 1, ncol {\n    vis(r,c) = 0\n  }\n}\n\nnclus8 = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call flood(g, vis, nrow, ncol, r, c, 8, sz, stkr, stkc)\n      if (sz >= 5) nclus8 = nclus8 + 1\n    }\n  }\n}\n\nd2max = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 1 | g(r,c) == 2) {\n      rr = 2*(r-1) - (nrow - 1)\n      cc = 2*(c-1) - (ncol - 1)\n      d2 = rr*rr + cc*cc\n      if (d2 > d2max) d2max = d2\n    }\n  }\n}\n\nring = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) {\n      rr = 2*(r-1) - (nrow - 1)\n      cc = 2*(c-1) - (ncol - 1)\n      d2 = rr*rr + cc*cc\n      lhs = 4900*d2max\n      rhs = 10000*d2\n      if (lhs <= rhs) ring = ring + 1\n    }\n  }\n}\n\nwrite(6,*) fails, big4, nclus8, dies, ring\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 6,
+   "guards": "G1",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 750,
+   "audit_total": 750,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 29.5,
+   "final_code": "integer R, C, i, j, fails, dies, mx, ncl8, sz, ringf, a, b\ninteger grid(256,256), v4(256,256), v8(256,256)\ninteger*8 d2, dmax, lhs, rhs\nread(5,*) R, C\ndo i = 1, R {\n  read(5,*) (grid(i,j), j = 1, C)\n}\ndo i = 1, 256 {\n  do j = 1, 256 {\n    v4(i,j) = 0\n    v8(i,j) = 0\n  }\n}\nfails = 0\ndies = 0\ndmax = 0\ndo i = 1, R {\n  do j = 1, C {\n    if (grid(i,j) == 2) fails = fails + 1\n    if (grid(i,j) == 1 | grid(i,j) == 2) {\n      dies = dies + 1\n      a = 2*i - R - 1\n      b = 2*j - C - 1\n      d2 = a*a + b*b\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\nmx = 0\nncl8 = 0\ndo i = 1, R {\n  do j = 1, C {\n    if (grid(i,j) == 2 & v4(i,j) == 0) {\n      call flood(grid, v4, R, C, i, j, 4, sz)\n      if (sz > mx) mx = sz\n    }\n    if (grid(i,j) == 2 & v8(i,j) == 0) {\n      call flood(grid, v8, R, C, i, j, 8, sz)\n      if (sz >= 5) ncl8 = ncl8 + 1\n    }\n  }\n}\nringf = 0\nlhs = 4900*dmax\ndo i = 1, R {\n  do j = 1, C {\n    if (grid(i,j) == 2) {\n      a = 2*i - R - 1\n      b = 2*j - C - 1\n      d2 = a*a + b*b\n      rhs = 10000*d2\n      if (lhs <= rhs) ringf = ringf + 1\n    }\n  }\n}\nwrite(6,*) fails, mx, ncl8, dies, ringf\nend\n\nsubroutine flood(g, vis, n, m, si, sj, conn, sz)\ninteger n, m, si, sj, conn, sz\ninteger g(256,256), vis(256,256)\ninteger sr(65536), sc(65536), sp, cr, cc, dr, dc, nr, nc\nvis(si,sj) = 1\nsp = 1\nsr(1) = si\nsc(1) = sj\nsz = 0\nwhile (sp > 0) {\n  cr = sr(sp)\n  cc = sc(sp)\n  sp = sp - 1\n  sz = sz + 1\n  for (dr = -1; dr <= 1; dr = dr + 1) {\n    for (dc = -1; dc <= 1; dc = dc + 1) {\n      if (dr == 0 & dc == 0) next\n      if (conn == 4 & dr != 0 & dc != 0) next\n      nr = cr + dr\n      nc = cc + dc\n      if (nr < 1 | nr > n | nc < 1 | nc > m) next\n      if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n        vis(nr,nc) = 1\n        sp = sp + 1\n        sr(sp) = nr\n        sc(sp) = nc\n      }\n    }\n  }\n}\nreturn\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 6,
+   "guards": "G1",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 3,
+   "stages": [
+    "examples",
+    "examples",
+    "ok"
+   ],
+   "audit_right": 750,
+   "audit_total": 750,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 51.2,
+   "llm_calls": 2,
+   "seconds": 88.3,
+   "final_code": "integer nr, nc, r, c, i, j, fails, dies, lg4, cl8, sz, ring\ninteger g(256,256), seen(256,256), stk(65536)\ninteger*8 d2, bigd, lhs, rhs, t1, t2\n\nread(5,*) nr, nc\nfor (r = 1; r <= nr; r = r + 1) {\n  read(5,*) (g(r,j), j = 1, nc)\n}\n\nfails = 0\ndies = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2) fails = fails + 1\n    if (g(r,c) >= 1) dies = dies + 1\n  }\n}\n\n# largest 4-connected cluster of failing dies\nfor (i = 1; i <= 256; i = i + 1) {\n  for (j = 1; j <= 256; j = j + 1) seen(i,j) = 0\n}\nlg4 = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2 & seen(r,c) == 0) {\n      call flood(g, nr, nc, seen, stk, r, c, 4, sz)\n      if (sz > lg4) lg4 = sz\n    }\n  }\n}\n\n# count 8-connected clusters of failing dies with size >= 5\nfor (i = 1; i <= 256; i = i + 1) {\n  for (j = 1; j <= 256; j = j + 1) seen(i,j) = 0\n}\ncl8 = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2 & seen(r,c) == 0) {\n      call flood(g, nr, nc, seen, stk, r, c, 8, sz)\n      if (sz >= 5) cl8 = cl8 + 1\n    }\n  }\n}\n\n# largest squared distance D2 over all dies (r, c counted from 0)\nbigd = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) >= 1) {\n      t1 = 2*(r-1) - (nr - 1)\n      t2 = 2*(c-1) - (nc - 1)\n      d2 = t1*t1 + t2*t2\n      if (d2 > bigd) bigd = d2\n    }\n  }\n}\n\n# failing dies with 70^2 * D2 <= 10000 * d2 (r, c counted from 0)\nring = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2) {\n      t1 = 2*(r-1) - (nr - 1)\n      t2 = 2*(c-1) - (nc - 1)\n      d2 = t1*t1 + t2*t2\n      lhs = 4900*bigd\n      rhs = 10000*d2\n      if (lhs <= rhs) ring = ring + 1\n    }\n  }\n}\n\nwrite(6,*) fails, lg4, cl8, dies, ring\nend\n\nsubroutine flood(g, nr, nc, seen, stk, r0, c0, conn, sz)\ninteger nr, nc, r0, c0, conn, sz\ninteger g(256,256), seen(256,256), stk(65536)\ninteger top, cur, r, c, k, nd, rr, cc\ninteger dr(8), dc(8)\ndata dr /-1,1,0,0,-1,-1,1,1/\ndata dc /0,0,-1,1,-1,1,-1,1/\n\nnd = 8\nif (conn == 4) nd = 4\nsz = 0\ntop = 1\nstk(1) = r0*512 + c0\nseen(r0,c0) = 1\nwhile (top > 0) {\n  cur = stk(top)\n  top = top - 1\n  r = cur/512\n  c = mod(cur,512)\n  sz = sz + 1\n  for (k = 1; k <= nd; k = k + 1) {\n    rr = r + dr(k)\n    cc = c + dc(k)\n    if (rr >= 1 & rr <= nr & cc >= 1 & cc <= nc) {\n      if (g(rr,cc) == 2 & seen(rr,cc) == 0) {\n        seen(rr,cc) = 1\n        top = top + 1\n        stk(top) = rr*512 + cc\n      }\n    }\n  }\n}\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 6,
+   "guards": "G2",
+   "rep": 0,
+   "accepted": false,
+   "attempts": 3,
+   "stages": [
+    "fortran",
+    "examples",
+    "examples"
+   ],
+   "audit_right": 629,
+   "audit_total": 750,
+   "audit_wrong_kinds": {
+    "ring_fails(lo=70, hi=100)": 121
+   },
+   "first_right": false,
+   "replay": {},
+   "stop": "attempt 3 gave the same errors as attempt 2; stopped (the agent is not fixing them)",
+   "llm_s": 43.3,
+   "llm_calls": 2,
+   "seconds": 52.9,
+   "final_code": "subroutine flood(g, vis, nr, nc, sr, sc, conn, sz, stkr, stkc)\ninteger nr, nc, sr, sc, conn, sz\ninteger g(256,256), vis(256,256), stkr(65536), stkc(65536)\ninteger top, pr, pc, dr, dc, nr2, nc2\ntop = 1\nstkr(1) = sr\nstkc(1) = sc\nvis(sr,sc) = 1\nsz = 0\nwhile (top > 0) {\n  pr = stkr(top)\n  pc = stkc(top)\n  top = top - 1\n  sz = sz + 1\n  for (dr = -1; dr <= 1; dr = dr + 1)\n    for (dc = -1; dc <= 1; dc = dc + 1) {\n      if (dr == 0 & dc == 0) next\n      if (conn == 4 & dr != 0 & dc != 0) next\n      nr2 = pr + dr\n      nc2 = pc + dc\n      if (nr2 < 1 | nr2 > nr | nc2 < 1 | nc2 > nc) next\n      if (g(nr2,nc2) == 2 & vis(nr2,nc2) == 0) {\n        vis(nr2,nc2) = 1\n        top = top + 1\n        stkr(top) = nr2\n        stkc(top) = nc2\n      }\n    }\n}\nreturn\nend\n\ninteger g(256,256), vis(256,256), stkr(65536), stkc(65536)\ninteger nrow, ncol, r, c, fails, dies, big4, nclus8, sz, rr, cc, ring\ninteger D2i, d2\ndouble precision lhs, rhs\n\nread(5,*) nrow, ncol\ndo r = 1, nrow {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\n\nfails = 0\ndies = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) fails = fails + 1\n    if (g(r,c) == 1 | g(r,c) == 2) dies = dies + 1\n  }\n}\n\ndo r = 1, nrow {\n  do c = 1, ncol {\n    vis(r,c) = 0\n  }\n}\n\nbig4 = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call flood(g, vis, nrow, ncol, r, c, 4, sz, stkr, stkc)\n      if (sz > big4) big4 = sz\n    }\n  }\n}\n\ndo r = 1, nrow {\n  do c = 1, ncol {\n    vis(r,c) = 0\n  }\n}\n\nnclus8 = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      call flood(g, vis, nrow, ncol, r, c, 8, sz, stkr, stkc)\n      if (sz >= 5) nclus8 = nclus8 + 1\n    }\n  }\n}\n\nD2i = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 1 | g(r,c) == 2) {\n      rr = 2*r - (nrow - 1)\n      cc = 2*c - (ncol - 1)\n      d2 = rr*rr + cc*cc\n      if (d2 > D2i) D2i = d2\n    }\n  }\n}\n\nring = 0\ndo r = 1, nrow {\n  do c = 1, ncol {\n    if (g(r,c) == 2) {\n      rr = 2*r - (nrow - 1)\n      cc = 2*c - (ncol - 1)\n      d2 = rr*rr + cc*cc\n      lhs = 4900d0 * dble(D2i)\n      rhs = 10000d0 * dble(d2)\n      if (lhs <= rhs) ring = ring + 1\n    }\n  }\n}\n\nwrite(6,*) fails, big4, nclus8, dies, ring\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 6,
+   "guards": "G2",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 750,
+   "audit_total": 750,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 8.2,
+   "final_code": "integer R, C, i, j, fails, dies, mx, ncl8, sz, ringf, a, b\ninteger grid(256,256), v4(256,256), v8(256,256)\ninteger*8 d2, dmax, lhs, rhs\nread(5,*) R, C\ndo i = 1, R {\n  read(5,*) (grid(i,j), j = 1, C)\n}\ndo i = 1, 256 {\n  do j = 1, 256 {\n    v4(i,j) = 0\n    v8(i,j) = 0\n  }\n}\nfails = 0\ndies = 0\ndmax = 0\ndo i = 1, R {\n  do j = 1, C {\n    if (grid(i,j) == 2) fails = fails + 1\n    if (grid(i,j) == 1 | grid(i,j) == 2) {\n      dies = dies + 1\n      a = 2*i - R - 1\n      b = 2*j - C - 1\n      d2 = a*a + b*b\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\nmx = 0\nncl8 = 0\ndo i = 1, R {\n  do j = 1, C {\n    if (grid(i,j) == 2 & v4(i,j) == 0) {\n      call flood(grid, v4, R, C, i, j, 4, sz)\n      if (sz > mx) mx = sz\n    }\n    if (grid(i,j) == 2 & v8(i,j) == 0) {\n      call flood(grid, v8, R, C, i, j, 8, sz)\n      if (sz >= 5) ncl8 = ncl8 + 1\n    }\n  }\n}\nringf = 0\nlhs = 4900*dmax\ndo i = 1, R {\n  do j = 1, C {\n    if (grid(i,j) == 2) {\n      a = 2*i - R - 1\n      b = 2*j - C - 1\n      d2 = a*a + b*b\n      rhs = 10000*d2\n      if (lhs <= rhs) ringf = ringf + 1\n    }\n  }\n}\nwrite(6,*) fails, mx, ncl8, dies, ringf\nend\n\nsubroutine flood(g, vis, n, m, si, sj, conn, sz)\ninteger n, m, si, sj, conn, sz\ninteger g(256,256), vis(256,256)\ninteger sr(65536), sc(65536), sp, cr, cc, dr, dc, nr, nc\nvis(si,sj) = 1\nsp = 1\nsr(1) = si\nsc(1) = sj\nsz = 0\nwhile (sp > 0) {\n  cr = sr(sp)\n  cc = sc(sp)\n  sp = sp - 1\n  sz = sz + 1\n  for (dr = -1; dr <= 1; dr = dr + 1) {\n    for (dc = -1; dc <= 1; dc = dc + 1) {\n      if (dr == 0 & dc == 0) next\n      if (conn == 4 & dr != 0 & dc != 0) next\n      nr = cr + dr\n      nc = cc + dc\n      if (nr < 1 | nr > n | nc < 1 | nc > m) next\n      if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n        vis(nr,nc) = 1\n        sp = sp + 1\n        sr(sp) = nr\n        sc(sp) = nc\n      }\n    }\n  }\n}\nreturn\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 6,
+   "guards": "G2",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "examples",
+    "ok"
+   ],
+   "audit_right": 750,
+   "audit_total": 750,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 13.9,
+   "llm_calls": 1,
+   "seconds": 58.2,
+   "final_code": "integer nr, nc, r, c, i, j, fails, dies, lg4, cl8, sz, ring\ninteger g(256,256), seen(256,256), stk(65536)\ninteger*8 d2, bigd, lhs, rhs, t1, t2\n\nread(5,*) nr, nc\nfor (r = 1; r <= nr; r = r + 1) {\n  read(5,*) (g(r,j), j = 1, nc)\n}\n\nfails = 0\ndies = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2) fails = fails + 1\n    if (g(r,c) >= 1) dies = dies + 1\n  }\n}\n\n# largest 4-connected cluster of failing dies\nfor (i = 1; i <= nr; i = i + 1) {\n  for (j = 1; j <= nc; j = j + 1) seen(i,j) = 0\n}\nlg4 = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2 & seen(r,c) == 0) {\n      call flood(g, seen, stk, nr, nc, r, c, 4, sz)\n      if (sz > lg4) lg4 = sz\n    }\n  }\n}\n\n# count 8-connected clusters of failing dies with size >= 5\nfor (i = 1; i <= nr; i = i + 1) {\n  for (j = 1; j <= nc; j = j + 1) seen(i,j) = 0\n}\ncl8 = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2 & seen(r,c) == 0) {\n      call flood(g, seen, stk, nr, nc, r, c, 8, sz)\n      if (sz >= 5) cl8 = cl8 + 1\n    }\n  }\n}\n\n# largest squared distance D2 over all dies (0-based row/column indices)\nbigd = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) >= 1) {\n      t1 = 2*(r-1) - (nr - 1)\n      t2 = 2*(c-1) - (nc - 1)\n      d2 = t1*t1 + t2*t2\n      if (d2 > bigd) bigd = d2\n    }\n  }\n}\n\n# failing dies with 70^2 * D2 <= 10000 * d2\nring = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2) {\n      t1 = 2*(r-1) - (nr - 1)\n      t2 = 2*(c-1) - (nc - 1)\n      d2 = t1*t1 + t2*t2\n      lhs = 4900*bigd\n      rhs = 10000*d2\n      if (lhs <= rhs) ring = ring + 1\n    }\n  }\n}\n\nwrite(6,*) fails, lg4, cl8, dies, ring\nend\n\nsubroutine flood(g, seen, stk, nr, nc, r0, c0, conn, sz)\ninteger nr, nc, r0, c0, conn, sz\ninteger g(256,256), seen(256,256), stk(65536)\ninteger top, cur, r, c, k, nd, rr, cc\ninteger dr(8), dc(8)\ndata dr /-1,1,0,0,-1,-1,1,1/\ndata dc /0,0,-1,1,-1,1,-1,1/\n\nnd = 8\nif (conn == 4) nd = 4\nsz = 0\ntop = 1\nstk(1) = r0*512 + c0\nseen(r0,c0) = 1\nwhile (top > 0) {\n  cur = stk(top)\n  top = top - 1\n  r = cur/512\n  c = mod(cur,512)\n  sz = sz + 1\n  for (k = 1; k <= nd; k = k + 1) {\n    rr = r + dr(k)\n    cc = c + dc(k)\n    if (rr >= 1 & rr <= nr & cc >= 1 & cc <= nc) {\n      if (g(rr,cc) == 2 & seen(rr,cc) == 0) {\n        seen(rr,cc) = 1\n        top = top + 1\n        stk(top) = rr*512 + cc\n      }\n    }\n  }\n}\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 7,
+   "guards": "G0",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 28.8,
+   "llm_calls": 2,
+   "seconds": 39.1,
+   "final_code": "integer nrow, ncol, i, j, k, g(256,256), vis(256,256)\ninteger sr(65536), sc(65536), top, cr, cc, nr, nc, sz, best\ninteger*8 dies, fails, ring, d2, dmax, yld, dr, dc\n\nread(5,*) nrow, ncol\nfor (i = 1; i <= nrow; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, ncol)\n}\n\ndies = 0\nfails = 0\ndmax = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    vis(i,j) = 0\n    if (g(i,j) != 0) {\n      dies = dies + 1\n      if (g(i,j) == 2) fails = fails + 1\n      dr = 2*i - nrow - 1\n      dc = 2*j - ncol - 1\n      d2 = dr*dr + dc*dc\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\n\nyld = 0\nif (dies > 0) yld = 1000 * (dies - fails) / dies\n\n# ring from lo=0 to hi=100 percent\nring = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2) {\n      dr = 2*i - nrow - 1\n      dc = 2*j - ncol - 1\n      d2 = dr*dr + dc*dc\n      if (0 <= 10000 * d2) ring = ring + 1\n    }\n  }\n}\n\n# largest 4-connected cluster of failing dies (iterative flood fill)\nbest = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      vis(i,j) = 1\n      top = 1\n      sr(1) = i\n      sc(1) = j\n      sz = 0\n      while (top > 0) {\n        cr = sr(top)\n        cc = sc(top)\n        top = top - 1\n        sz = sz + 1\n        for (k = 1; k <= 4; k = k + 1) {\n          if (k == 1) { nr = cr - 1; nc = cc }\n          else if (k == 2) { nr = cr + 1; nc = cc }\n          else if (k == 3) { nr = cr; nc = cc - 1 }\n          else { nr = cr; nc = cc + 1 }\n          if (nr >= 1 & nr <= nrow & nc >= 1 & nc <= ncol) {\n            if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n              vis(nr,nc) = 1\n              top = top + 1\n              sr(top) = nr\n              sc(top) = nc\n            }\n          }\n        }\n      }\n      if (sz > best) best = sz\n    }\n  }\n}\n\nwrite(6,*) yld, ring, dies, best\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 7,
+   "guards": "G0",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 30.0,
+   "llm_calls": 2,
+   "seconds": 35.7,
+   "final_code": "integer nrow, ncol, i, j, k, rr, cc, nr, nc, top, sz, best, dies, fails, yld\ninteger g(256,256), lab(256,256), sr(65536), sc(65536), dr(4), dc(4)\ninteger*8 a, b, d2, bigd2, lo, ringf\n\ndr(1) = -1; dc(1) = 0\ndr(2) = 1;  dc(2) = 0\ndr(3) = 0;  dc(3) = -1\ndr(4) = 0;  dc(4) = 1\n\nlo = 0\n\nread(5,*) nrow, ncol\nfor (i = 1; i <= nrow; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, ncol)\n}\n\n# pass 1: counts, largest d2 over dies, clear labels\ndies = 0; fails = 0; bigd2 = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    lab(i,j) = 0\n    if (g(i,j) != 0) {\n      dies = dies + 1\n      if (g(i,j) == 2) fails = fails + 1\n      a = 2*(i-1) - (nrow-1)\n      b = 2*(j-1) - (ncol-1)\n      d2 = a*a + b*b\n      if (d2 > bigd2) bigd2 = d2\n    }\n  }\n}\n\n# pass 2: ring count (lo=0 bound, 100% outer bound imposes no limit)\nringf = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2) {\n      a = 2*(i-1) - (nrow-1)\n      b = 2*(j-1) - (ncol-1)\n      d2 = a*a + b*b\n      if (lo*lo*bigd2 <= 10000*d2) ringf = ringf + 1\n    }\n  }\n}\n\n# pass 3: largest 4-connected cluster of failing dies (explicit stack)\nbest = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2 & lab(i,j) == 0) {\n      top = 1; sr(1) = i; sc(1) = j\n      lab(i,j) = 1\n      sz = 0\n      while (top > 0) {\n        rr = sr(top); cc = sc(top); top = top - 1\n        sz = sz + 1\n        for (k = 1; k <= 4; k = k + 1) {\n          nr = rr + dr(k); nc = cc + dc(k)\n          if (nr >= 1 & nr <= nrow & nc >= 1 & nc <= ncol) {\n            if (g(nr,nc) == 2 & lab(nr,nc) == 0) {\n              lab(nr,nc) = 1\n              top = top + 1; sr(top) = nr; sc(top) = nc\n            }\n          }\n        }\n      }\n      if (sz > best) best = sz\n    }\n  }\n}\n\nif (dies > 0) yld = 1000*(dies - fails)/dies\nelse yld = 0\n\nwrite(6,*) yld, ringf, dies, best\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 7,
+   "guards": "G0",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 25.7,
+   "llm_calls": 2,
+   "seconds": 30.8,
+   "final_code": "integer nr, nc, r, c, j, cr, cc, sp, dies, fails, best, size, yld, dd, ee\ninteger g(256,256), vis(256,256), sr(65536), sc(65536)\ninteger*8 d2, dmax, lhs, rhs, ringf\n\nread(5,*) nr, nc\nfor (r = 1; r <= nr; r = r + 1) {\n  read(5,*) (g(r,j), j = 1, nc)\n}\n\ndies = 0\nfails = 0\ndmax = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      if (g(r,c) == 2) fails = fails + 1\n      dd = 2*r - (nr - 1)\n      ee = 2*c - (nc - 1)\n      d2 = dd*dd + ee*ee\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\n\n# ring from lo=0 to hi=100: count failing dies with 0*dmax <= 10000*d2\nringf = 0\nlhs = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2) {\n      dd = 2*r - (nr - 1)\n      ee = 2*c - (nc - 1)\n      d2 = dd*dd + ee*ee\n      rhs = 10000*d2\n      if (lhs*dmax <= rhs) ringf = ringf + 1\n    }\n  }\n}\n\nif (dies > 0) yld = 1000*(dies - fails)/dies\nelse yld = 0\n\n# largest 4-connected cluster of failing dies (iterative flood fill)\nbest = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    vis(r,c) = 0\n  }\n}\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      sp = 1\n      sr(1) = r\n      sc(1) = c\n      vis(r,c) = 1\n      size = 0\n      while (sp > 0) {\n        cr = sr(sp)\n        cc = sc(sp)\n        sp = sp - 1\n        size = size + 1\n        if (cr > 1) {\n          if (g(cr-1,cc) == 2 & vis(cr-1,cc) == 0) {\n            vis(cr-1,cc) = 1\n            sp = sp + 1\n            sr(sp) = cr - 1\n            sc(sp) = cc\n          }\n        }\n        if (cr < nr) {\n          if (g(cr+1,cc) == 2 & vis(cr+1,cc) == 0) {\n            vis(cr+1,cc) = 1\n            sp = sp + 1\n            sr(sp) = cr + 1\n            sc(sp) = cc\n          }\n        }\n        if (cc > 1) {\n          if (g(cr,cc-1) == 2 & vis(cr,cc-1) == 0) {\n            vis(cr,cc-1) = 1\n            sp = sp + 1\n            sr(sp) = cr\n            sc(sp) = cc - 1\n          }\n        }\n        if (cc < nc) {\n          if (g(cr,cc+1) == 2 & vis(cr,cc+1) == 0) {\n            vis(cr,cc+1) = 1\n            sp = sp + 1\n            sr(sp) = cr\n            sc(sp) = cc + 1\n          }\n        }\n      }\n      if (size > best) best = size\n    }\n  }\n}\n\nwrite(6,*) yld, ringf, dies, best\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 7,
+   "guards": "G1",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 14.3,
+   "llm_calls": 1,
+   "seconds": 23.2,
+   "final_code": "integer nrow, ncol, i, j, k, g(256,256), vis(256,256)\ninteger sr(65536), sc(65536), top, cr, cc, nr, nc, sz, best, dr, dc\ninteger dies, fails, ypm, ring\ninteger*8 d2, dmax2, lim\nread(5,*) nrow, ncol\nfor (i = 1; i <= nrow; i = i + 1)\n  read(5,*) (g(i,j), j = 1, ncol)\ndies = 0\nfails = 0\ndmax2 = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) != 0) {\n      dies = dies + 1\n      if (g(i,j) == 2) fails = fails + 1\n      dr = 2*i - nrow - 1\n      dc = 2*j - ncol - 1\n      d2 = dr*dr + dc*dc\n      if (d2 > dmax2) dmax2 = d2\n    }\n  }\n}\nypm = 0\nif (dies > 0) ypm = 1000 * (dies - fails) / dies\n# ring from lo=0 to hi=100 percent: a failing die counts when 0*dmax2 <= 10000*d2\nring = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2) {\n      dr = 2*i - nrow - 1\n      dc = 2*j - ncol - 1\n      d2 = dr*dr + dc*dc\n      lim = 10000 * d2\n      if (0 <= lim) ring = ring + 1\n    }\n  }\n}\n# largest 4-connected cluster of failing dies (iterative flood fill)\nfor (i = 1; i <= nrow; i = i + 1)\n  for (j = 1; j <= ncol; j = j + 1)\n    vis(i,j) = 0\nbest = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      vis(i,j) = 1\n      top = 1\n      sr(1) = i\n      sc(1) = j\n      sz = 0\n      while (top > 0) {\n        cr = sr(top)\n        cc = sc(top)\n        top = top - 1\n        sz = sz + 1\n        for (k = 1; k <= 4; k = k + 1) {\n          if (k == 1) { nr = cr - 1; nc = cc }\n          else if (k == 2) { nr = cr + 1; nc = cc }\n          else if (k == 3) { nr = cr; nc = cc - 1 }\n          else { nr = cr; nc = cc + 1 }\n          if (nr >= 1 & nr <= nrow & nc >= 1 & nc <= ncol) {\n            if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n              vis(nr,nc) = 1\n              top = top + 1\n              sr(top) = nr\n              sc(top) = nc\n            }\n          }\n        }\n      }\n      if (sz > best) best = sz\n    }\n  }\n}\nwrite(6,*) ypm, ring, dies, best\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 7,
+   "guards": "G1",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 8.9,
+   "llm_calls": 1,
+   "seconds": 36.7,
+   "final_code": "integer rows, cols, i, j, k, r, c, nr, nc, top, sz, best, dies, fails, yld\ninteger g(256,256), lab(256,256), sr(65536), sc(65536), dr(4), dc(4)\ninteger*8 a, b, d2, bigd2, lo, ringf\n\ndr(1) = -1; dc(1) = 0\ndr(2) = 1;  dc(2) = 0\ndr(3) = 0;  dc(3) = -1\ndr(4) = 0;  dc(4) = 1\n\nlo = 0\n\nread(5,*) rows, cols\nfor (i = 1; i <= rows; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, cols)\n}\n\n# pass 1: counts, largest d2 over dies, clear labels\ndies = 0; fails = 0; bigd2 = 0\nfor (i = 1; i <= rows; i = i + 1) {\n  for (j = 1; j <= cols; j = j + 1) {\n    lab(i,j) = 0\n    if (g(i,j) != 0) {\n      dies = dies + 1\n      if (g(i,j) == 2) fails = fails + 1\n      a = 2*(i-1) - (rows-1)\n      b = 2*(j-1) - (cols-1)\n      d2 = a*a + b*b\n      if (d2 > bigd2) bigd2 = d2\n    }\n  }\n}\n\n# pass 2: ring count (lo=0 bound, 100% outer bound imposes no limit)\nringf = 0\nfor (i = 1; i <= rows; i = i + 1) {\n  for (j = 1; j <= cols; j = j + 1) {\n    if (g(i,j) == 2) {\n      a = 2*(i-1) - (rows-1)\n      b = 2*(j-1) - (cols-1)\n      d2 = a*a + b*b\n      if (lo*lo*bigd2 <= 10000*d2) ringf = ringf + 1\n    }\n  }\n}\n\n# pass 3: largest 4-connected cluster of failing dies (explicit stack)\nbest = 0\nfor (i = 1; i <= rows; i = i + 1) {\n  for (j = 1; j <= cols; j = j + 1) {\n    if (g(i,j) == 2 & lab(i,j) == 0) {\n      top = 1; sr(1) = i; sc(1) = j\n      lab(i,j) = 1\n      sz = 0\n      while (top > 0) {\n        r = sr(top); c = sc(top); top = top - 1\n        sz = sz + 1\n        for (k = 1; k <= 4; k = k + 1) {\n          nr = r + dr(k); nc = c + dc(k)\n          if (nr >= 1 & nr <= rows & nc >= 1 & nc <= cols) {\n            if (g(nr,nc) == 2 & lab(nr,nc) == 0) {\n              lab(nr,nc) = 1\n              top = top + 1; sr(top) = nr; sc(top) = nc\n            }\n          }\n        }\n      }\n      if (sz > best) best = sz\n    }\n  }\n}\n\nif (dies > 0) yld = 1000*(dies - fails)/dies\nelse yld = 0\n\nwrite(6,*) yld, ringf, dies, best\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 7,
+   "guards": "G1",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 11.2,
+   "llm_calls": 1,
+   "seconds": 26.8,
+   "final_code": "integer nr, nc, r, c, j, cr, cc, sp, dies, fails, best, csize, yld, dd, ee\ninteger g(256,256), vis(256,256), sr(65536), sc(65536)\ninteger*8 d2, dmax, lhs, rhs, ringf\n\nread(5,*) nr, nc\nfor (r = 1; r <= nr; r = r + 1) {\n  read(5,*) (g(r,j), j = 1, nc)\n}\n\ndies = 0\nfails = 0\ndmax = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      if (g(r,c) == 2) fails = fails + 1\n      dd = 2*r - (nr - 1)\n      ee = 2*c - (nc - 1)\n      d2 = dd*dd + ee*ee\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\n\n# ring from lo=0 to hi=100: count failing dies with 0*dmax <= 10000*d2\nringf = 0\nlhs = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2) {\n      dd = 2*r - (nr - 1)\n      ee = 2*c - (nc - 1)\n      d2 = dd*dd + ee*ee\n      rhs = 10000*d2\n      if (lhs*dmax <= rhs) ringf = ringf + 1\n    }\n  }\n}\n\nif (dies > 0) yld = 1000*(dies - fails)/dies\nelse yld = 0\n\n# largest 4-connected cluster of failing dies (iterative flood fill)\nbest = 0\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    vis(r,c) = 0\n  }\n}\nfor (r = 1; r <= nr; r = r + 1) {\n  for (c = 1; c <= nc; c = c + 1) {\n    if (g(r,c) == 2 & vis(r,c) == 0) {\n      sp = 1\n      sr(1) = r\n      sc(1) = c\n      vis(r,c) = 1\n      csize = 0\n      while (sp > 0) {\n        cr = sr(sp)\n        cc = sc(sp)\n        sp = sp - 1\n        csize = csize + 1\n        if (cr > 1) {\n          if (g(cr-1,cc) == 2 & vis(cr-1,cc) == 0) {\n            vis(cr-1,cc) = 1\n            sp = sp + 1\n            sr(sp) = cr - 1\n            sc(sp) = cc\n          }\n        }\n        if (cr < nr) {\n          if (g(cr+1,cc) == 2 & vis(cr+1,cc) == 0) {\n            vis(cr+1,cc) = 1\n            sp = sp + 1\n            sr(sp) = cr + 1\n            sc(sp) = cc\n          }\n        }\n        if (cc > 1) {\n          if (g(cr,cc-1) == 2 & vis(cr,cc-1) == 0) {\n            vis(cr,cc-1) = 1\n            sp = sp + 1\n            sr(sp) = cr\n            sc(sp) = cc - 1\n          }\n        }\n        if (cc < nc) {\n          if (g(cr,cc+1) == 2 & vis(cr,cc+1) == 0) {\n            vis(cr,cc+1) = 1\n            sp = sp + 1\n            sr(sp) = cr\n            sc(sp) = cc + 1\n          }\n        }\n      }\n      if (csize > best) best = csize\n    }\n  }\n}\n\nwrite(6,*) yld, ringf, dies, best\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 7,
+   "guards": "G2",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 13.7,
+   "llm_calls": 1,
+   "seconds": 19.1,
+   "final_code": "integer rows, cols, i, j, k, g(256,256), vis(256,256)\ninteger stkr(65536), stkc(65536), top, cr, cc, nr, nc, sz, best\ninteger ndies, nfail, ypm, dr, dc, nring\ninteger*8 d2, lim\n\nread(5,*) rows, cols\nfor (i = 1; i <= rows; i = i + 1)\n  read(5,*) (g(i,j), j = 1, cols)\n\n# count dies and failing dies\nndies = 0\nnfail = 0\nfor (i = 1; i <= rows; i = i + 1) {\n  for (j = 1; j <= cols; j = j + 1) {\n    if (g(i,j) != 0) {\n      ndies = ndies + 1\n      if (g(i,j) == 2) nfail = nfail + 1\n    }\n  }\n}\n\nypm = 0\nif (ndies > 0) ypm = 1000 * (ndies - nfail) / ndies\n\n# ring from lo=0 to hi=100 percent: the lower bound 0*D2 is zero and\n# 10000*d2 is never negative, so every failing die counts\nnring = 0\nfor (i = 1; i <= rows; i = i + 1) {\n  for (j = 1; j <= cols; j = j + 1) {\n    if (g(i,j) == 2) {\n      dr = 2*i - rows - 1\n      dc = 2*j - cols - 1\n      d2 = dr*dr + dc*dc\n      lim = 10000 * d2\n      if (0 <= lim) nring = nring + 1\n    }\n  }\n}\n\n# largest 4-connected cluster of failing dies (iterative flood fill)\nfor (i = 1; i <= rows; i = i + 1)\n  for (j = 1; j <= cols; j = j + 1)\n    vis(i,j) = 0\n\nbest = 0\nfor (i = 1; i <= rows; i = i + 1) {\n  for (j = 1; j <= cols; j = j + 1) {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      vis(i,j) = 1\n      top = 1\n      stkr(1) = i\n      stkc(1) = j\n      sz = 0\n      while (top > 0) {\n        cr = stkr(top)\n        cc = stkc(top)\n        top = top - 1\n        sz = sz + 1\n        for (k = 1; k <= 4; k = k + 1) {\n          if (k == 1) { nr = cr - 1; nc = cc }\n          else if (k == 2) { nr = cr + 1; nc = cc }\n          else if (k == 3) { nr = cr; nc = cc - 1 }\n          else { nr = cr; nc = cc + 1 }\n          if (nr >= 1 & nr <= rows & nc >= 1 & nc <= cols) {\n            if (g(nr,nc) == 2 & vis(nr,nc) == 0) {\n              vis(nr,nc) = 1\n              top = top + 1\n              stkr(top) = nr\n              stkc(top) = nc\n            }\n          }\n        }\n      }\n      if (sz > best) best = sz\n    }\n  }\n}\n\nwrite(6,*) ypm, nring, ndies, best\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 7,
+   "guards": "G2",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 8.5,
+   "llm_calls": 1,
+   "seconds": 19.1,
+   "final_code": "integer nrow, ncol, i, j, k, r, c, nr, nc, top, sz, best, dies, fails, yld\ninteger g(256,256), lab(256,256), sr(65536), sc(65536), dr(4), dc(4)\ninteger*8 a, b, d2, bigd2, lo, ringf\n\ndr(1) = -1; dc(1) = 0\ndr(2) = 1;  dc(2) = 0\ndr(3) = 0;  dc(3) = -1\ndr(4) = 0;  dc(4) = 1\n\nlo = 0\n\nread(5,*) nrow, ncol\nfor (i = 1; i <= nrow; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, ncol)\n}\n\n# pass 1: counts, largest d2 over dies, clear labels\ndies = 0; fails = 0; bigd2 = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    lab(i,j) = 0\n    if (g(i,j) != 0) {\n      dies = dies + 1\n      if (g(i,j) == 2) fails = fails + 1\n      a = 2*(i-1) - (nrow-1)\n      b = 2*(j-1) - (ncol-1)\n      d2 = a*a + b*b\n      if (d2 > bigd2) bigd2 = d2\n    }\n  }\n}\n\n# pass 2: ring count (lo=0 bound, 100% outer bound imposes no limit)\nringf = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2) {\n      a = 2*(i-1) - (nrow-1)\n      b = 2*(j-1) - (ncol-1)\n      d2 = a*a + b*b\n      if (lo*lo*bigd2 <= 10000*d2) ringf = ringf + 1\n    }\n  }\n}\n\n# pass 3: largest 4-connected cluster of failing dies (explicit stack)\nbest = 0\nfor (i = 1; i <= nrow; i = i + 1) {\n  for (j = 1; j <= ncol; j = j + 1) {\n    if (g(i,j) == 2 & lab(i,j) == 0) {\n      top = 1; sr(1) = i; sc(1) = j\n      lab(i,j) = 1\n      sz = 0\n      while (top > 0) {\n        r = sr(top); c = sc(top); top = top - 1\n        sz = sz + 1\n        for (k = 1; k <= 4; k = k + 1) {\n          nr = r + dr(k); nc = c + dc(k)\n          if (nr >= 1 & nr <= nrow & nc >= 1 & nc <= ncol) {\n            if (g(nr,nc) == 2 & lab(nr,nc) == 0) {\n              lab(nr,nc) = 1\n              top = top + 1; sr(top) = nr; sc(top) = nc\n            }\n          }\n        }\n      }\n      if (sz > best) best = sz\n    }\n  }\n}\n\nif (dies > 0) yld = 1000*(dies - fails)/dies\nelse yld = 0\n\nwrite(6,*) yld, ringf, dies, best\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 7,
+   "guards": "G2",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 8.3,
+   "llm_calls": 1,
+   "seconds": 21.7,
+   "final_code": "integer nr, nc, i, j, ci, cj, sp, dies, fails, best, size, yld, dd, ee\ninteger g(256,256), vis(256,256), sr(65536), sc(65536)\ninteger*8 d2, dmax, lhs, rhs, ringf\n\nread(5,*) nr, nc\nfor (i = 1; i <= nr; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, nc)\n}\n\ndies = 0\nfails = 0\ndmax = 0\nfor (i = 1; i <= nr; i = i + 1) {\n  for (j = 1; j <= nc; j = j + 1) {\n    if (g(i,j) != 0) {\n      dies = dies + 1\n      if (g(i,j) == 2) fails = fails + 1\n      dd = 2*i - (nr - 1)\n      ee = 2*j - (nc - 1)\n      d2 = dd*dd + ee*ee\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\n\n# ring from lo=0 to hi=100: count failing dies with 0*dmax <= 10000*d2\nringf = 0\nlhs = 0\nfor (i = 1; i <= nr; i = i + 1) {\n  for (j = 1; j <= nc; j = j + 1) {\n    if (g(i,j) == 2) {\n      dd = 2*i - (nr - 1)\n      ee = 2*j - (nc - 1)\n      d2 = dd*dd + ee*ee\n      rhs = 10000*d2\n      if (lhs*dmax <= rhs) ringf = ringf + 1\n    }\n  }\n}\n\nif (dies > 0) yld = 1000*(dies - fails)/dies\nelse yld = 0\n\n# largest 4-connected cluster of failing dies (iterative flood fill)\nbest = 0\nfor (i = 1; i <= nr; i = i + 1) {\n  for (j = 1; j <= nc; j = j + 1) {\n    vis(i,j) = 0\n  }\n}\nfor (i = 1; i <= nr; i = i + 1) {\n  for (j = 1; j <= nc; j = j + 1) {\n    if (g(i,j) == 2 & vis(i,j) == 0) {\n      sp = 1\n      sr(1) = i\n      sc(1) = j\n      vis(i,j) = 1\n      size = 0\n      while (sp > 0) {\n        ci = sr(sp)\n        cj = sc(sp)\n        sp = sp - 1\n        size = size + 1\n        if (ci > 1) {\n          if (g(ci-1,cj) == 2 & vis(ci-1,cj) == 0) {\n            vis(ci-1,cj) = 1\n            sp = sp + 1\n            sr(sp) = ci - 1\n            sc(sp) = cj\n          }\n        }\n        if (ci < nr) {\n          if (g(ci+1,cj) == 2 & vis(ci+1,cj) == 0) {\n            vis(ci+1,cj) = 1\n            sp = sp + 1\n            sr(sp) = ci + 1\n            sc(sp) = cj\n          }\n        }\n        if (cj > 1) {\n          if (g(ci,cj-1) == 2 & vis(ci,cj-1) == 0) {\n            vis(ci,cj-1) = 1\n            sp = sp + 1\n            sr(sp) = ci\n            sc(sp) = cj - 1\n          }\n        }\n        if (cj < nc) {\n          if (g(ci,cj+1) == 2 & vis(ci,cj+1) == 0) {\n            vis(ci,cj+1) = 1\n            sp = sp + 1\n            sr(sp) = ci\n            sc(sp) = cj + 1\n          }\n        }\n      }\n      if (size > best) best = size\n    }\n  }\n}\n\nwrite(6,*) yld, ringf, dies, best\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 8,
+   "guards": "G0",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 23.3,
+   "llm_calls": 2,
+   "seconds": 28.1,
+   "final_code": "integer nr, nc, r, c, g(256,256)\ninteger e1, e2, dies, fails, yld, edge\ninteger*8 dr, dc, d2, maxd2, lhs, rhs\nread(5,*) nr, nc\ndo r = 1, nr {\n  read(5,*) (g(r,c), c = 1, nc)\n}\n# pass 1: edge fails, die counts, largest d2 over dies\ne1 = 0\ndies = 0\nfails = 0\nmaxd2 = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      if (g(r,c) == 2) fails = fails + 1\n      dr = 2*r - nr - 1\n      dc = 2*c - nc - 1\n      d2 = dr*dr + dc*dc\n      if (d2 > maxd2) maxd2 = d2\n    }\n    if (g(r,c) == 2) {\n      edge = 0\n      if (r == 1) {\n        edge = 1\n      } else if (g(r-1,c) == 0) {\n        edge = 1\n      } else if (r == nr) {\n        edge = 1\n      } else if (g(r+1,c) == 0) {\n        edge = 1\n      } else if (c == 1) {\n        edge = 1\n      } else if (g(r,c-1) == 0) {\n        edge = 1\n      } else if (c == nc) {\n        edge = 1\n      } else if (g(r,c+1) == 0) {\n        edge = 1\n      }\n      if (edge == 1) e1 = e1 + 1\n    }\n  }\n}\n# pass 2: failing dies in the ring 80%..100% of the largest distance\ne2 = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2) {\n      dr = 2*r - nr - 1\n      dc = 2*c - nc - 1\n      d2 = dr*dr + dc*dc\n      lhs = 6400 * maxd2\n      rhs = 10000 * d2\n      if (lhs <= rhs) e2 = e2 + 1\n    }\n  }\n}\nif (dies > 0) {\n  yld = (1000 * (dies - fails)) / dies\n} else {\n  yld = 0\n}\nwrite(6,*) e1, e2, yld\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 8,
+   "guards": "G0",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 13.0,
+   "llm_calls": 1,
+   "seconds": 19.5,
+   "final_code": "integer nr, nc, r, c, g(256,256), dies, fails, edge, ring, isedge\ninteger*8 d2, dmax, dr, dc, lhs, yld\nread(5,*) nr, nc\ndo r = 1, nr {\n  read(5,*) (g(r,c), c = 1, nc)\n}\ndmax = 0\ndies = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      dr = 2*(r-1) - (nr-1)\n      dc = 2*(c-1) - (nc-1)\n      d2 = dr*dr + dc*dc\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\nedge = 0\nring = 0\nfails = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      isedge = 0\n      if (r == 1 | r == nr | c == 1 | c == nc) {\n        isedge = 1\n      } else {\n        if (g(r-1,c) == 0 | g(r+1,c) == 0 | g(r,c-1) == 0 | g(r,c+1) == 0) isedge = 1\n      }\n      if (isedge == 1) edge = edge + 1\n      dr = 2*(r-1) - (nr-1)\n      dc = 2*(c-1) - (nc-1)\n      d2 = dr*dr + dc*dc\n      lhs = 6400*dmax\n      if (lhs <= 10000*d2) ring = ring + 1\n    }\n  }\n}\nif (dies > 0) {\n  yld = (1000*(dies - fails))/dies\n} else {\n  yld = 0\n}\nwrite(6,*) edge, ring, yld\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 8,
+   "guards": "G0",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 17.7,
+   "llm_calls": 1,
+   "seconds": 24.5,
+   "final_code": "integer nr, nc, i, j, ed, dies, fails, edge, ring, yld\ninteger g(256,256)\ninteger*8 bigd, d2, a, b, lhs, rhs\nread(5,*) nr, nc\ndo i = 1, nr {\n  read(5,*) (g(i,j), j = 1, nc)\n}\ndies = 0\nfails = 0\nbigd = 0\ndo i = 1, nr {\n  do j = 1, nc {\n    if (g(i,j) != 0) {\n      dies = dies + 1\n      if (g(i,j) == 2) fails = fails + 1\n      a = 2*i - nr - 1\n      b = 2*j - nc - 1\n      d2 = a*a + b*b\n      if (d2 > bigd) bigd = d2\n    }\n  }\n}\nedge = 0\nring = 0\ndo i = 1, nr {\n  do j = 1, nc {\n    if (g(i,j) == 2) {\n      ed = 0\n      if (i == 1) { ed = 1 }\n      if (i > 1) { if (g(i-1,j) == 0) { ed = 1 } }\n      if (i == nr) { ed = 1 }\n      if (i < nr) { if (g(i+1,j) == 0) { ed = 1 } }\n      if (j == 1) { ed = 1 }\n      if (j > 1) { if (g(i,j-1) == 0) { ed = 1 } }\n      if (j == nc) { ed = 1 }\n      if (j < nc) { if (g(i,j+1) == 0) { ed = 1 } }\n      if (ed == 1) edge = edge + 1\n      a = 2*i - nr - 1\n      b = 2*j - nc - 1\n      d2 = a*a + b*b\n      lhs = 6400*bigd\n      rhs = 10000*d2\n      if (lhs <= rhs) ring = ring + 1\n    }\n  }\n}\nif (dies > 0) {\n  yld = (1000*(dies - fails))/dies\n} else {\n  yld = 0\n}\nwrite(6,*) edge, ring, yld\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 8,
+   "guards": "G1",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 11.4,
+   "llm_calls": 1,
+   "seconds": 17.3,
+   "final_code": "# Fortran is case-insensitive, so R/r, C/c and D2/d2 clash.\n# Use distinct names for the dimensions, loop indices and distances.\ninteger nr, nc, i, j, g(256,256)\ninteger e1, e2, dies, fails, yld, edge\ninteger*8 di, dj, dd, mx, lhs, rhs\nread(5,*) nr, nc\ndo i = 1, nr {\n  read(5,*) (g(i,j), j = 1, nc)\n}\n# pass 1: edge fails, die counts, largest squared distance over dies\ne1 = 0\ndies = 0\nfails = 0\nmx = 0\ndo i = 1, nr {\n  do j = 1, nc {\n    if (g(i,j) != 0) {\n      dies = dies + 1\n      if (g(i,j) == 2) fails = fails + 1\n      di = 2*i - nr - 1\n      dj = 2*j - nc - 1\n      dd = di*di + dj*dj\n      if (dd > mx) mx = dd\n    }\n    if (g(i,j) == 2) {\n      edge = 0\n      if (i == 1) edge = 1\n      if (i == nr) edge = 1\n      if (j == 1) edge = 1\n      if (j == nc) edge = 1\n      if (i > 1) {\n        if (g(i-1,j) == 0) edge = 1\n      }\n      if (i < nr) {\n        if (g(i+1,j) == 0) edge = 1\n      }\n      if (j > 1) {\n        if (g(i,j-1) == 0) edge = 1\n      }\n      if (j < nc) {\n        if (g(i,j+1) == 0) edge = 1\n      }\n      if (edge == 1) e1 = e1 + 1\n    }\n  }\n}\n# pass 2: failing dies in the ring 80%..100% of the largest distance\ne2 = 0\ndo i = 1, nr {\n  do j = 1, nc {\n    if (g(i,j) == 2) {\n      di = 2*i - nr - 1\n      dj = 2*j - nc - 1\n      dd = di*di + dj*dj\n      lhs = 6400 * mx\n      rhs = 10000 * dd\n      if (lhs <= rhs) e2 = e2 + 1\n    }\n  }\n}\nif (dies > 0) {\n  yld = (1000 * (dies - fails)) / dies\n} else {\n  yld = 0\n}\nwrite(6,*) e1, e2, yld\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 8,
+   "guards": "G1",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 16.7,
+   "final_code": "integer nr, nc, r, c, g(256,256), dies, fails, edge, ring, isedge\ninteger*8 d2, dmax, dr, dc, lhs, yld\nread(5,*) nr, nc\ndo r = 1, nr {\n  read(5,*) (g(r,c), c = 1, nc)\n}\ndmax = 0\ndies = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      dr = 2*(r-1) - (nr-1)\n      dc = 2*(c-1) - (nc-1)\n      d2 = dr*dr + dc*dc\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\nedge = 0\nring = 0\nfails = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      isedge = 0\n      if (r == 1 | r == nr | c == 1 | c == nc) {\n        isedge = 1\n      } else {\n        if (g(r-1,c) == 0 | g(r+1,c) == 0 | g(r,c-1) == 0 | g(r,c+1) == 0) isedge = 1\n      }\n      if (isedge == 1) edge = edge + 1\n      dr = 2*(r-1) - (nr-1)\n      dc = 2*(c-1) - (nc-1)\n      d2 = dr*dr + dc*dc\n      lhs = 6400*dmax\n      if (lhs <= 10000*d2) ring = ring + 1\n    }\n  }\n}\nif (dies > 0) {\n  yld = (1000*(dies - fails))/dies\n} else {\n  yld = 0\n}\nwrite(6,*) edge, ring, yld\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 8,
+   "guards": "G1",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 23.0,
+   "final_code": "integer nr, nc, i, j, ed, dies, fails, edge, ring, yld\ninteger g(256,256)\ninteger*8 bigd, d2, a, b, lhs, rhs\nread(5,*) nr, nc\ndo i = 1, nr {\n  read(5,*) (g(i,j), j = 1, nc)\n}\ndies = 0\nfails = 0\nbigd = 0\ndo i = 1, nr {\n  do j = 1, nc {\n    if (g(i,j) != 0) {\n      dies = dies + 1\n      if (g(i,j) == 2) fails = fails + 1\n      a = 2*i - nr - 1\n      b = 2*j - nc - 1\n      d2 = a*a + b*b\n      if (d2 > bigd) bigd = d2\n    }\n  }\n}\nedge = 0\nring = 0\ndo i = 1, nr {\n  do j = 1, nc {\n    if (g(i,j) == 2) {\n      ed = 0\n      if (i == 1) { ed = 1 }\n      if (i > 1) { if (g(i-1,j) == 0) { ed = 1 } }\n      if (i == nr) { ed = 1 }\n      if (i < nr) { if (g(i+1,j) == 0) { ed = 1 } }\n      if (j == 1) { ed = 1 }\n      if (j > 1) { if (g(i,j-1) == 0) { ed = 1 } }\n      if (j == nc) { ed = 1 }\n      if (j < nc) { if (g(i,j+1) == 0) { ed = 1 } }\n      if (ed == 1) edge = edge + 1\n      a = 2*i - nr - 1\n      b = 2*j - nc - 1\n      d2 = a*a + b*b\n      lhs = 6400*bigd\n      rhs = 10000*d2\n      if (lhs <= rhs) ring = ring + 1\n    }\n  }\n}\nif (dies > 0) {\n  yld = (1000*(dies - fails))/dies\n} else {\n  yld = 0\n}\nwrite(6,*) edge, ring, yld\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 8,
+   "guards": "G2",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 11.8,
+   "llm_calls": 1,
+   "seconds": 19.0,
+   "final_code": "integer nr, nc, i, j, g(256,256)\ninteger e1, e2, dies, fails, yld, edge\ninteger*8 dr, dc, dd, dmax, lhs\nread(5,*) nr, nc\ndo i = 1, nr {\n  read(5,*) (g(i,j), j = 1, nc)\n}\n# pass 1: edge fails, die counts, largest d2 over dies\ne1 = 0\ndies = 0\nfails = 0\ndmax = 0\ndo i = 1, nr {\n  do j = 1, nc {\n    if (g(i,j) != 0) {\n      dies = dies + 1\n      if (g(i,j) == 2) fails = fails + 1\n      dr = 2*i - nr - 1\n      dc = 2*j - nc - 1\n      dd = dr*dr + dc*dc\n      if (dd > dmax) dmax = dd\n    }\n    if (g(i,j) == 2) {\n      edge = 0\n      if (i == 1) {\n        edge = 1\n      } else if (g(i-1,j) == 0) {\n        edge = 1\n      } else if (i == nr) {\n        edge = 1\n      } else if (g(i+1,j) == 0) {\n        edge = 1\n      } else if (j == 1) {\n        edge = 1\n      } else if (g(i,j-1) == 0) {\n        edge = 1\n      } else if (j == nc) {\n        edge = 1\n      } else if (g(i,j+1) == 0) {\n        edge = 1\n      }\n      if (edge == 1) e1 = e1 + 1\n    }\n  }\n}\n# pass 2: failing dies in the ring 80%..100% of the largest distance\ne2 = 0\ndo i = 1, nr {\n  do j = 1, nc {\n    if (g(i,j) == 2) {\n      dr = 2*i - nr - 1\n      dc = 2*j - nc - 1\n      dd = dr*dr + dc*dc\n      lhs = 6400 * dmax\n      if (lhs <= 10000 * dd) e2 = e2 + 1\n    }\n  }\n}\nif (dies > 0) {\n  yld = (1000 * (dies - fails)) / dies\n} else {\n  yld = 0\n}\nwrite(6,*) e1, e2, yld\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 8,
+   "guards": "G2",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 7.7,
+   "final_code": "integer nr, nc, r, c, g(256,256), dies, fails, edge, ring, isedge\ninteger*8 d2, dmax, dr, dc, lhs, yld\nread(5,*) nr, nc\ndo r = 1, nr {\n  read(5,*) (g(r,c), c = 1, nc)\n}\ndmax = 0\ndies = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) != 0) {\n      dies = dies + 1\n      dr = 2*(r-1) - (nr-1)\n      dc = 2*(c-1) - (nc-1)\n      d2 = dr*dr + dc*dc\n      if (d2 > dmax) dmax = d2\n    }\n  }\n}\nedge = 0\nring = 0\nfails = 0\ndo r = 1, nr {\n  do c = 1, nc {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      isedge = 0\n      if (r == 1 | r == nr | c == 1 | c == nc) {\n        isedge = 1\n      } else {\n        if (g(r-1,c) == 0 | g(r+1,c) == 0 | g(r,c-1) == 0 | g(r,c+1) == 0) isedge = 1\n      }\n      if (isedge == 1) edge = edge + 1\n      dr = 2*(r-1) - (nr-1)\n      dc = 2*(c-1) - (nc-1)\n      d2 = dr*dr + dc*dc\n      lhs = 6400*dmax\n      if (lhs <= 10000*d2) ring = ring + 1\n    }\n  }\n}\nif (dies > 0) {\n  yld = (1000*(dies - fails))/dies\n} else {\n  yld = 0\n}\nwrite(6,*) edge, ring, yld\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 8,
+   "guards": "G2",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 450,
+   "audit_total": 450,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 23.2,
+   "final_code": "integer nr, nc, i, j, ed, dies, fails, edge, ring, yld\ninteger g(256,256)\ninteger*8 bigd, d2, a, b, lhs, rhs\nread(5,*) nr, nc\ndo i = 1, nr {\n  read(5,*) (g(i,j), j = 1, nc)\n}\ndies = 0\nfails = 0\nbigd = 0\ndo i = 1, nr {\n  do j = 1, nc {\n    if (g(i,j) != 0) {\n      dies = dies + 1\n      if (g(i,j) == 2) fails = fails + 1\n      a = 2*i - nr - 1\n      b = 2*j - nc - 1\n      d2 = a*a + b*b\n      if (d2 > bigd) bigd = d2\n    }\n  }\n}\nedge = 0\nring = 0\ndo i = 1, nr {\n  do j = 1, nc {\n    if (g(i,j) == 2) {\n      ed = 0\n      if (i == 1) { ed = 1 }\n      if (i > 1) { if (g(i-1,j) == 0) { ed = 1 } }\n      if (i == nr) { ed = 1 }\n      if (i < nr) { if (g(i+1,j) == 0) { ed = 1 } }\n      if (j == 1) { ed = 1 }\n      if (j > 1) { if (g(i,j-1) == 0) { ed = 1 } }\n      if (j == nc) { ed = 1 }\n      if (j < nc) { if (g(i,j+1) == 0) { ed = 1 } }\n      if (ed == 1) edge = edge + 1\n      a = 2*i - nr - 1\n      b = 2*j - nc - 1\n      d2 = a*a + b*b\n      lhs = 6400*bigd\n      rhs = 10000*d2\n      if (lhs <= rhs) ring = ring + 1\n    }\n  }\n}\nif (dies > 0) {\n  yld = (1000*(dies - fails))/dies\n} else {\n  yld = 0\n}\nwrite(6,*) edge, ring, yld\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 9,
+   "guards": "G0",
+   "rep": 0,
+   "accepted": false,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "fortran"
+   ],
+   "audit_right": 0,
+   "audit_total": 600,
+   "audit_wrong_kinds": {
+    "not built": 600
+   },
+   "first_right": false,
+   "replay": {},
+   "stop": "attempt 2 gave the same errors as attempt 1; stopped (the agent is not fixing them)",
+   "llm_s": 28.5,
+   "llm_calls": 2,
+   "seconds": 32.5,
+   "final_code": "integer R, C, i, j, k, sp, sz, ni, nj, di, dj, ring, edge, cl, fails, ex, r2, c2, cc, ci, cj\ninteger g(256,256), stk(65536)\ninteger*8 d2, D2, a, b\n\nread(5,*) R, C\nfor (i = 1; i <= R; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, C)\n}\n\n# largest squared distance over all dies (value 1 or 2)\nD2 = 0\nfor (i = 1; i <= R; i = i + 1) {\n  for (j = 1; j <= C; j = j + 1) {\n    if (g(i,j) != 0) {\n      r2 = 2*(i-1) - (R-1)\n      c2 = 2*(j-1) - (C-1)\n      d2 = r2*r2 + c2*c2\n      if (d2 > D2) D2 = d2\n    }\n  }\n}\n\nring = 0\nedge = 0\nfails = 0\nfor (i = 1; i <= R; i = i + 1) {\n  for (j = 1; j <= C; j = j + 1) {\n    if (g(i,j) == 2) {\n      fails = fails + 1\n\n      # ring test: 30^2*D2 <= 10000*d2 < 70^2*D2\n      r2 = 2*(i-1) - (R-1)\n      c2 = 2*(j-1) - (C-1)\n      d2 = r2*r2 + c2*c2\n      a = 900*D2\n      b = 10000*d2\n      if (a <= b & b < 4900*D2) ring = ring + 1\n\n      # edge test: a 4-neighbour is 0 or off the map\n      ex = 0\n      if (i == 1) ex = 1\n      if (i == R) ex = 1\n      if (j == 1) ex = 1\n      if (j == C) ex = 1\n      if (ex == 0) {\n        if (g(i-1,j) == 0 | g(i+1,j) == 0 | g(i,j-1) == 0 | g(i,j+1) == 0) ex = 1\n      }\n      if (ex == 1) edge = edge + 1\n    }\n  }\n}\n\n# clusters of failing dies (8-connectivity), flood fill with explicit stack\ncl = 0\nfor (i = 1; i <= R; i = i + 1) {\n  for (j = 1; j <= C; j = j + 1) {\n    if (g(i,j) == 2) {\n      g(i,j) = 1\n      sp = 1\n      stk(1) = i*512 + j\n      sz = 0\n      while (sp > 0) {\n        cc = stk(sp)\n        sp = sp - 1\n        sz = sz + 1\n        ci = cc / 512\n        cj = mod(cc, 512)\n        for (di = -1; di <= 1; di = di + 1) {\n          for (dj = -1; dj <= 1; dj = dj + 1) {\n            ni = ci + di\n            nj = cj + dj\n            if (ni >= 1 & ni <= R & nj >= 1 & nj <= C) {\n              if (g(ni,nj) == 2) {\n                g(ni,nj) = 1\n                sp = sp + 1\n                stk(sp) = ni*512 + nj\n              }\n            }\n          }\n        }\n      }\n      if (sz >= 10) cl = cl + 1\n    }\n  }\n}\n\nwrite(6,*) ring, edge, cl, fails\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 9,
+   "guards": "G0",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 25.5,
+   "llm_calls": 1,
+   "seconds": 33.1,
+   "final_code": "integer g(0:257,0:257), vis(0:257,0:257)\ninteger sr(66000), sc(66000)\ninteger nrow, ncol, r, c, dr, dc, ar, ac, qr, qc, top, csz\ninteger ringf, edgef, clus, fails, dy, dx\ninteger*8 d2, bigd, lo2, hi2, t\n\nread(5,*) nrow, ncol\nfor (r = 0; r <= 257; r = r + 1) {\n  for (c = 0; c <= 257; c = c + 1) {\n    g(r,c) = 0\n    vis(r,c) = 0\n  }\n}\ndo r = 1, nrow {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\n\nbigd = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) != 0) {\n      dy = 2*(r-1) - (nrow-1)\n      dx = 2*(c-1) - (ncol-1)\n      d2 = dy*dy + dx*dx\n      if (d2 > bigd) bigd = d2\n    }\n  }\n}\n\nlo2 = 900 * bigd\nhi2 = 4900 * bigd\nringf = 0\nedgef = 0\nfails = 0\nclus = 0\n\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      if (g(r-1,c) == 0 | g(r+1,c) == 0 | g(r,c-1) == 0 | g(r,c+1) == 0)\n        edgef = edgef + 1\n      dy = 2*(r-1) - (nrow-1)\n      dx = 2*(c-1) - (ncol-1)\n      d2 = dy*dy + dx*dx\n      t = 10000 * d2\n      if (lo2 <= t & t < hi2) ringf = ringf + 1\n    }\n  }\n}\n\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if ((g(r,c) == 2) & (vis(r,c) == 0)) {\n      vis(r,c) = 1\n      top = 1\n      sr(1) = r\n      sc(1) = c\n      csz = 0\n      while (top > 0) {\n        qr = sr(top)\n        qc = sc(top)\n        top = top - 1\n        csz = csz + 1\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            ar = qr + dr\n            ac = qc + dc\n            if ((g(ar,ac) == 2) & (vis(ar,ac) == 0)) {\n              vis(ar,ac) = 1\n              top = top + 1\n              sr(top) = ar\n              sc(top) = ac\n            }\n          }\n        }\n      }\n      if (csz >= 10) clus = clus + 1\n    }\n  }\n}\n\nwrite(6,*) ringf, edgef, clus, fails\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 9,
+   "guards": "G0",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 0,
+   "audit_total": 600,
+   "audit_wrong_kinds": {
+    "crash/format": 600
+   },
+   "first_right": false,
+   "replay": {
+    "G1": true,
+    "G2": true
+   },
+   "stop": null,
+   "llm_s": 28.0,
+   "llm_calls": 2,
+   "seconds": 34.1,
+   "final_code": "integer nrow, ncol, r, c, dr, dc, nr, nc, top, sz, q, rr, cc\ninteger ringf, edgef, clus, fails, edge\ninteger g(0:257,0:257), lab(0:257,0:257), stk(65536)\ninteger*8 x, y, d2, bigD, lhs, rhs\n\n# zero-padded grid: cells outside 1..nrow, 1..ncol are 0 (off the wafer)\nfor (r = 0; r <= 257; r = r + 1) {\n  for (c = 0; c <= 257; c = c + 1) {\n    g(r,c) = 0\n    lab(r,c) = 0\n  }\n}\n\nread(5,*) nrow, ncol\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    read(5,*) g(r,c)\n  }\n}\n\n# largest die distance squared\nbigD = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) != 0) {\n      x = 2*r - (nrow-1)\n      y = 2*c - (ncol-1)\n      d2 = x*x + y*y\n      if (d2 > bigD) bigD = d2\n    }\n  }\n}\n\nringf = 0\nedgef = 0\nfails = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      x = 2*r - (nrow-1)\n      y = 2*c - (ncol-1)\n      d2 = x*x + y*y\n      # ring: 900*D2 <= 10000*d2 < 4900*D2\n      lhs = 900 * bigD\n      rhs = 10000 * d2\n      if (lhs <= rhs & rhs < 4900 * bigD) ringf = ringf + 1\n\n      # edge: any 4-neighbour is 0 (padding makes off-map neighbours 0)\n      edge = 0\n      if (g(r-1,c) == 0 | g(r+1,c) == 0 | g(r,c-1) == 0 | g(r,c+1) == 0) edge = 1\n      if (edge == 1) edgef = edgef + 1\n    }\n  }\n}\n\n# 8-connected clusters of failing dies, iterative flood fill\nclus = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2 & lab(r,c) == 0) {\n      lab(r,c) = 1\n      top = 1\n      stk(1) = (r-1)*ncol + c\n      sz = 0\n      while (top > 0) {\n        q = stk(top)\n        top = top - 1\n        sz = sz + 1\n        rr = (q-1)/ncol + 1\n        cc = q - (rr-1)*ncol\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            nr = rr + dr\n            nc = cc + dc\n            if (nr >= 1 & nr <= nrow & nc >= 1 & nc <= ncol) {\n              if (g(nr,nc) == 2 & lab(nr,nc) == 0) {\n                lab(nr,nc) = 1\n                top = top + 1\n                stk(top) = (nr-1)*ncol + nc\n              }\n            }\n          }\n        }\n      }\n      if (sz >= 10) clus = clus + 1\n    }\n  }\n}\n\nwrite(6,*) ringf, edgef, clus, fails\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 9,
+   "guards": "G1",
+   "rep": 0,
+   "accepted": true,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 10.0,
+   "llm_calls": 1,
+   "seconds": 16.9,
+   "final_code": "integer R, C, i, j, k, sp, sz, ni, nj, di, dj, ring, edge, cl, fails, ex, r2, c2, cc, ci, cj\ninteger g(256,256), stk(65536)\ninteger*8 dd, dmax, aa, bb\n\nread(5,*) R, C\nfor (i = 1; i <= R; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, C)\n}\n\n# largest squared distance over all dies (value 1 or 2)\ndmax = 0\nfor (i = 1; i <= R; i = i + 1) {\n  for (j = 1; j <= C; j = j + 1) {\n    if (g(i,j) != 0) {\n      r2 = 2*(i-1) - (R-1)\n      c2 = 2*(j-1) - (C-1)\n      dd = r2*r2 + c2*c2\n      if (dd > dmax) dmax = dd\n    }\n  }\n}\n\nring = 0\nedge = 0\nfails = 0\nfor (i = 1; i <= R; i = i + 1) {\n  for (j = 1; j <= C; j = j + 1) {\n    if (g(i,j) == 2) {\n      fails = fails + 1\n\n      # ring test: 30^2*dmax <= 10000*dd < 70^2*dmax\n      r2 = 2*(i-1) - (R-1)\n      c2 = 2*(j-1) - (C-1)\n      dd = r2*r2 + c2*c2\n      aa = 900*dmax\n      bb = 10000*dd\n      if (aa <= bb & bb < 4900*dmax) ring = ring + 1\n\n      # edge test: a 4-neighbour is 0 or off the map\n      ex = 0\n      if (i == 1) ex = 1\n      if (i == R) ex = 1\n      if (j == 1) ex = 1\n      if (j == C) ex = 1\n      if (ex == 0) {\n        if (g(i-1,j) == 0 | g(i+1,j) == 0 | g(i,j-1) == 0 | g(i,j+1) == 0) ex = 1\n      }\n      if (ex == 1) edge = edge + 1\n    }\n  }\n}\n\n# clusters of failing dies (8-connectivity), flood fill with explicit stack\ncl = 0\nfor (i = 1; i <= R; i = i + 1) {\n  for (j = 1; j <= C; j = j + 1) {\n    if (g(i,j) == 2) {\n      g(i,j) = 1\n      sp = 1\n      stk(1) = i*512 + j\n      sz = 0\n      while (sp > 0) {\n        cc = stk(sp)\n        sp = sp - 1\n        sz = sz + 1\n        ci = cc / 512\n        cj = mod(cc, 512)\n        for (di = -1; di <= 1; di = di + 1) {\n          for (dj = -1; dj <= 1; dj = dj + 1) {\n            ni = ci + di\n            nj = cj + dj\n            if (ni >= 1 & ni <= R & nj >= 1 & nj <= C) {\n              if (g(ni,nj) == 2) {\n                g(ni,nj) = 1\n                sp = sp + 1\n                stk(sp) = ni*512 + nj\n              }\n            }\n          }\n        }\n      }\n      if (sz >= 10) cl = cl + 1\n    }\n  }\n}\n\nwrite(6,*) ring, edge, cl, fails\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 9,
+   "guards": "G1",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 21.7,
+   "final_code": "integer g(0:257,0:257), vis(0:257,0:257)\ninteger sr(66000), sc(66000)\ninteger nrow, ncol, r, c, dr, dc, ar, ac, qr, qc, top, csz\ninteger ringf, edgef, clus, fails, dy, dx\ninteger*8 d2, bigd, lo2, hi2, t\n\nread(5,*) nrow, ncol\nfor (r = 0; r <= 257; r = r + 1) {\n  for (c = 0; c <= 257; c = c + 1) {\n    g(r,c) = 0\n    vis(r,c) = 0\n  }\n}\ndo r = 1, nrow {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\n\nbigd = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) != 0) {\n      dy = 2*(r-1) - (nrow-1)\n      dx = 2*(c-1) - (ncol-1)\n      d2 = dy*dy + dx*dx\n      if (d2 > bigd) bigd = d2\n    }\n  }\n}\n\nlo2 = 900 * bigd\nhi2 = 4900 * bigd\nringf = 0\nedgef = 0\nfails = 0\nclus = 0\n\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      if (g(r-1,c) == 0 | g(r+1,c) == 0 | g(r,c-1) == 0 | g(r,c+1) == 0)\n        edgef = edgef + 1\n      dy = 2*(r-1) - (nrow-1)\n      dx = 2*(c-1) - (ncol-1)\n      d2 = dy*dy + dx*dx\n      t = 10000 * d2\n      if (lo2 <= t & t < hi2) ringf = ringf + 1\n    }\n  }\n}\n\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if ((g(r,c) == 2) & (vis(r,c) == 0)) {\n      vis(r,c) = 1\n      top = 1\n      sr(1) = r\n      sc(1) = c\n      csz = 0\n      while (top > 0) {\n        qr = sr(top)\n        qc = sc(top)\n        top = top - 1\n        csz = csz + 1\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            ar = qr + dr\n            ac = qc + dc\n            if ((g(ar,ac) == 2) & (vis(ar,ac) == 0)) {\n              vis(ar,ac) = 1\n              top = top + 1\n              sr(top) = ar\n              sc(top) = ac\n            }\n          }\n        }\n      }\n      if (csz >= 10) clus = clus + 1\n    }\n  }\n}\n\nwrite(6,*) ringf, edgef, clus, fails\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 9,
+   "guards": "G1",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 4,
+   "stages": [
+    "fortran",
+    "examples",
+    "examples",
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 25.5,
+   "llm_calls": 3,
+   "seconds": 33.6,
+   "final_code": "integer nrow, ncol, r, c, dr, dc, ar, ac, top, sz, q, rr, cc\ninteger ringf, edgef, clus, fails, edge\ninteger g(256,256), lab(256,256), stk(65536)\ninteger*8 x, y, d2, bigD, lhs, rhs\n\nread(5,*) nrow, ncol\nfor (r = 1; r <= nrow; r = r + 1) {\n  read(5,*) (g(r,c), c = 1, ncol)\n  for (c = 1; c <= ncol; c = c + 1) {\n    lab(r,c) = 0\n  }\n}\n\n# largest die distance squared (0-based row/column indices)\nbigD = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) != 0) {\n      x = 2*(r-1) - (nrow-1)\n      y = 2*(c-1) - (ncol-1)\n      d2 = x*x + y*y\n      if (d2 > bigD) bigD = d2\n    }\n  }\n}\n\nringf = 0\nedgef = 0\nfails = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      x = 2*(r-1) - (nrow-1)\n      y = 2*(c-1) - (ncol-1)\n      d2 = x*x + y*y\n      # ring: 900*D2 <= 10000*d2 < 4900*D2\n      lhs = 900 * bigD\n      rhs = 10000 * d2\n      if (lhs <= rhs & rhs < 4900 * bigD) ringf = ringf + 1\n\n      # edge: 4-neighbour is 0 or off the map\n      edge = 0\n      if (r == 1 | r == nrow | c == 1 | c == ncol) edge = 1\n      if (edge == 0) {\n        if (g(r-1,c) == 0 | g(r+1,c) == 0 | g(r,c-1) == 0 | g(r,c+1) == 0) edge = 1\n      }\n      if (edge == 1) edgef = edgef + 1\n    }\n  }\n}\n\n# 8-connected clusters of failing dies, iterative flood fill\nclus = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2 & lab(r,c) == 0) {\n      lab(r,c) = 1\n      top = 1\n      stk(1) = (r-1)*ncol + c\n      sz = 0\n      while (top > 0) {\n        q = stk(top)\n        top = top - 1\n        sz = sz + 1\n        rr = (q-1)/ncol + 1\n        cc = q - (rr-1)*ncol\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            ar = rr + dr\n            ac = cc + dc\n            if (ar >= 1 & ar <= nrow & ac >= 1 & ac <= ncol) {\n              if (g(ar,ac) == 2 & lab(ar,ac) == 0) {\n                lab(ar,ac) = 1\n                top = top + 1\n                stk(top) = (ar-1)*ncol + ac\n              }\n            }\n          }\n        }\n      }\n      if (sz >= 10) clus = clus + 1\n    }\n  }\n}\n\nwrite(6,*) ringf, edgef, clus, fails\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 9,
+   "guards": "G2",
+   "rep": 0,
+   "accepted": false,
+   "attempts": 2,
+   "stages": [
+    "fortran",
+    "fortran"
+   ],
+   "audit_right": 0,
+   "audit_total": 600,
+   "audit_wrong_kinds": {
+    "not built": 600
+   },
+   "first_right": false,
+   "replay": {},
+   "stop": "attempt 2 gave the same errors as attempt 1; stopped (the agent is not fixing them)",
+   "llm_s": 9.3,
+   "llm_calls": 1,
+   "seconds": 14.2,
+   "final_code": "integer R, C, i, j, sp, sz, ni, nj, di, dj, ring, edge, cl, fails, ex, r2, c2, cc, ci, cj\ninteger g(256,256), stk(65536)\ninteger*8 d2, D2, a, b\n\nread(5,*) R, C\nfor (i = 1; i <= R; i = i + 1) {\n  read(5,*) (g(i,j), j = 1, C)\n}\n\n# largest squared distance over all dies (value 1 or 2)\nD2 = 0\nfor (i = 1; i <= R; i = i + 1) {\n  for (j = 1; j <= C; j = j + 1) {\n    if (g(i,j) != 0) {\n      r2 = 2*(i-1) - (R-1)\n      c2 = 2*(j-1) - (C-1)\n      d2 = r2*r2 + c2*c2\n      if (d2 > D2) D2 = d2\n    }\n  }\n}\n\nring = 0\nedge = 0\nfails = 0\nfor (i = 1; i <= R; i = i + 1) {\n  for (j = 1; j <= C; j = j + 1) {\n    if (g(i,j) == 2) {\n      fails = fails + 1\n\n      # ring test: 30^2*D2 <= 10000*d2 < 70^2*D2\n      r2 = 2*(i-1) - (R-1)\n      c2 = 2*(j-1) - (C-1)\n      d2 = r2*r2 + c2*c2\n      a = 900*D2\n      b = 10000*d2\n      if (a <= b & b < 4900*D2) ring = ring + 1\n\n      # edge test: a 4-neighbour is 0 or off the map\n      ex = 0\n      if (i == 1) ex = 1\n      if (i == R) ex = 1\n      if (j == 1) ex = 1\n      if (j == C) ex = 1\n      if (ex == 0) {\n        if (g(i-1,j) == 0 | g(i+1,j) == 0 | g(i,j-1) == 0 | g(i,j+1) == 0) ex = 1\n      }\n      if (ex == 1) edge = edge + 1\n    }\n  }\n}\n\n# clusters of failing dies (8-connectivity), flood fill with explicit stack\ncl = 0\nfor (i = 1; i <= R; i = i + 1) {\n  for (j = 1; j <= C; j = j + 1) {\n    if (g(i,j) == 2) {\n      g(i,j) = 1\n      sp = 1\n      stk(1) = i*512 + j\n      sz = 0\n      while (sp > 0) {\n        cc = stk(sp)\n        sp = sp - 1\n        sz = sz + 1\n        ci = cc / 512\n        cj = mod(cc, 512)\n        for (di = -1; di <= 1; di = di + 1) {\n          for (dj = -1; dj <= 1; dj = dj + 1) {\n            ni = ci + di\n            nj = cj + dj\n            if (ni >= 1 & ni <= R & nj >= 1 & nj <= C) {\n              if (g(ni,nj) == 2) {\n                g(ni,nj) = 1\n                sp = sp + 1\n                stk(sp) = ni*512 + nj\n              }\n            }\n          }\n        }\n      }\n      if (sz >= 10) cl = cl + 1\n    }\n  }\n}\n\nwrite(6,*) ring, edge, cl, fails\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 9,
+   "guards": "G2",
+   "rep": 1,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": true,
+   "replay": {},
+   "stop": null,
+   "llm_s": 0,
+   "llm_calls": 0,
+   "seconds": 19.9,
+   "final_code": "integer g(0:257,0:257), vis(0:257,0:257)\ninteger sr(66000), sc(66000)\ninteger nrow, ncol, r, c, dr, dc, ar, ac, qr, qc, top, csz\ninteger ringf, edgef, clus, fails, dy, dx\ninteger*8 d2, bigd, lo2, hi2, t\n\nread(5,*) nrow, ncol\nfor (r = 0; r <= 257; r = r + 1) {\n  for (c = 0; c <= 257; c = c + 1) {\n    g(r,c) = 0\n    vis(r,c) = 0\n  }\n}\ndo r = 1, nrow {\n  read(5,*) (g(r,c), c = 1, ncol)\n}\n\nbigd = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) != 0) {\n      dy = 2*(r-1) - (nrow-1)\n      dx = 2*(c-1) - (ncol-1)\n      d2 = dy*dy + dx*dx\n      if (d2 > bigd) bigd = d2\n    }\n  }\n}\n\nlo2 = 900 * bigd\nhi2 = 4900 * bigd\nringf = 0\nedgef = 0\nfails = 0\nclus = 0\n\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      if (g(r-1,c) == 0 | g(r+1,c) == 0 | g(r,c-1) == 0 | g(r,c+1) == 0)\n        edgef = edgef + 1\n      dy = 2*(r-1) - (nrow-1)\n      dx = 2*(c-1) - (ncol-1)\n      d2 = dy*dy + dx*dx\n      t = 10000 * d2\n      if (lo2 <= t & t < hi2) ringf = ringf + 1\n    }\n  }\n}\n\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if ((g(r,c) == 2) & (vis(r,c) == 0)) {\n      vis(r,c) = 1\n      top = 1\n      sr(1) = r\n      sc(1) = c\n      csz = 0\n      while (top > 0) {\n        qr = sr(top)\n        qc = sc(top)\n        top = top - 1\n        csz = csz + 1\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            ar = qr + dr\n            ac = qc + dc\n            if ((g(ar,ac) == 2) & (vis(ar,ac) == 0)) {\n              vis(ar,ac) = 1\n              top = top + 1\n              sr(top) = ar\n              sc(top) = ac\n            }\n          }\n        }\n      }\n      if (csz >= 10) clus = clus + 1\n    }\n  }\n}\n\nwrite(6,*) ringf, edgef, clus, fails\nend\n"
+  },
+  {
+   "role": "wafermap",
+   "spec": 9,
+   "guards": "G2",
+   "rep": 2,
+   "accepted": true,
+   "attempts": 3,
+   "stages": [
+    "fortran",
+    "examples",
+    "ok"
+   ],
+   "audit_right": 600,
+   "audit_total": 600,
+   "audit_wrong_kinds": {},
+   "first_right": false,
+   "replay": {},
+   "stop": null,
+   "llm_s": 19.8,
+   "llm_calls": 2,
+   "seconds": 27.0,
+   "final_code": "integer nrow, ncol, r, c, dr, dc, nr, nc, top, sz, q, rr, cc\ninteger ringf, edgef, clus, fails, edge\ninteger g(256,256), lab(256,256), stk(65536)\ninteger*8 x, y, d2, bigD, lhs, rhs\n\nread(5,*) nrow, ncol\nfor (r = 1; r <= nrow; r = r + 1) {\n  read(5,*) (g(r,c), c = 1, ncol)\n  for (c = 1; c <= ncol; c = c + 1) lab(r,c) = 0\n}\n\n# largest die distance squared (r, c are 1-based; spec indices are r-1, c-1)\nbigD = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) != 0) {\n      x = 2*r - nrow - 1\n      y = 2*c - ncol - 1\n      d2 = x*x + y*y\n      if (d2 > bigD) bigD = d2\n    }\n  }\n}\n\nringf = 0\nedgef = 0\nfails = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2) {\n      fails = fails + 1\n      x = 2*r - nrow - 1\n      y = 2*c - ncol - 1\n      d2 = x*x + y*y\n      # ring: 900*D2 <= 10000*d2 < 4900*D2\n      lhs = 900 * bigD\n      rhs = 10000 * d2\n      if (lhs <= rhs & rhs < 4900 * bigD) ringf = ringf + 1\n\n      # edge: some 4-neighbour is 0 or off the map\n      edge = 0\n      if (r == 1 | r == nrow | c == 1 | c == ncol) edge = 1\n      if (edge == 0) {\n        if (g(r-1,c) == 0 | g(r+1,c) == 0 | g(r,c-1) == 0 | g(r,c+1) == 0) edge = 1\n      }\n      if (edge == 1) edgef = edgef + 1\n    }\n  }\n}\n\n# 8-connected clusters of failing dies, iterative flood fill\nclus = 0\nfor (r = 1; r <= nrow; r = r + 1) {\n  for (c = 1; c <= ncol; c = c + 1) {\n    if (g(r,c) == 2 & lab(r,c) == 0) {\n      lab(r,c) = 1\n      top = 1\n      stk(1) = (r-1)*ncol + c\n      sz = 0\n      while (top > 0) {\n        q = stk(top)\n        top = top - 1\n        sz = sz + 1\n        rr = (q-1)/ncol + 1\n        cc = q - (rr-1)*ncol\n        for (dr = -1; dr <= 1; dr = dr + 1) {\n          for (dc = -1; dc <= 1; dc = dc + 1) {\n            nr = rr + dr\n            nc = cc + dc\n            if (nr >= 1 & nr <= nrow & nc >= 1 & nc <= ncol) {\n              if (g(nr,nc) == 2 & lab(nr,nc) == 0) {\n                lab(nr,nc) = 1\n                top = top + 1\n                stk(top) = (nr-1)*ncol + nc\n              }\n            }\n          }\n        }\n      }\n      if (sz >= 10) clus = clus + 1\n    }\n  }\n}\n\nwrite(6,*) ringf, edgef, clus, fails\nend\n"
+  }
+ ]
+}

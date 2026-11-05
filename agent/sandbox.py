@@ -135,18 +135,26 @@ class Sandbox:
             *[a for h, c in (rw_mounts or {}).items() for a in ("-v", f"{Path(h).resolve()}:{c}")], "-w", "/workspace",
             IMAGE, "sleep", "infinity"], check=True, capture_output=True)
 
-    def exec(self, command, timeout=60):
+    def exec(self, command, timeout=60, input=None):
+        """input: bytes for the command's stdin (Loop 41: inputs a program in the container must not find on disk)."""
         t0 = time.monotonic()
         # Stream and keep only head + tail: capture_output would hold everything (e.g. `cat` of a 1 GB log) in the
         # server process before truncating, and the server is shared by every run.
         # The time limit is kept inside the container: killing the docker exec client leaves the command running
         # (Loop 38: pkill -f on the command text missed most of them). timeout(1) signals its whole process group,
         # KILL 5 s after TERM.
-        p = subprocess.Popen(["docker", "exec", self.name, "timeout", "-k", "5", str(timeout), "bash", "-lc", command],
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        p = subprocess.Popen(["docker", "exec", *(["-i"] if input is not None else []), self.name, "timeout", "-k", "5",
+                              str(timeout), "bash", "-lc", command], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             stdin=subprocess.PIPE if input is not None else None)
         caps = [_Cap(p.stdout), _Cap(p.stderr)]
         for c in caps:
             c.start()
+        if input is not None:
+            def feed():
+                with contextlib.suppress(OSError):
+                    p.stdin.write(input)
+                    p.stdin.close()
+            threading.Thread(target=feed, daemon=True).start()
         try:
             rc = p.wait(timeout=timeout + 15)
         except subprocess.TimeoutExpired:  # docker itself hangs

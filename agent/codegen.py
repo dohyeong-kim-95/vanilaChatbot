@@ -179,38 +179,42 @@ def run_program(box, tc, bin):
     return False, [{"stage": "run", "line": None, "message": " | ".join(said)[:MAX_MESSAGE] or head}], text
 
 
-# Runs a built program on every case inside the box (python -I: our script, the program is the untrusted part):
-# one file in, one file out, each case with its own time limit.
+# Runs a built program on every case inside the box (python -I: our script, the program is the untrusted part),
+# each case with its own time limit. The cases come on our stdin, never in a file: the program runs in the same
+# container as the same user and would read the hidden inputs from disk (Loop 41 review). Results (only the
+# program's own output) go to a file we read and delete.
 _CASES = """import json, subprocess, sys
-argv, src, dst, t, cap = json.loads(sys.argv[1]), sys.argv[2], sys.argv[3], float(sys.argv[4]), int(sys.argv[5])
+argv, dst, t, cap = json.loads(sys.argv[1]), sys.argv[2], float(sys.argv[3]), int(sys.argv[4])
 res, slow = {}, 0
-for c in json.load(open(src)):
+for c in json.load(sys.stdin):
     if slow >= 2:  # it hangs: the rest would only spend the attempt's time
         res[c["id"]] = {"rc": None, "out": "", "err": "not run: earlier inputs timed out"}
         continue
     try:
         p = subprocess.run(argv, input=c["input"].encode(), capture_output=True, timeout=t)
-        res[c["id"]] = {"rc": p.returncode, "out": p.stdout[:cap].decode(errors="replace"),
-                        "err": p.stderr[-300:].decode(errors="replace")}
+        res[c["id"]] = {"rc": p.returncode, "out": p.stdout[:cap].decode("ascii", "replace"),
+                        "err": p.stderr[-300:].decode("ascii", "replace")}
     except subprocess.TimeoutExpired:
         slow += 1
         res[c["id"]] = {"rc": None, "out": "", "err": f"timed out after {t:g}s"}
-json.dump(res, open(dst, "w"))
+json.dump(res, open(dst, "w"), ensure_ascii=False)
 """
 
 
 def run_cases(box, tc, bin, cases, name):
     """{case id: {"rc", "out", "err"}} of the program on each case's input (rc None: timed out)."""
     d = f"outputs/{name}"
-    box.write_bytes(f"{d}/cases.json", json.dumps([{"id": c["id"], "input": c["input"]} for c in cases]).encode())
     t = min(CASE_SECONDS, tc["timeout"])
     argv = json.dumps([a.format(bin=bin) for a in tc["run"]])
-    out = box.exec(f"python -I -c {shlex.quote(_CASES)} {shlex.quote(argv)} {d}/cases.json {d}/results.json {t} "
-                   f"{MAX_CASE_OUT}", timeout=min(300, int(len(cases) * t) + 30))
-    try:
-        return json.loads(box.read_bytes(f"{d}/results.json", 2 * MAX_CASE_OUT * len(cases) + 4096))
+    data = json.dumps([{"id": c["id"], "input": c["input"]} for c in cases]).encode()
+    out = box.exec(f"mkdir -p {d} && python -I -c {shlex.quote(_CASES)} {shlex.quote(argv)} {d}/results.json {t} "
+                   f"{MAX_CASE_OUT}", timeout=min(300, int(len(cases) * t) + 30), input=data)
+    try:  # ASCII decoding: at most 3 bytes per output byte (U+FFFD) and the error tail
+        return json.loads(box.read_bytes(f"{d}/results.json", (3 * MAX_CASE_OUT + 2048) * len(cases) + 4096))
     except (FileNotFoundError, ValueError):
         raise RuntimeError(f"running the cases failed: {out[-300:]}") from None
+    finally:
+        box.exec(f"rm -rf {d}", timeout=30)
 
 
 def test_program(box, tc, bin, role, spec, guards, name):
@@ -221,8 +225,18 @@ def test_program(box, tc, bin, role, spec, guards, name):
         c["id"] = "h" + c["id"]
     if not public and not hidden:
         return [], {}
-    res = run_cases(box, tc, bin, public + hidden, name)
+    # the examples first and apart: no hidden input is in the box while a program's error text can still reach the
+    # agent through them
+    res = {**(run_cases(box, tc, bin, public, name + "-p") if public else {}),
+           **(run_cases(box, tc, bin, hidden, name + "-h") if hidden else {})}
     errs, score = [], {}
+
+    def judged(c, out):  # a judge that fails on odd output is that output's fault, not the loop's
+        try:
+            return role.judge(spec, c, out)
+        except Exception as e:
+            return {"format": [f"output the checker could not read ({type(e).__name__})"], "wrong": [],
+                    "total": len(c.get("categories") or []) or 1}
 
     def failed(r):
         return None if r["rc"] == 0 else (r["err"].strip() or f"exit {r['rc']}") if r["rc"] is not None else r["err"]
@@ -231,7 +245,7 @@ def test_program(box, tc, bin, role, spec, guards, name):
     for k, c in enumerate(public, 1):
         r = res[c["id"]]
         why = failed(r)
-        j = None if why else role.judge(spec, c, r["out"])
+        j = None if why else judged(c, r["out"])
         if why:
             errs.append(f"example {k}: the program failed: {why}")
         else:
@@ -244,7 +258,7 @@ def test_program(box, tc, bin, role, spec, guards, name):
         wrong, total, kinds, crashed, badfmt, where = 0, 0, {}, 0, 0, []
         for c in hidden:
             r = res[c["id"]]
-            j = None if failed(r) else role.judge(spec, c, r["out"])
+            j = None if failed(r) else judged(c, r["out"])
             n = len(c.get("categories") or []) or 1
             total += n
             if j is None or j["format"]:

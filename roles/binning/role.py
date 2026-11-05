@@ -12,7 +12,9 @@ pass_bin. The rules a weak model gets wrong (priority vs table order, skip, the 
 This file is trusted host code: the oracle, the case generator and the judge. The generated program only ever runs
 in a throwaway container (agent/codegen.py); its output is data here.
 """
+import math
 import random
+import re
 from decimal import Decimal
 
 DESCRIPTION = "die binning: die measurements on stdin -> a bin per die, by a spec of test limits"
@@ -50,7 +52,8 @@ def validate(spec):
         if lo is None and hi is None:
             raise ValueError(f"{t['name']}: at least one of lo, hi")
         for v in (lo, hi):
-            if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or abs(v) >= 1e6):
+            if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+                                  or abs(v) >= 1e6):
                 raise ValueError(f"{t['name']}: limits are numbers under 1e6")
         if lo is not None and hi is not None and lo > hi:
             raise ValueError(f"{t['name']}: lo > hi")
@@ -66,7 +69,7 @@ def validate(spec):
     fails = {t["bin"] for t in tests} | {out["missing_bin"]}
     if spec.get("marginal_pct") is not None:
         p = spec["marginal_pct"]
-        if isinstance(p, bool) or not isinstance(p, (int, float)) or not 0 < p <= 50:
+        if isinstance(p, bool) or not isinstance(p, (int, float)) or not math.isfinite(p) or not 0 < p <= 50:
             raise ValueError("marginal_pct: a number in (0, 50]")
         out["marginal_pct"], out["marginal_bin"] = p, _bin(spec.get("marginal_bin"), "marginal_bin")
         if out["marginal_bin"] in fails | {out["pass_bin"]}:
@@ -147,8 +150,16 @@ Limits are inclusive (a value equal to a limit passes); "-" means no limit on th
 {ex}"""
 
 
+def _inner_ok(spec, t):
+    """Whether t has passing values outside its marginal zones (when the zones meet, every pass is marginal)."""
+    if "marginal_pct" not in spec or t["lo"] is None or t["hi"] is None:
+        return True
+    return t["lo"] + float(_margin(spec, t["lo"])) + 0.002 < t["hi"] - float(_margin(spec, t["hi"])) - 0.002
+
+
 def _range(spec, t, inner):
-    """[a, b] of values that pass t; inner: also clear of the marginal zones."""
+    """[a, b] of values that pass t; inner: also clear of the marginal zones (the middle when there is no such
+    value: categories() then has no "pass")."""
     lo, hi = t["lo"], t["hi"]
     a = lo if lo is not None else hi - max(abs(hi), 1)  # one-sided: a range as wide as the limit
     b = hi if hi is not None else lo + max(abs(lo), 1)
@@ -165,10 +176,11 @@ def _value(spec, t, kind, rng):
         return round(rng.uniform(*_range(spec, t, True)), 3)
     if kind == "edge":
         return rng.choice([x for x in (lo, hi) if x is not None])
-    if kind == "margin":  # inside the limits, within the margin of one
-        s = rng.choice([x for x in (lo, hi) if x is not None])
+    if kind == "margin":  # inside the limits, within the margin of one whose margin is wide enough
+        s = rng.choice([x for x in (lo, hi) if x is not None and float(_margin(spec, x)) >= 0.002])
         m = float(_margin(spec, s))
-        u = max(round(rng.uniform(0.001, m * 0.9), 3), 0.001)
+        # never at |v - limit| == margin, where the exact oracle and a right double program disagree
+        u = rng.randint(1, max(1, math.floor((m - 0.0005) * 1000))) / 1000
         return round(s + u if s == lo else s - u, 3)
     a, b = _range(spec, t, False)
     s = rng.choice([x for x in (lo, hi) if x is not None])
@@ -179,9 +191,12 @@ def _value(spec, t, kind, rng):
 def categories(spec, example=False):
     """The kinds of die the cases hold: each probes one rule. Examples are plain dies only: the rules that are
     easy to get wrong are left to the hidden checks."""
+    can_pass = all(_inner_ok(spec, t) for t in spec["tests"])
     if example:
-        return ("pass", "fail")
-    out =["pass", "fail", "boundary", "priority", "missing"]
+        return ("pass", "fail") if can_pass else ("fail",)
+    out = (["pass"] if can_pass else []) + ["fail", "boundary", "priority"]
+    if any(t["missing"] == "bin" for t in spec["tests"]):
+        out.append("missing")
     if any(t["missing"] == "skip" for t in spec["tests"]):
         out.append("skip")
     if "marginal_pct" in spec and any(float(_margin(spec, x)) >= 0.002 for t in spec["tests"]
@@ -260,7 +275,7 @@ def judge(spec, case, output):
     a language may pad or wrap its numbers."""
     want = _expect(spec, case["input"])
     toks = output.split()
-    if len(toks) != 3 * len(want) or not all(t.lstrip("-").isdigit() for t in toks):
+    if len(toks) != 3 * len(want) or not all(re.fullmatch(r"-?[0-9]{1,9}", t) for t in toks):
         return {"format": [f"expected {len(want)} lines of 3 integers (x y bin), got {len(toks)} numbers/words"
                            + (f" starting {' '.join(toks[:6])!r}" if toks else "")], "wrong": [], "total": len(want)}
     got = [tuple(int(t) for t in toks[i:i + 3]) for i in range(0, len(toks), 3)]

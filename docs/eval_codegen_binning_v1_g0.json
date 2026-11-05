@@ -1,0 +1,316 @@
+{
+ "model": "claude-haiku-5-5",
+ "effort": "low",
+ "attempts": 5,
+ "audit": [
+  100,
+  40,
+  25
+ ],
+ "rows": [
+  {
+   "spec": 0,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 5,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 8.9,
+   "llm_calls": 1,
+   "seconds": 10.8,
+   "final_code": "integer n, i, k, x, y, b, fnd\ndouble precision v(5), lo(5), hi(5)\ninteger fbin(5)\nread(5,*) n\nlo(1) = 53.35d0;  hi(1) = 1d30;   fbin(1) = 27\nlo(2) = 347.67d0; hi(2) = 639.602d0; fbin(2) = 21\nlo(3) = 144.783d0; hi(3) = 1d30;  fbin(3) = 32\nlo(4) = 203.585d0; hi(4) = 1d30;  fbin(4) = 24\nlo(5) = -1d30;    hi(5) = 394.729d0; fbin(5) = 15\ndo i = 1, n {\n  read(5,*) x, y, (v(k), k = 1, 5)\n  b = 1\n  fnd = 0\n  do k = 1, 5 {\n    if (fnd == 0) {\n      if (v(k) == -9999d0) {\n        b = 34\n        fnd = 1\n      } else if (v(k) < lo(k) | v(k) > hi(k)) {\n        b = fbin(k)\n        fnd = 1\n      }\n    }\n  }\n  write(6,*) x, y, b\n}\nend\n"
+  },
+  {
+   "spec": 0,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 5,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 8.0,
+   "llm_calls": 1,
+   "seconds": 10.1,
+   "final_code": "integer n, i, t, x, y, bin, done, fb(5)\ndouble precision v(5), lo(5), hi(5)\nread(5,*) n\nlo(1) = 53.35d0\nhi(1) = 1d30\nfb(1) = 27\nlo(2) = 347.67d0\nhi(2) = 639.602d0\nfb(2) = 21\nlo(3) = 144.783d0\nhi(3) = 1d30\nfb(3) = 32\nlo(4) = 203.585d0\nhi(4) = 1d30\nfb(4) = 24\nlo(5) = -1d30\nhi(5) = 394.729d0\nfb(5) = 15\ndo i = 1, n {\n  read(5,*) x, y, (v(t), t = 1, 5)\n  bin = 1\n  done = 0\n  for (t = 1; t <= 5; t = t + 1) {\n    if (done == 0) {\n      if (v(t) == -9999d0) {\n        bin = 34\n        done = 1\n      }\n      else if (v(t) < lo(t) | v(t) > hi(t)) {\n        bin = fb(t)\n        done = 1\n      }\n    }\n  }\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 1,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 3,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 8.5,
+   "llm_calls": 1,
+   "seconds": 10.5,
+   "final_code": "integer n, i, k, x, y, bin, done\ninteger fb(3), haslo(3), hashi(3)\ndouble precision v(3), lo(3), hi(3)\n\nread(5,*) n\n\n# test table: IDDQ, FMAX, VDD\nhaslo(1) = 0; hashi(1) = 1; lo(1) = 0d0; hi(1) = 462.34d0; fb(1) = 33\nhaslo(2) = 1; hashi(2) = 0; lo(2) = 168.168d0; hi(2) = 0d0; fb(2) = 30\nhaslo(3) = 1; hashi(3) = 1; lo(3) = 289.518d0; hi(3) = 432.282d0; fb(3) = 32\n\ndo i = 1, n {\n  read(5,*) x, y, (v(k), k = 1, 3)\n  bin = 1\n  done = 0\n  for (k = 1; k <= 3 & done == 0; k = k + 1) {\n    if (v(k) == -9999d0) {\n      bin = 26\n      done = 1\n    }\n    else if ((haslo(k) == 1 & v(k) < lo(k)) | (hashi(k) == 1 & v(k) > hi(k))) {\n      bin = fb(k)\n      done = 1\n    }\n  }\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 1,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 3,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 9.1,
+   "llm_calls": 1,
+   "seconds": 11.1,
+   "final_code": "integer n, i, j, x, y, bin, found\ninteger hasLo(3), hasHi(3), tbin(3)\ndouble precision v(3), lo(3), hi(3)\n\n# test 1: IDDQ, high limit 462.34, fail bin 33\nhasLo(1) = 0\nlo(1) = 0d0\nhasHi(1) = 1\nhi(1) = 462.34d0\ntbin(1) = 33\n\n# test 2: FMAX, low limit 168.168, fail bin 30\nhasLo(2) = 1\nlo(2) = 168.168d0\nhasHi(2) = 0\nhi(2) = 0d0\ntbin(2) = 30\n\n# test 3: VDD, limits 289.518 .. 432.282, fail bin 32\nhasLo(3) = 1\nlo(3) = 289.518d0\nhasHi(3) = 1\nhi(3) = 432.282d0\ntbin(3) = 32\n\nread(5,*) n\nfor (i = 1; i <= n; i = i + 1) {\n  read(5,*) x, y, (v(j), j = 1, 3)\n  bin = 1\n  found = 0\n  for (j = 1; j <= 3 & found == 0; j = j + 1) {\n    if (v(j) == -9999d0) { bin = 26; found = 1 }\n    else {\n      if ((hasLo(j) == 1 & v(j) < lo(j)) | (hasHi(j) == 1 & v(j) > hi(j))) { bin = tbin(j); found = 1 }\n    }\n  }\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 2,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 6.5,
+   "llm_calls": 1,
+   "seconds": 8.5,
+   "final_code": "integer n, i, x, y, bin, found\ndouble precision a, b\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, a, b\n  bin = 1\n  found = 0\n  # test 1: IDDQ, low 100.745, high 151.655, fail bin 25\n  if (a == -9999d0) {\n    bin = 21\n    found = 1\n  } else if (a < 100.745d0 | a > 151.655d0) {\n    bin = 25\n    found = 1\n  }\n  # test 2: VDD, low 425.689, no high limit, fail bin 12\n  if (found == 0) {\n    if (b == -9999d0) {\n      bin = 21\n      found = 1\n    } else if (b < 425.689d0) {\n      bin = 12\n      found = 1\n    }\n  }\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 2,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 6.4,
+   "llm_calls": 1,
+   "seconds": 8.4,
+   "final_code": "integer n, i, x, y, bin, done\ndouble precision v1, v2\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, v1, v2\n  bin = 1\n  done = 0\n  if (v1 == -9999d0) { bin = 21; done = 1 }\n  if (done == 0) {\n    if (v1 < 100.745d0 | v1 > 151.655d0) { bin = 25; done = 1 }\n  }\n  if (done == 0) {\n    if (v2 == -9999d0) { bin = 21; done = 1 }\n  }\n  if (done == 0) {\n    if (v2 < 425.689d0) { bin = 12; done = 1 }\n  }\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 3,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 3,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 8.0,
+   "llm_calls": 1,
+   "seconds": 10.2,
+   "final_code": "integer n, i, k, t, x, y, b, found\ndouble precision v(3), lo(3), hi(3)\ninteger fb(3)\nlo(1) = 402.262d0\nhi(1) = 506.638d0\nfb(1) = 32\nlo(2) = -1d30\nhi(2) = 112.409d0\nfb(2) = 39\nlo(3) = 177.423d0\nhi(3) = 220.377d0\nfb(3) = 6\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, (v(k), k = 1, 3)\n  b = 1\n  found = 0\n  for (t = 1; t <= 3 & found == 0; t = t + 1) {\n    if (v(t) == -9999d0) {\n      b = 2\n      found = 1\n    } else if (v(t) < lo(t) | v(t) > hi(t)) {\n      b = fb(t)\n      found = 1\n    }\n  }\n  write(6,*) x, y, b\n}\nend\n"
+  },
+  {
+   "spec": 3,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 3,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 7.3,
+   "llm_calls": 1,
+   "seconds": 9.5,
+   "final_code": "integer n, i, k, x, y, bin, done, fb(3)\ndouble precision v(3), lo(3), hi(3)\n\n# test limits: -1d30 / 1d30 stand in for \"no limit\"\nlo(1) = 402.262d0\nhi(1) = 506.638d0\nfb(1) = 32\nlo(2) = -1d30\nhi(2) = 112.409d0\nfb(2) = 39\nlo(3) = 177.423d0\nhi(3) = 220.377d0\nfb(3) = 6\n\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, (v(k), k = 1, 3)\n  bin = 1\n  done = 0\n  k = 1\n  while (k <= 3 & done == 0) {\n    if (v(k) == -9999d0) {\n      bin = 2\n      done = 1\n    }\n    else if (v(k) < lo(k) | v(k) > hi(k)) {\n      bin = fb(k)\n      done = 1\n    }\n    k = k + 1\n  }\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 4,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 3,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 6.2,
+   "llm_calls": 1,
+   "seconds": 8.3,
+   "final_code": "integer n, i, t, x, y, b, done\ninteger fb(3)\ndouble precision v(3), lo(3)\n\nlo(1) = 27.403d0\nlo(2) = 358.076d0\nlo(3) = 103.093d0\nfb(1) = 27\nfb(2) = 32\nfb(3) = 11\n\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, v(1), v(2), v(3)\n  b = 1\n  done = 0\n  for (t = 1; t <= 3; t = t + 1) {\n    if (done == 0) {\n      if (v(t) == -9999d0) {\n        b = 7\n        done = 1\n      }\n      else if (v(t) < lo(t)) {\n        b = fb(t)\n        done = 1\n      }\n    }\n  }\n  write(6,*) x, y, b\n}\nend\n"
+  },
+  {
+   "spec": 4,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 3,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 7.8,
+   "llm_calls": 1,
+   "seconds": 9.9,
+   "final_code": "integer n, i, x, y, b\ndouble precision a, v, t\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, a, v, t\n  b = 1\n  if (a == -9999d0) b = 7\n  else if (a < 27.403d0) b = 27\n  else if (v == -9999d0) b = 7\n  else if (v < 358.076d0) b = 32\n  else if (t == -9999d0) b = 7\n  else if (t < 103.093d0) b = 11\n  write(6,*) x, y, b\n}\nend\n"
+  },
+  {
+   "spec": 5,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 4,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 9.7,
+   "llm_calls": 1,
+   "seconds": 11.6,
+   "final_code": "integer n, i, k, x, y, b, done, f, fb(4)\ndouble precision v(4)\nread(5,*) n\nfb(1) = 3\nfb(2) = 31\nfb(3) = 17\nfb(4) = 5\nfor (i = 1; i <= n; i = i + 1) {\n  read(5,*) x, y, v(1), v(2), v(3), v(4)\n  b = 1\n  done = 0\n  k = 1\n  while (k <= 4 & done == 0) {\n    if (v(k) == -9999d0) {\n      b = 12\n      done = 1\n    }\n    else {\n      f = 0\n      if (k == 1) { if (v(1) > 72.289d0) f = 1 }\n      if (k == 2) { if ((v(2) < 241.542d0) | (v(2) > 302.676d0)) f = 1 }\n      if (k == 3) { if (v(3) > 261.445d0) f = 1 }\n      if (k == 4) { if (v(4) > 86.992d0) f = 1 }\n      if (f == 1) {\n        b = fb(k)\n        done = 1\n      }\n    }\n    k = k + 1\n  }\n  write(6,*) x, y, b\n}\nend\n"
+  },
+  {
+   "spec": 5,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 4,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 8.8,
+   "llm_calls": 1,
+   "seconds": 10.7,
+   "final_code": "integer n, i, x, y, b, done\ndouble precision t, r, g, l\n\nread(5,*) n\nfor (i = 1; i <= n; i = i + 1) {\n  read(5,*) x, y, t, r, g, l\n  b = 1\n  done = 0\n\n  if (t == -9999d0) {\n    b = 12\n    done = 1\n  } else if (t > 72.289d0) {\n    b = 3\n    done = 1\n  }\n\n  if (done == 0) {\n    if (r == -9999d0) {\n      b = 12\n      done = 1\n    } else if (r < 241.542d0 | r > 302.676d0) {\n      b = 31\n      done = 1\n    }\n  }\n\n  if (done == 0) {\n    if (g == -9999d0) {\n      b = 12\n      done = 1\n    } else if (g > 261.445d0) {\n      b = 17\n      done = 1\n    }\n  }\n\n  if (done == 0) {\n    if (l == -9999d0) {\n      b = 12\n      done = 1\n    } else if (l > 86.992d0) {\n      b = 5\n      done = 1\n    }\n  }\n\n  write(6,*) x, y, b\n}\nend\n"
+  },
+  {
+   "spec": 6,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 7.7,
+   "llm_calls": 1,
+   "seconds": 9.7,
+   "final_code": "integer n, i, x, y, bin\ndouble precision g, r\nread(5,*) n\nfor (i = 1; i <= n; i = i + 1) {\n  read(5,*) x, y, g, r\n  bin = 1\n  if (g == -9999d0) {\n    bin = 2\n  } else if (g < 60.948d0) {\n    bin = 18\n  } else if (r == -9999d0) {\n    bin = 2\n  } else if (r < 141.092d0 | r > 178.908d0) {\n    bin = 4\n  }\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 6,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 7.2,
+   "llm_calls": 1,
+   "seconds": 9.2,
+   "final_code": "integer n, i, x, y, b, done\ndouble precision g, r\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, g, r\n  b = 1\n  done = 0\n  if (g == -9999d0) {\n    b = 2\n    done = 1\n  } else if (g < 60.948d0) {\n    b = 18\n    done = 1\n  }\n  if (done == 0) {\n    if (r == -9999d0) {\n      b = 2\n    } else if (r < 141.092d0 | r > 178.908d0) {\n      b = 4\n    }\n  }\n  write(6,*) x, y, b\n}\nend\n"
+  },
+  {
+   "spec": 7,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 4,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 14.0,
+   "llm_calls": 1,
+   "seconds": 16.2,
+   "final_code": "integer n, i, t, bin, x, y, fb(4)\ndouble precision v(4), lo(4), hi(4)\nread(5,*) n\nlo(1) = 26.415d0\nhi(1) = 32.525d0\nfb(1) = 6\nlo(2) = -1d30\nhi(2) = 241.017d0\nfb(2) = 36\nlo(3) = 27.595d0\nhi(3) = 32.457d0\nfb(3) = 8\nlo(4) = -1d30\nhi(4) = 406.023d0\nfb(4) = 25\ndo i = 1, n {\n  read(5,*) x, y, v(1), v(2), v(3), v(4)\n  bin = 1\n  t = 1\n  while (t <= 4 & bin == 1) {\n    if (v(t) == -9999d0) {\n      bin = 39\n    } else if (v(t) < lo(t) | v(t) > hi(t)) {\n      bin = fb(t)\n    }\n    t = t + 1\n  }\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 7,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 4,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 8.9,
+   "llm_calls": 1,
+   "seconds": 11.2,
+   "final_code": "integer n, i, t, x, y, bin\ninteger fb(4)\ndouble precision v(4), lo(4), hi(4)\n\nread(5,*) n\nlo(1) = 26.415d0\nhi(1) = 32.525d0\nfb(1) = 6\nlo(2) = -1d30\nhi(2) = 241.017d0\nfb(2) = 36\nlo(3) = 27.595d0\nhi(3) = 32.457d0\nfb(3) = 8\nlo(4) = -1d30\nhi(4) = 406.023d0\nfb(4) = 25\n\ndo i = 1, n {\n  read(5,*) x, y, v(1), v(2), v(3), v(4)\n  bin = 1\n  for (t = 1; t <= 4; t = t + 1) {\n    if (v(t) == -9999d0) { bin = 39; break }\n    if (v(t) < lo(t) | v(t) > hi(t)) { bin = fb(t); break }\n  }\n  write(6,*) x, y, bin\n}\nend\n"
+  }
+ ]
+}

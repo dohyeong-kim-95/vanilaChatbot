@@ -45,7 +45,7 @@ def ctx(name):
 
 
 def t_discover():
-    assert sorted(codegen.discover(TOOLCHAINS)) == ["ratfor", "toy"]
+    assert sorted(codegen.discover(TOOLCHAINS)) == ["python", "ratfor", "toy"]  # python: Loop 42 (roles)
     good = {"language": "x", "description": "d", "ext": ".x", "compile": ["c", "{src}"], "errors": "json"}
     for bad, msg in [({**good, "language": "y"}, "folder name"), ({**good, "compile": ["c", "a.x"]}, "{src}"),
                      ({**good, "compile": "c {src}"}, "argv"), ({**good, "errors": "(no group"}, "regex"),

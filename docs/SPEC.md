@@ -216,7 +216,10 @@ def name(ctx, **args) -> str
 - 가드: **공개 예시**(작은 입력 2개, 단순한 항목만. 틀리면 입력·기대값·실제값을 에이전트에 줌) → **숨긴 검사**(입력 20개 × 25항목, 에이전트는 "k/N 틀림(boundary 12, missing 3)"과 항목 id만 듣고 입력·답은 못 봄: 예시 답을 박아 넣은 프로그램이 여기서 걸림). 기대값은 역할의 정답 구현에서만 나온다(codegen 에이전트가 만들면 자기 채점, 모델이 만들면 모르는 언어를 추측).
 - 역할과 언어는 서로를 모른다. 둘 사이 규약은 프로그램의 stdin/stdout뿐이라 따로 바꿀 수 있다. 사양은 에이전트 입력 `spec`(JSON)으로도 간다(읽고 싶은 에이전트용, mock이 씀). 규약: `roles/README.md`.
 - 첫 역할 `binning`: die 측정값 → bin. 우선순위(표 순서와 다름), 측정 없으면 건너뛰는 테스트, marginal(한계의 X% 이내) 규칙. 정답 구현은 Decimal로 정확히 비교.
-- 측정(`bench/codegen_eval.py`, Haiku 5.5 low, Ratfor, 감사용 die 1,000개는 루프가 못 본 seed): 가드 없음 40회 중 3회가 오답을 통과시킴(모두 "우선순위 순서로 입력 열을 읽음"), 그 3개는 공개 예시 가드에서 모두 잡힘. G1·G2 48회는 첫 시도가 모두 정답이라 가드가 작동할 일이 없었음 → 구성별 독립 실행은 비교가 안 됨, 다음 측정은 같은 첫 프로그램을 모든 구성에 넣는 대응 비교로(Loop 42).
+- 측정(`bench/codegen_eval.py`, Haiku 5.5 low, Ratfor, 감사용 die 1,000개는 루프가 못 본 seed): 첫 시도 오답은 v2 전체 72회 중 1회(1.4%, `docs/eval_codegen_binning.json`), 앞선 가드 없음 측정까지 합치면 88회 중 3회(`docs/eval_codegen_binning_v2_g0.json`, v1은 16/16 정답). 3개 모두 "우선순위 순서로 입력 열을 읽음"이고, 공개 예시 가드에 넣으면 모두 잡힘. 이 오답률에서는 구성별 24회 독립 실행으로 가드를 구분할 수 없다 → Loop 42부터 대응 비교(같은 첫 답변을 모든 구성이 공유), 가드를 통과한 오답은 다른 가드로 다시 돌려 봄(`replay`).
+- 검사 입력은 프로그램이 읽을 수 있는 디스크에 두지 않는다(stdin으로 넘김, 공개 예시를 먼저 따로 실행): 같은 컨테이너·같은 사용자라 파일로 두면 프로그램이 숨긴 입력을 읽어 예시의 오류 메시지로 내보낼 수 있었음(리뷰 41.1, 재현 후 수정). 채점이 못 읽는 출력(`--3`, `²`)은 형식 오류이지 루프 중단이 아니다.
+- 두 번째 역할 `wafermap`(Loop 42): WM-811K 웨이퍼 맵(0 밖/1 정상/2 불량) 하나 → 사양의 정수들(die 수, 불량 수, 수율‰, 가장 큰 불량 덩어리(4/8방향), 덩어리 수, 가장자리 불량, 반지름 구간 불량). 정답이 정수라 맞은 프로그램은 모든 맵에서 맞다. 실제 맵은 레포에 없고(`bench/data/`, Kaggle에서 층화 추출 7,304장) 평가만 쓴다, 테스트는 합성 웨이퍼. 맵은 seed % 3으로 나눠 예시·숨긴 검사·감사가 같은 맵을 쓰지 않는다. 예시가 아닌 검사의 4장 중 1장은 경계를 노린 합성 맵(반지름 구간 한계에 딱 붙은 불량 die, 모서리로만 닿는 쌍, 맵 테두리의 die).
+- 측정(Loop 42, WM-811K, 대응 비교 30쌍, `docs/eval_codegen_wafermap.json`): 첫 답변 16/30 오답(컴파일 오류 14 포함). 가드 없음(G0, 컴파일 오류만 재시도) 22 정답 / 7 오답 통과 / 1 빌드 실패, 공개 예시(G1) 30 / 0 / 0, 숨긴 검사까지(G2) 27 / 0 / 3. G2의 빌드 실패 3은 에이전트가 같은 오류를 되풀이해 "같은 오류 두 번이면 멈춤"에 걸린 것(첫 답 뒤의 시도는 구성마다 따로 뽑힘). 경계 맵을 넣기 전 실행(`_v1.json`)에서는 G1·G2 모두 1개를 놓쳤다: Haiku가 쓴 `10000_8`(Fortran 90 kind 표기)을 Ratfor가 `100008`로 바꿔 반지름 경계 0.06% 안쪽 die에서만 틀림. 경계 맵을 넣은 숨긴 검사는 그것을 잡는다(공개 예시는 통과).
 
 ## 5. Sandbox
 
@@ -506,7 +509,7 @@ agent/logview.py        인터랙티브 텍스트 로그 뷰 (레벨 × 시간, 
 agent/views.py          템플릿 뷰 공용: 데이터 inline, 캡처 프로토콜
 agent/delegate.py       연결된 에이전트: 발견, tool 등록, sandbox 안 실행과 JSON 줄 프로토콜 감독
 agent/codegen.py        모르는 언어의 코드 생성 루프 (codegen 에이전트 → 컴파일 → 검사 → 오류 → 재생성), toolchain·역할 발견
-roles/                  역할: 프로그램이 해야 할 일과 그 검사 (binning, 규약 README.md)
+roles/                  역할: 프로그램이 해야 할 일과 그 검사 (binning, wafermap, 규약 README.md)
 bench/codegen_eval.py   가드 평가: Haiku low codegen(bench/agents/haiku-ratfor) × 가드 구성, 감사 세트로 채점
 agent/skills.py         skill 발견(SKILL.md frontmatter), 프롬프트 목록, `/skills` 마운트 경로
 skills/card-transactions/  첫 skill: 카드·은행 내보내기 로더(tx.py, 표준 라이브러리) + 도메인 규칙
@@ -547,6 +550,7 @@ tests/test_l29_audit.py       Loop 38 (audit 수정: 시간 초과 종료, git �
 tests/test_l30_audit2.py      Loop 39 (2차 audit: 연결 에이전트 LLM 가림, 50MB 넘는 outputs, 선 그래프 위치, 취소된 ingest 정리, mock 에이전트 배포 안 함, 큰 파일 줄 수 추정, 리포트 목록 검사, shmoo 선택, 업로드 part 제한)
 tests/test_l31_codegen.py     Loop 40 (모르는 언어 코드 생성: Ratfor 변환기 두 단계·줄 되돌리기, 3번 만에 빌드, 실행 오류, 멈춤 조건, 두 번째 언어 Toy, tool 노출, 실행 파일 에이전트)
 tests/test_l32_guards.py      Loop 41 (가드: 정답 구현 손 계산, 약한 모델식 실수 7종이 각각 숨긴 검사에서 그 종류로 잡힘, 예시 답 박기, 숨긴 입력 노출 없음, 무한 루프)
+tests/test_l33_wafermap.py    Loop 42 (wafermap 역할: 정답 구현 손 계산, 따로 쓴 두 번째 구현과 일치, 실수 5종이 숨긴 검사에서 그 항목으로 잡힘, 프로그램이 숨긴 입력을 못 읽음, 실제 맵 분할)
 tests/test_l28_markdown.py    Loop 36–37 (답변 마크다운: 블록·인라인, 한국어 조사, HTML·스크립트 링크 없음, 비정상 답변, 표·코드 복사, 근거 칩)
 tests/test_l27_rust.py        Loop 34 (Rust와 Python STDF 리더의 표가 같음: 두 바이트 순서, 스펙 레코드, 재검사, 섞인 site, 잘린 끝)
 tests/test_l26_dashboard.py   Loop 33 (대시보드 렌더·이스케이프, 정답과 같은 수치, Spotfire 번들, 결과 파일 다운로드)
@@ -588,7 +592,8 @@ python tests/test_l29_audit.py            # Docker(sandbox 이미지)·Chrome, L
 python tests/test_l30_audit2.py           # Docker(sandbox 이미지)·Chrome, LLM 없이 30초 정도
 python tests/test_l31_codegen.py          # Docker(sandbox 이미지)·호스트 gcc, LLM 없이 30초 정도
 python tests/test_l32_guards.py           # Docker(sandbox 이미지), LLM 없이 30초 정도
-python bench/codegen_eval.py --specs 8 --repeats 3   # gateway 필요, Haiku low, 20분 정도
+python tests/test_l33_wafermap.py         # Docker, LLM 없이 15초 정도
+python bench/codegen_eval.py [--role wafermap]   # gateway 필요, Haiku low, 20–40분, docs/eval_codegen_<role>.json
 python tests/test_l24_bigdata.py          # Docker·Chrome, LLM 없이 1분 정도
 python tests/test_l27_rust.py             # Docker(sandbox 이미지), 몇 초
 python tests/test_l26_dashboard.py        # Docker(sandbox 이미지)·Chrome, 몇 초

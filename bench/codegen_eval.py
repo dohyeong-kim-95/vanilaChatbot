@@ -1,22 +1,29 @@
-"""Evaluation of the codegen guards (Loop 41): how much do they help a weak model write programs that do the job?
+"""Evaluation of the codegen guards (Loops 41-42): how much do they help a weak model write programs that do the job?
 
-The codegen agent is Haiku at low effort (bench/agents/haiku-ratfor) writing the binning role (roles/binning) in
-Ratfor, the stand-in for a language it does not know well. The same specs run under each guard setting:
+The codegen agent is Haiku at low effort (bench/agents/haiku-ratfor) writing a role (roles/binning or
+roles/wafermap) in Ratfor, the stand-in for a language it does not know well. Each spec runs under each guard setting:
   G0  compile only: the first program that builds is taken
   G1  + examples: the examples are run, a wrong answer goes back with its input and expected output
   G2  + hidden checks: many inputs the agent never sees, only counts and kinds of mistakes go back
-Then the program each setting accepted is judged on an AUDIT set it never saw (other seeds, 1,000 dies). The guards
-are measured by that, not by what they said:
-  correct   accepted and right on every audit die
+Paired (Loop 42): the settings of one spec and repeat share the agent's first answer (the first prompt is the same
+in every setting, and the model's reply to it is asked once), so they differ only in what the guards do with it.
+Independent arms (Loop 41) could not tell the guards apart: at a 1-3% first-attempt error rate they mostly never
+had anything to catch.
+Then the program each setting accepted is judged on an AUDIT set it never saw (other seeds; wafermap: other maps).
+The guards are measured by that, not by what they said:
+  correct   accepted and right on every audit item
   false ok  accepted but wrong on the audit set: a guard let it through
   not built no program accepted within the attempts
-The prompt is the same in every setting (examples included); only the checks differ.
+A false ok program is also replayed through G1 and G2 (would they have caught it).
 
-  python bench/codegen_eval.py [--specs 6] [--repeats 2] [--guards G0,G1,G2] [--attempts 5] [--jobs 3]
-                               [--out docs/eval_codegen.json]
-Needs the gateway (LLM_BASE_URL, default :8100) and Docker with the sandbox image.
+  python bench/codegen_eval.py [--role binning|wafermap] [--specs 8] [--repeats 3] [--guards G0,G1,G2]
+                               [--attempts 5] [--jobs 4] [--maps bench/data/wm811k_sample.json.gz]
+                               [--out docs/eval_codegen_<role>.json]
+Needs the gateway (LLM_BASE_URL, default :8100) and Docker with the sandbox image. wafermap needs the WM-811K
+sample (bench/data/, not in the repo: a stratified sample of Kaggle "qingyi/wm811k-wafer-map").
 """
 import argparse
+import gzip
 import json
 import os
 import shutil
@@ -25,36 +32,44 @@ import tempfile
 import threading
 import time
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from openai import OpenAI  # noqa: E402
-
 from agent import codegen, delegate  # noqa: E402
 from agent.loop import Context  # noqa: E402
 from agent.sandbox import Sandbox  # noqa: E402
 
 GUARDS = {"G0": (), "G1": ("public",), "G2": ("public", "hidden")}
-AUDIT = (100, 40, 25)  # seed base, inputs, dies per input
+AUDIT = {"binning": (40, 25), "wafermap": (150, None)}  # inputs, items per input
 MODEL = os.environ.get("CODEGEN_MODEL", "claude-haiku-5-5")
 EFFORT = "low"
 TOOLCHAINS = ROOT / "tests" / "fixtures" / "toolchains"
 
 
-def audit(box, tc, role, spec, code, name, seed):
-    """-> (dies right, dies) of a program on the audit set."""
-    ok, errs, bin = codegen.compile_source(box, tc, code.encode(), name)
-    cases = role.cases(spec, seed, *AUDIT[1:])
+def audit_seed(spec_seed):
+    return 300 + 3 * spec_seed  # 0 mod 3: wafermap's audit maps are none of the examples' (1) or hidden checks' (2)
+
+
+def audit(box, tc, role, spec, code, name, seed, size):
+    """-> (items right, items, Counter of wrong kinds) of a program on the audit set."""
+    cases = role.cases(spec, seed, *size)
     total = sum(len(c["categories"]) for c in cases)
+    ok, errs, bin = codegen.compile_source(box, tc, code.encode(), name)
     if not ok:
-        return 0, total, Counter()
-    res = codegen.run_cases(box, tc, bin, cases, name)
+        return 0, total, Counter({"not built": total})
+    try:
+        res = codegen.run_cases(box, tc, bin, cases, name)
+    except RuntimeError:  # e.g. output the harness cannot hold: the program's fault
+        return 0, total, Counter({"crash/format": total})
     right, kinds = 0, Counter()
     for c in cases:
         r = res[c["id"]]
-        j = role.judge(spec, c, r["out"]) if r["rc"] == 0 else None
+        try:
+            j = role.judge(spec, c, r["out"]) if r["rc"] == 0 else None
+        except Exception:
+            j = None
         if j is None or j["format"]:
             kinds["crash/format"] += len(c["categories"])
             continue
@@ -63,45 +78,78 @@ def audit(box, tc, role, spec, code, name, seed):
     return right, total, kinds
 
 
-def one(args, client, agents_dir, spec_seed, g, rep, log):
-    role = codegen.discover_roles()["binning"]
+class FirstAnswers:
+    """The model's reply to a first prompt, asked once per (spec, repeat) and shared by every guard setting."""
+    def __init__(self):
+        self.lock, self.seen = threading.Lock(), {}
+
+    def get(self, key, ask):
+        with self.lock:
+            f, mine = self.seen.get(key), False
+            if f is None:
+                f, mine = self.seen.setdefault(key, Future()), True
+        if mine:
+            try:
+                f.set_result(ask())
+            except Exception as e:
+                f.set_exception(e)
+        return f.result()
+
+
+def stage(h):
+    if h["ok"]:
+        return "ok"
+    e = h["errors"][0]
+    return e["stage"] if e["stage"] != "test" else "examples" if e["message"].startswith("example") else "hidden"
+
+
+def one(args, client, firsts, agents_dir, role_name, spec_seed, g, rep, log):
+    role = codegen.discover_roles()[role_name]
+    if role_name == "wafermap":
+        role.use_maps(MAPS)
     spec = role.random_spec(spec_seed)
     ws = Path(tempfile.mkdtemp(prefix=f"cg-{spec_seed}-{g}-{rep}-"))
     sb = Sandbox(ws, mounts={agents_dir: delegate.MOUNT, TOOLCHAINS: codegen.MOUNT})
     calls = []
 
     def llm(msgs):
-        t = time.time()
-        text = client.chat.completions.create(model=MODEL, messages=msgs,
-                                              extra_body={"reasoning_effort": EFFORT}).choices[0].message.content
-        calls.append(time.time() - t)
-        return text
+        def ask():
+            t = time.time()
+            text = client.chat.completions.create(model=MODEL, messages=msgs,
+                                                  extra_body={"reasoning_effort": EFFORT}).choices[0].message.content
+            calls.append(time.time() - t)
+            return text
+        if len(msgs) == 2:  # system + task: the first attempt, the same in every setting
+            return firsts.get((role_name, spec_seed, rep, json.dumps(msgs)), ask)
+        return ask()
     ctx = Context(sandbox=sb, agents=delegate.discover(agents_dir), toolchains=codegen.discover(TOOLCHAINS),
-                  roles={"binning": role}, llm=llm)
-    t0 = time.time()
+                  roles={role_name: role}, llm=llm)
+    tc, t0, size = ctx.toolchains["ratfor"], time.time(), AUDIT[role_name]
     try:
-        r = codegen.loop(ctx, "ratfor", "", f"s{spec_seed}", args.attempts, role="binning", spec=spec,
+        r = codegen.loop(ctx, "ratfor", "", f"s{spec_seed}", args.attempts, role=role_name, spec=spec,
                          guards=GUARDS[g])
-        hist = r["history"]
-        stages = []
-        for h in hist:
-            e = h["errors"]
-            stages.append("ok" if h["ok"] else e[0]["stage"] if e[0]["stage"] != "test" else
-                          ("examples" if e[0]["message"].startswith("example") else "hidden"))
-        accepted = r["stop"] is None
+        hist, accepted = r["history"], r["stop"] is None
         box = sb.fresh()
         try:
-            right, total, kinds = audit(box, ctx.toolchains["ratfor"], role, spec, hist[-1]["code"], "audit",
-                                        AUDIT[0] + spec_seed) if hist else (0, 1, Counter())
+            right, total, kinds = audit(box, tc, role, spec, hist[-1]["code"], "audit", audit_seed(spec_seed), size) \
+                if hist else (0, 1, Counter())
+            first = audit(box, tc, role, spec, hist[0]["code"], "first", audit_seed(spec_seed), size)[:2] \
+                if hist else (0, 1)
+            replay = {}
+            if accepted and right < total:  # a false ok: would the other guards have caught this program?
+                ok, _, bin = codegen.compile_source(box, tc, hist[-1]["code"].encode(), "replay")
+                for name, gs in GUARDS.items():
+                    if gs:
+                        replay[name] = bool(codegen.test_program(box, tc, bin, role, spec, gs, "r" + name)[0])
         finally:
             box.close()
-        row = {"spec": spec_seed, "guards": g, "rep": rep, "tests": len(spec["tests"]), "accepted": accepted,
-               "attempts": len(hist), "stages": stages, "audit_right": right, "audit_total": total,
-               "audit_wrong_kinds": dict(kinds), "stop": r["stop"], "llm_s": round(sum(calls), 1),
-               "llm_calls": len(calls), "seconds": round(time.time() - t0, 1),
-               "final_code": hist[-1]["code"] if hist else None}
-    except Exception as e:
-        row = {"spec": spec_seed, "guards": g, "rep": rep, "error": f"{type(e).__name__}: {e}"[:500]}
+        row = {"role": role_name, "spec": spec_seed, "guards": g, "rep": rep, "accepted": accepted,
+               "attempts": len(hist), "stages": [stage(h) for h in hist], "audit_right": right, "audit_total": total,
+               "audit_wrong_kinds": dict(kinds), "first_right": first[0] == first[1], "replay": replay,
+               "stop": r["stop"], "llm_s": round(sum(calls), 1), "llm_calls": len(calls),
+               "seconds": round(time.time() - t0, 1), "final_code": hist[-1]["code"] if hist else None}
+    except Exception as e:  # the agent or the gateway failed: not a guard result, kept apart in the table
+        row = {"role": role_name, "spec": spec_seed, "guards": g, "rep": rep, "error": f"{type(e).__name__}: {e}"[:500]}
     finally:
         sb.close()
         shutil.rmtree(ws, ignore_errors=True)
@@ -110,53 +158,69 @@ def one(args, client, agents_dir, spec_seed, g, rep, log):
 
 
 def table(rows):
-    out = ["| guards | runs | correct | false ok | not built | audit dies right | attempts (avg) | caught by |",
+    ok_rows = [r for r in rows if "error" not in r]
+    pairs = {(r["spec"], r["rep"]): r["first_right"] for r in ok_rows}
+    out = [f"first answers wrong: {sum(not v for v in pairs.values())}/{len(pairs)} (shared by the settings); "
+           f"errors (agent/gateway): {len(rows) - len(ok_rows)}", "",
+           "| guards | runs | correct | false ok | not built | items right (accepted) | attempts (avg) | caught by |",
            "|---|---|---|---|---|---|---|---|"]
     for g in GUARDS:
-        rs = [r for r in rows if r["guards"] == g and "error" not in r]
+        rs = [r for r in ok_rows if r["guards"] == g]
         if not rs:
             continue
-        correct = sum(r["accepted"] and r["audit_right"] == r["audit_total"] for r in rs)
-        false_ok = sum(r["accepted"] and r["audit_right"] < r["audit_total"] for r in rs)
         acc = [r for r in rs if r["accepted"]]
-        dies = sum(r["audit_right"] for r in acc), sum(r["audit_total"] for r in acc)
+        correct = sum(r["audit_right"] == r["audit_total"] for r in acc)
+        items = sum(r["audit_right"] for r in acc), sum(r["audit_total"] for r in acc)
         caught = Counter(s for r in rs for s in r["stages"] if s != "ok")
-        out.append(f"| {g} | {len(rs)} | {correct} | {false_ok} | {len(rs) - len(acc)} | "
-                   f"{dies[0] / dies[1]:.1%} of accepted |" if dies[1] else f"| {g} | {len(rs)} | {correct} | "
-                   f"{false_ok} | {len(rs) - len(acc)} | - |")
-        out[-1] += f" {sum(r['attempts'] for r in rs) / len(rs):.1f} | " + \
-            ", ".join(f"{k} {v}" for k, v in caught.most_common()) + " |"
+        out.append(f"| {g} | {len(rs)} | {correct} | {len(acc) - correct} | {len(rs) - len(acc)} | "
+                   + (f"{items[0] / items[1]:.1%}" if items[1] else "-")
+                   + f" | {sum(r['attempts'] for r in rs) / len(rs):.1f} | "
+                   + (", ".join(f"{k} {v}" for k, v in caught.most_common()) or "-") + " |")
     return "\n".join(out)
+
+
+MAPS = []
+
+
+def load_maps(path):
+    d = json.load(gzip.open(path, "rt"))
+    return [[[int(ch) for ch in row] for row in x["rows"]] for x in d]
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--specs", type=int, default=6)
-    ap.add_argument("--repeats", type=int, default=2)
+    ap.add_argument("--role", default="binning", choices=sorted(AUDIT))
+    ap.add_argument("--specs", type=int, default=8)
+    ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--guards", default="G0,G1,G2")
     ap.add_argument("--attempts", type=int, default=5)
-    ap.add_argument("--jobs", type=int, default=3)
-    ap.add_argument("--out", default=str(ROOT / "docs" / "eval_codegen.json"))
+    ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--maps", default=str(ROOT / "bench" / "data" / "wm811k_sample.json.gz"))
+    ap.add_argument("--out")
     args = ap.parse_args()
+    from openai import OpenAI
+    if args.role == "wafermap":
+        MAPS[:] = load_maps(args.maps)
     client = OpenAI(base_url=os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8100/v1"), api_key="x",
                     timeout=300, max_retries=1)
     agents_dir = Path(tempfile.mkdtemp(prefix="cg-agents-"))
     shutil.copy(ROOT / "agents" / "_runner.py", agents_dir)
     shutil.copytree(ROOT / "bench" / "agents" / "haiku-ratfor", agents_dir / "haiku-ratfor")
-    lock, rows = threading.Lock(), []
+    lock, rows, firsts = threading.Lock(), [], FirstAnswers()
 
     def log(row):
         with lock:
             rows.append(row)
             short = {k: row.get(k) for k in ("spec", "guards", "rep", "accepted", "attempts", "stages",
-                                              "audit_right", "audit_total", "error")}
+                                              "audit_right", "audit_total", "first_right", "replay", "error")}
             print(json.dumps(short, ensure_ascii=False), flush=True)
     jobs = [(s, g, rep) for s in range(args.specs) for rep in range(args.repeats) for g in args.guards.split(",")]
     with ThreadPoolExecutor(args.jobs) as ex:
-        list(ex.map(lambda j: one(args, client, agents_dir, *j, log), jobs))
+        list(ex.map(lambda j: one(args, client, firsts, agents_dir, args.role, *j, log), jobs))
     rows.sort(key=lambda r: (r["spec"], r["guards"], r["rep"]))
-    Path(args.out).write_text(json.dumps({"model": MODEL, "effort": EFFORT, "attempts": args.attempts,
-                                          "audit": AUDIT, "rows": rows}, ensure_ascii=False, indent=1))
+    out = Path(args.out or ROOT / "docs" / f"eval_codegen_{args.role}.json")
+    out.write_text(json.dumps({"role": args.role, "model": MODEL, "effort": EFFORT, "attempts": args.attempts,
+                               "paired": True, "audit": AUDIT[args.role], "rows": rows}, ensure_ascii=False, indent=1))
     print(table(rows))
 
 

@@ -109,9 +109,74 @@ def t_hidden_inputs_stay_hidden():  # the agent hears counts and kinds, never a 
         values = {v for h in hidden for line in h["input"].split("\n")[1:] for v in line.split()[2:] if "." in v}
         text = json.dumps(errs)
         assert errs and not [v for v in values if v in text], text
+        # review 41.1: the whole message has one shape, so an answer ("expected bin 9") cannot slip in either
+        shape = (r"hidden checks: \d+/\d+ wrong( \(([a-z]+ \d+(, )?)+\))?(; \d+ inputs [a-z ]+)*; e\.g\. "
+                 r"(h\d+(:die \(\d+,\d+\))?(, )?)+\. Inputs not shown: fix the rule, not the answers")
+        assert len(errs) == 1 and re.fullmatch(shape, errs[0]["message"]), errs
     finally:
         box.close()
         c.sandbox.close()
+
+
+def t_labels_match_the_oracle():  # review 41.1: a "pass" die is one the oracle passes, a "marginal" one marginal
+    for seed in range(300):
+        spec = ROLE.random_spec(seed)
+        for c in ROLE.cases(spec, 1000 + seed, 2, 21):
+            for line, cat in zip(c["input"].split("\n")[1:], c["categories"]):
+                b = ROLE.bin_of(spec, [float(x) for x in line.split()[2:]])
+                want = {"pass": spec["pass_bin"], "marginal": spec.get("marginal_bin")}.get(cat, b)
+                assert b == want, (seed, cat, line, b)
+    # at a margin exactly: never generated (a right double program and the exact oracle would disagree)
+    tight = ROLE.validate({"tests": [{"name": "A", "lo": 0, "hi": 0.15, "bin": 2}], "missing_bin": 3,
+                           "marginal_pct": 2, "marginal_bin": 4})
+    vals = [float(line.split()[2]) for c in ROLE.cases(tight, 3, 20, 21) for line, cat in
+            zip(c["input"].split("\n")[1:], c["categories"]) if cat == "marginal"]
+    assert vals and all(abs(abs(v - 0.15) - 0.003) > 1e-9 for v in vals), vals
+
+
+def t_odd_output_is_a_format_error():  # review 41.1: "--3", "²", 5000 digits: not a crash of the loop
+    c = {"id": "1", "input": "1\n1 2 1.0 20 1200\n", "categories": ["pass"]}
+    for out in ["1 2 --3", "1 2 \u00b2", "1 2 " + "9" * 5000]:
+        assert ROLE.judge(SPEC, c, out)["format"], out
+    assert ROLE.judge(SPEC, c, "  1\n 2\t1 ")["wrong"] == []
+    for bad in [float("nan"), float("inf")]:
+        try:
+            ROLE.validate({"tests": [{"name": "a", "lo": bad, "bin": 2}], "missing_bin": 3})
+            raise AssertionError(bad)
+        except ValueError:
+            pass
+
+
+def t_measurement():  # review 41.1: the evaluation's own numbers (bench/codegen_eval.py), without a model
+    sys.path.insert(0, str(ROOT / "bench"))
+    import codegen_eval as ev
+    c = ctx("measure")
+    tc, box = c.toolchains["ratfor"], c.sandbox.fresh()
+    try:
+        right, total, kinds = ev.audit(box, tc, ROLE, SPEC, mock.program(SPEC, "right"), "a1", 300, (8, 25))
+        assert right == total == 200 and not kinds, (right, total, kinds)
+        right, total, kinds = ev.audit(box, tc, ROLE, SPEC, mock.program(SPEC, "tableorder"), "a2", 300, (8, 25))
+        assert right < total and kinds["priority"] > 0, kinds
+        right, total, kinds = ev.audit(box, tc, ROLE, SPEC, "nope {", "a3", 300, (8, 25))
+        assert right == 0 and kinds == {"not built": total}
+    finally:
+        box.close()
+        c.sandbox.close()
+    assert ev.audit_seed(4) % 3 == 0 and codegen.PUBLIC[0] % 3 == 1 and codegen.HIDDEN[0] % 3 == 2
+    rows = [{"spec": 0, "rep": 0, "guards": "G0", "accepted": True, "attempts": 1, "stages": ["ok"],
+             "audit_right": 90, "audit_total": 100, "first_right": False},
+            {"spec": 0, "rep": 0, "guards": "G1", "accepted": True, "attempts": 2, "stages": ["examples", "ok"],
+             "audit_right": 100, "audit_total": 100, "first_right": False},
+            {"spec": 0, "rep": 0, "guards": "G2", "accepted": False, "attempts": 5, "stages": ["hidden"] * 5,
+             "audit_right": 0, "audit_total": 100, "first_right": False},
+            {"spec": 1, "rep": 0, "guards": "G0", "error": "gateway"}]
+    t = ev.table(rows)
+    assert "first answers wrong: 1/1" in t and "errors (agent/gateway): 1" in t, t
+    assert "| G0 | 1 | 0 | 1 | 0 | 90.0% | 1.0 | - |" in t and "| G1 | 1 | 1 | 0 | 0 | 100.0% | 2.0 | examples 1 |" in t
+    assert "| G2 | 1 | 0 | 0 | 1 | - | 5.0 | hidden 5 |" in t, t
+    seen, calls = ev.FirstAnswers(), []
+    assert seen.get("k", lambda: calls.append(1) or "a") == seen.get("k", lambda: calls.append(1) or "b") == "a"
+    assert calls == [1]
 
 
 def t_loop_until_right():  # syntax -> cheat -> wrong order -> right: four attempts, each stopped by its guard
@@ -162,7 +227,7 @@ def t_contract():  # what write_code takes and what the model sees
     codegen.register(c.toolchains, c.agents, reg, _schema, c.roles)
     p = reg["write_code"]["schema"]["function"]["parameters"]["properties"]
     assert p["role"]["enum"] == ["binning"] and "missing_bin" in p["spec"]["description"]
-    assert sorted(codegen.discover_roles()) == ["binning"]
+    assert sorted(codegen.discover_roles()) == ["binning", "wafermap"]
     bad = TMP / "roles" / "half"
     bad.mkdir(parents=True)
     (bad / "role.py").write_text("DESCRIPTION = 'x'\n")

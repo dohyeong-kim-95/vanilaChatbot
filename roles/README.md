@@ -1,7 +1,7 @@
 # roles/: what a generated program must do, and the checks that it does (Loop 41)
 
 Compiling proves the syntax, not the intent. A role is a kind of program (here: die binning) with a spec format,
-an oracle (the right answer, in Python), a case generator and a judge. With `write_code(..., role, spec)` a program
+an oracle (the right answer, in Python), a case generator and a judge. Roles here: `binning` (die measurements -> bins) and `wafermap` (a WM-811K wafer map -> counts, clusters, edge and ring fails). With `write_code(..., role, spec)` a program
 that built is run on the role's cases before it is accepted (agent/codegen.py):
 
 | guard | what the agent hears when it fails | catches |
@@ -24,8 +24,10 @@ Trusted host code, shipped with the server (like skills). One folder per role, `
 | `SPEC_SCHEMA` | JSON Schema of the spec the model passes |
 | `validate(spec)` | the spec normalized, or `ValueError` (goes back to the model) |
 | `describe(spec, examples)` | the task text the codegen agent gets: I/O format, rules, the spec, worked examples |
-| `cases(spec, seed, n, size)` | `n` inputs `{"id", "input", "categories"}`; categories name the kind of mistake each item probes |
+| `cases(spec, seed, n, size, example=False)` | `n` inputs `{"id", "input", "categories"}`; categories name the kind of mistake each item probes; `example`: plain items for the worked examples (the tricky ones are for the hidden checks) |
 | `expected(spec, input)` | the oracle's output |
 | `judge(spec, case, output)` | `{"format": [problems], "wrong": [{"item", "category", "detail"}], "total"}`; compare by tokens, a language may pad its numbers |
 
 Test the oracle by hand first (tests/test_l32_guards.py `t_oracle`): every other check trusts it.
+
+The cases reach the program on stdin only: it runs in the same container as the checker, so a file of cases would let it read the hidden ones.

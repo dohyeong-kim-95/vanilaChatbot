@@ -1,0 +1,330 @@
+{
+ "model": "claude-haiku-5-5",
+ "effort": "low",
+ "attempts": 5,
+ "audit": [
+  100,
+  40,
+  25
+ ],
+ "rows": [
+  {
+   "spec": 0,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 5,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 27.5,
+   "llm_calls": 1,
+   "seconds": 29.6,
+   "final_code": "integer n, i, j, k, c, x, y, bin, marg, d\ninteger hasl(5), hash(5), lo(5), hi(5), fbin(5), nmbin(5), pord(5), m(5)\ndouble precision v(5)\n\n# priority order: FMAX(3), VDD(2), RDS(1), ILEAK(4), VTH(5)\npord(1) = 3\npord(2) = 2\npord(3) = 1\npord(4) = 4\npord(5) = 5\n\n# low / high limits in units of 0.001\nhasl(1) = 1\nhasl(2) = 1\nhasl(3) = 1\nhasl(4) = 1\nhasl(5) = 1\nhash(1) = 0\nhash(2) = 1\nhash(3) = 1\nhash(4) = 1\nhash(5) = 0\nlo(1) = 144783\nlo(2) = 44244\nlo(3) = 211279\nlo(4) = 312485\nlo(5) = 368162\nhi(1) = 0\nhi(2) = 57356\nhi(3) = 266253\nhi(4) = 527767\nhi(5) = 0\n\n# fail bins; nmbin = 0 means skip when not measured\nfbin(1) = 27\nfbin(2) = 21\nfbin(3) = 32\nfbin(4) = 24\nfbin(5) = 15\nnmbin(1) = 34\nnmbin(2) = 34\nnmbin(3) = 0\nnmbin(4) = 34\nnmbin(5) = 34\n\nread(5,*) n\nfor (i = 1; i <= n; i = i + 1) {\n  read(5,*) x, y, (v(k), k = 1, 5)\n  for (k = 1; k <= 5; k = k + 1) m(k) = nint(v(k) * 1000d0)\n\n  bin = 0\n  for (j = 1; j <= 5; j = j + 1) {\n    if (bin == 0) {\n      c = pord(j)\n      if (v(c) == -9999d0) {\n        if (nmbin(c) != 0) bin = nmbin(c)\n      } else {\n        if ((hasl(c) == 1) & (m(c) < lo(c))) bin = fbin(c)\n        if ((hash(c) == 1) & (m(c) > hi(c))) bin = fbin(c)\n      }\n    }\n  }\n\n  if (bin == 0) {\n    marg = 0\n    for (k = 1; k <= 5; k = k + 1) {\n      if (v(k) != -9999d0) {\n        if (hasl(k) == 1) {\n          d = abs(m(k) - lo(k))\n          if (10 * d <= abs(lo(k))) marg = 1\n        }\n        if (hash(k) == 1) {\n          d = abs(m(k) - hi(k))\n          if (10 * d <= abs(hi(k))) marg = 1\n        }\n      }\n    }\n    if (marg == 1) {\n      bin = 10\n    } else {\n      bin = 1\n    }\n  }\n\n  write(6,10) x, y, bin\n}\n10 format(i0,' ',i0,' ',i0)\nend\n"
+  },
+  {
+   "spec": 0,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 5,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 19.4,
+   "llm_calls": 1,
+   "seconds": 21.5,
+   "final_code": "integer n, i, j, k, c, bin, marg, xi, yi\ninteger hasl(5), hash(5), fb(5), nmb(5), ordr(5)\ndouble precision lo(5), hi(5), v(5), dx\n\n# column limits, fail bins, not-measured bins (0 = skip)\nhasl(1) = 1; lo(1) = 144.783d0; hash(1) = 0; hi(1) = 0d0; fb(1) = 27; nmb(1) = 34\nhasl(2) = 1; lo(2) = 44.244d0; hash(2) = 1; hi(2) = 57.356d0; fb(2) = 21; nmb(2) = 34\nhasl(3) = 1; lo(3) = 211.279d0; hash(3) = 1; hi(3) = 266.253d0; fb(3) = 32; nmb(3) = 0\nhasl(4) = 1; lo(4) = 312.485d0; hash(4) = 1; hi(4) = 527.767d0; fb(4) = 24; nmb(4) = 34\nhasl(5) = 1; lo(5) = 368.162d0; hash(5) = 0; hi(5) = 0d0; fb(5) = 15; nmb(5) = 34\n\n# test order by priority: FMAX(3), VDD(2), RDS(1), ILEAK(4), VTH(5)\nordr(1) = 3; ordr(2) = 2; ordr(3) = 1; ordr(4) = 4; ordr(5) = 5\n\nread(5,*) n\ndo i = 1, n {\n  read(5,*) xi, yi, (v(j), j = 1, 5)\n  bin = 0\n  for (k = 1; k <= 5; k = k + 1) {\n    c = ordr(k)\n    if (v(c) == -9999d0) {\n      if (nmb(c) == 0) next\n      bin = nmb(c)\n      break\n    }\n    if (hasl(c) == 1 & v(c) < lo(c)) {\n      bin = fb(c)\n      break\n    }\n    if (hash(c) == 1 & v(c) > hi(c)) {\n      bin = fb(c)\n      break\n    }\n  }\n  if (bin == 0) {\n    marg = 0\n    for (c = 1; c <= 5; c = c + 1) {\n      if (v(c) != -9999d0) {\n        if (hasl(c) == 1) {\n          dx = abs(v(c) - lo(c))\n          if (10d0 * dx <= abs(lo(c))) marg = 1\n        }\n        if (hash(c) == 1) {\n          dx = abs(v(c) - hi(c))\n          if (10d0 * dx <= abs(hi(c))) marg = 1\n        }\n      }\n    }\n    if (marg == 1) bin = 10\n    else bin = 1\n  }\n  write(6,*) xi, yi, bin\n}\nend\n"
+  },
+  {
+   "spec": 1,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 3,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 13.0,
+   "llm_calls": 1,
+   "seconds": 15.3,
+   "final_code": "integer n, i, j, k, x, y, bin\ninteger fb(3), ord(3)\ndouble precision v(3), lo(3), hi(3)\n\nlo(1) = 376.044d0\nhi(1) = 517.376d0\nfb(1) = 33\nlo(2) = 107.095d0\nhi(2) = 159.905d0\nfb(2) = 30\nlo(3) = 12.444d0\nhi(3) = 19.156d0\nfb(3) = 32\n\n# priority order: VDD (3), FMAX (2), IDDQ (1)\nord(1) = 3\nord(2) = 2\nord(3) = 1\n\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, v(1), v(2), v(3)\n  bin = 0\n  do k = 1, 3 {\n    if (bin == 0) {\n      j = ord(k)\n      if (v(j) == -9999d0) bin = 26\n      else if (v(j) < lo(j) | v(j) > hi(j)) bin = fb(j)\n    }\n  }\n  if (bin == 0) {\n    bin = 1\n    do j = 1, 3 {\n      if (abs(v(j) - lo(j)) <= 0.02d0 * abs(lo(j))) bin = 15\n      if (abs(v(j) - hi(j)) <= 0.02d0 * abs(hi(j))) bin = 15\n    }\n  }\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 1,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 3,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 16.2,
+   "llm_calls": 1,
+   "seconds": 18.3,
+   "final_code": "integer n, i, j, t, c, x, y, b, marg\ninteger v(3), lo(3), hi(3), fb(3), nm(3), ord(3)\ndouble precision d(3)\n\n# limits and fail bins, scaled by 1000 (values have at most 3 decimals)\nlo(1) = 376044\nhi(1) = 517376\nfb(1) = 33\nlo(2) = 107095\nhi(2) = 159905\nfb(2) = 30\nlo(3) = 12444\nhi(3) = 19156\nfb(3) = 32\nnm(1) = 26\nnm(2) = 26\nnm(3) = 26\n\n# test order by priority: VDD (1), FMAX (2), IDDQ (3)\nord(1) = 3\nord(2) = 2\nord(3) = 1\n\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, (d(j), j = 1, 3)\n  do j = 1, 3 {\n    v(j) = nint(d(j) * 1000d0)\n  }\n  b = 0\n  for (t = 1; t <= 3; t = t + 1) {\n    if (b == 0) {\n      c = ord(t)\n      if (v(c) == -9999000) {\n        b = nm(c)\n      } else if (v(c) < lo(c) | v(c) > hi(c)) {\n        b = fb(c)\n      }\n    }\n  }\n  if (b == 0) {\n    marg = 0\n    do j = 1, 3 {\n      if (v(j) != -9999000) {\n        if (abs(v(j) - lo(j)) * 100 <= 2 * abs(lo(j))) marg = 1\n        if (abs(v(j) - hi(j)) * 100 <= 2 * abs(hi(j))) marg = 1\n      }\n    }\n    if (marg == 1) {\n      b = 15\n    } else {\n      b = 1\n    }\n  }\n  write(6,*) x, y, b\n}\nend\n"
+  },
+  {
+   "spec": 2,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 7.0,
+   "llm_calls": 1,
+   "seconds": 9.0,
+   "final_code": "integer n, i, x, y, bin\ndouble precision iddq, vdd\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, iddq, vdd\n  bin = 0\n  if (vdd == -9999d0) {\n    bin = 21\n  } else if (vdd > 553.807d0) {\n    bin = 12\n  }\n  if (bin == 0) {\n    if (iddq == -9999d0) {\n      bin = 21\n    } else if (iddq > 378.02d0) {\n      bin = 25\n    }\n  }\n  if (bin == 0) bin = 1\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 2,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 7.2,
+   "llm_calls": 1,
+   "seconds": 9.2,
+   "final_code": "integer n, i, x, y, bin\ndouble precision iddq, vdd\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, iddq, vdd\n  bin = 1\n  if (vdd == -9999d0) { bin = 21 } else if (vdd > 553.807d0) { bin = 12 } else if (iddq == -9999d0) { bin = 21 } else if (iddq > 378.02d0) { bin = 25 }\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 3,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 3,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 16.2,
+   "llm_calls": 1,
+   "seconds": 18.1,
+   "final_code": "integer n, i, x, y, bin, done, marg\ndouble precision f, g, il\n\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, f, g, il\n  bin = 0\n  done = 0\n\n  # priority 1: GAIN (col 2)\n  if (g == -9999d0) {\n    bin = 2\n    done = 1\n  } else if (g > 520.473d0) {\n    bin = 39\n    done = 1\n  }\n\n  # priority 2: ILEAK (col 3)\n  if (done == 0) {\n    if (il == -9999d0) {\n      bin = 2\n      done = 1\n    } else if (il < 305.719d0 | il > 366.081d0) {\n      bin = 6\n      done = 1\n    }\n  }\n\n  # priority 3: FMAX (col 1)\n  if (done == 0) {\n    if (f == -9999d0) {\n      bin = 2\n      done = 1\n    } else if (f > 590.038d0) {\n      bin = 32\n      done = 1\n    }\n  }\n\n  # no test failed: marginal check (within 5% of a limit, or equal)\n  if (done == 0) {\n    marg = 0\n    if (abs(g - 520.473d0) <= 0.05d0 * 520.473d0) marg = 1\n    if (abs(il - 305.719d0) <= 0.05d0 * 305.719d0) marg = 1\n    if (abs(il - 366.081d0) <= 0.05d0 * 366.081d0) marg = 1\n    if (abs(f - 590.038d0) <= 0.05d0 * 590.038d0) marg = 1\n    if (marg == 1) bin = 18\n    else bin = 1\n  }\n\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 3,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 3,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 245,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {
+    "boundary": 160,
+    "priority": 76,
+    "marginal": 159,
+    "pass": 192,
+    "fail": 118,
+    "missing": 50
+   },
+   "stop": null,
+   "llm_s": 12.4,
+   "llm_calls": 1,
+   "seconds": 14.5,
+   "final_code": "integer n, k, x, y, bin, marg\ndouble precision g, il, fm\nread(5,*) n\nfor (k = 1; k <= n; k = k + 1) {\n  read(5,*) x, y, g, il, fm\n  bin = 0\n  # test 1: GAIN (priority 1)\n  if (g == -9999d0) {\n    bin = 2\n  } else {\n    if (g > 520.473d0) bin = 39\n  }\n  # test 2: ILEAK (priority 2)\n  if (bin == 0) {\n    if (il == -9999d0) {\n      bin = 2\n    } else {\n      if (il < 305.719d0 | il > 366.081d0) bin = 6\n    }\n  }\n  # test 3: FMAX (priority 3)\n  if (bin == 0) {\n    if (fm == -9999d0) {\n      bin = 2\n    } else {\n      if (fm > 590.038d0) bin = 32\n    }\n  }\n  # marginal check: all values measured here\n  if (bin == 0) {\n    marg = 0\n    if (abs(g - 520.473d0) <= 0.05d0 * abs(520.473d0)) marg = 1\n    if (abs(il - 305.719d0) <= 0.05d0 * abs(305.719d0)) marg = 1\n    if (abs(il - 366.081d0) <= 0.05d0 * abs(366.081d0)) marg = 1\n    if (abs(fm - 590.038d0) <= 0.05d0 * abs(590.038d0)) marg = 1\n    if (marg == 1) {\n      bin = 18\n    } else {\n      bin = 1\n    }\n  }\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 4,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 3,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 10.2,
+   "llm_calls": 1,
+   "seconds": 12.2,
+   "final_code": "integer n, i, x, y, bin, done\ndouble precision a, vdd, t\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, a, vdd, t\n  bin = 1\n  done = 0\n  # priority 1: TEMP (column 3), skip if not measured\n  if (t != -9999d0) {\n    if (t < 363.74d0) { bin = 11; done = 1 }\n  }\n  # priority 2: VDD (column 2), bin 7 if not measured\n  if (done == 0) {\n    if (vdd == -9999d0) {\n      bin = 7; done = 1\n    } else if (vdd < 76.692d0 | vdd > 96.708d0) {\n      bin = 32; done = 1\n    }\n  }\n  # priority 3: ILEAK (column 1), skip if not measured\n  if (done == 0) {\n    if (a != -9999d0) {\n      if (a < 358.076d0) { bin = 27; done = 1 }\n    }\n  }\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 4,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 3,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 591,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {
+    "missing": 61,
+    "priority": 105,
+    "boundary": 108,
+    "fail": 112,
+    "pass": 4,
+    "skip": 19
+   },
+   "stop": null,
+   "llm_s": 7.3,
+   "llm_calls": 1,
+   "seconds": 9.3,
+   "final_code": "integer n, i, x, y, bin, done\ndouble precision t, vd, il\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, t, vd, il\n  bin = 1\n  done = 0\n  # priority 1: TEMP (skip if not measured)\n  if (t != -9999d0 & t < 363.74d0) { bin = 11; done = 1 }\n  # priority 2: VDD (not measured -> bin 7)\n  if (done == 0) {\n    if (vd == -9999d0) { bin = 7; done = 1 }\n    else if (vd < 76.692d0 | vd > 96.708d0) { bin = 32; done = 1 }\n  }\n  # priority 3: ILEAK (skip if not measured)\n  if (done == 0 & il != -9999d0 & il < 358.076d0) { bin = 27; done = 1 }\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 5,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 4,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 18.0,
+   "llm_calls": 1,
+   "seconds": 20.0,
+   "final_code": "integer n, i, k, c, bin, done, ix, iy\ninteger ord(4), nmb(4), fb(4)\ndouble precision v(4), lo(4), hi(4), tol\n\n# priority order: GAIN(3), RDS(2), TEMP(1), ILEAK(4)\nord(1) = 3\nord(2) = 2\nord(3) = 1\nord(4) = 4\n\n# not-measured bin per column (0 = skip)\nnmb(1) = 12\nnmb(2) = 0\nnmb(3) = 0\nnmb(4) = 12\n\n# fail bin per column\nfb(1) = 3\nfb(2) = 31\nfb(3) = 17\nfb(4) = 5\n\n# limits (\"-\" high limit = 1d30, effectively none)\nlo(1) = 241.542d0\nhi(1) = 302.676d0\nlo(2) = 83.229d0\nhi(2) = 99.671d0\nlo(3) = 283.243d0\nhi(3) = 334.557d0\nlo(4) = 79.118d0\nhi(4) = 1d30\n\nread(5,*) n\ndo i = 1, n {\n  read(5,*) ix, iy, v(1), v(2), v(3), v(4)\n  bin = 0\n  done = 0\n  for (k = 1; k <= 4; k = k + 1) {\n    if (done == 0) {\n      c = ord(k)\n      if (abs(v(c) + 9999d0) < 0.5d0) {\n        if (nmb(c) != 0) {\n          bin = nmb(c)\n          done = 1\n        }\n      } else if (v(c) < lo(c) | v(c) > hi(c)) {\n        bin = fb(c)\n        done = 1\n      }\n    }\n  }\n  if (done == 0) {\n    bin = 1\n    for (c = 1; c <= 4; c = c + 1) {\n      if (abs(v(c) + 9999d0) >= 0.5d0) {\n        tol = 0.1d0 * abs(lo(c))\n        if (abs(v(c) - lo(c)) <= tol) bin = 9\n        tol = 0.1d0 * abs(hi(c))\n        if (abs(v(c) - hi(c)) <= tol) bin = 9\n      }\n    }\n  }\n  write(6,*) ix, iy, bin\n}\nend\n"
+  },
+  {
+   "spec": 5,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 4,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 17.8,
+   "llm_calls": 1,
+   "seconds": 19.8,
+   "final_code": "integer n, i, q, k, x, y, bin, marg\ninteger m(4), lo(4), hi(4), fb(4), nb(4), ord(4), sk(4), hh(4)\ndouble precision dv(4)\n\n# limits in milli-units (values have at most 3 decimals)\nlo(1) = 241542\nhi(1) = 302676\nlo(2) = 83229\nhi(2) = 99671\nlo(3) = 283243\nhi(3) = 334557\nlo(4) = 79118\nhi(4) = 0\n\n# fail bins\nfb(1) = 3\nfb(2) = 31\nfb(3) = 17\nfb(4) = 5\n\n# bin when not measured (0 means skip)\nnb(1) = 12\nnb(2) = 0\nnb(3) = 0\nnb(4) = 12\nsk(1) = 0\nsk(2) = 1\nsk(3) = 1\nsk(4) = 0\n\n# has high limit\nhh(1) = 1\nhh(2) = 1\nhh(3) = 1\nhh(4) = 0\n\n# priority order: GAIN(3), RDS(2), TEMP(1), ILEAK(4)\nord(1) = 3\nord(2) = 2\nord(3) = 1\nord(4) = 4\n\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, (dv(k), k = 1, 4)\n  do k = 1, 4 {\n    m(k) = nint(dv(k) * 1000d0)\n  }\n  bin = 0\n  for (q = 1; q <= 4; q = q + 1) {\n    k = ord(q)\n    if (bin == 0) {\n      if (m(k) == -9999000) {\n        if (sk(k) == 0) bin = nb(k)\n      }\n      else {\n        if (m(k) < lo(k)) bin = fb(k)\n        else if (hh(k) == 1 & m(k) > hi(k)) bin = fb(k)\n      }\n    }\n  }\n  if (bin == 0) {\n    marg = 0\n    do k = 1, 4 {\n      if (m(k) != -9999000) {\n        if (10 * iabs(m(k) - lo(k)) <= iabs(lo(k))) marg = 1\n        if (hh(k) == 1) {\n          if (10 * iabs(m(k) - hi(k)) <= iabs(hi(k))) marg = 1\n        }\n      }\n    }\n    if (marg == 1) bin = 9\n    else bin = 1\n  }\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 6,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 14.6,
+   "llm_calls": 1,
+   "seconds": 17.0,
+   "final_code": "integer n, i, x, y, b, gv, rv, marg\ndouble precision g, r\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, g, r\n  gv = 0\n  rv = 0\n  if (g != -9999d0) gv = nint(g * 1000d0)\n  if (r != -9999d0) rv = nint(r * 1000d0)\n  b = 0\n  # priority 1: RDS (limits 168.985 .. 245.607 in thousandths)\n  if (r != -9999d0) {\n    if (rv < 168985 | rv > 245607) {\n      b = 4\n    }\n  }\n  # priority 2: GAIN (limits 141.092 .. 178.908 in thousandths)\n  if (b == 0) {\n    if (g == -9999d0) {\n      b = 2\n    } else if (gv < 141092 | gv > 178908) {\n      b = 18\n    }\n  }\n  # no test failed: check marginality (|v - L| <= |L|/10, exact integer test)\n  if (b == 0) {\n    marg = 0\n    if (g != -9999d0) {\n      if (10 * abs(gv - 141092) <= 141092 | 10 * abs(gv - 178908) <= 178908) {\n        marg = 1\n      }\n    }\n    if (r != -9999d0) {\n      if (10 * abs(rv - 168985) <= 168985 | 10 * abs(rv - 245607) <= 245607) {\n        marg = 1\n      }\n    }\n    if (marg == 1) {\n      b = 11\n    } else {\n      b = 1\n    }\n  }\n  write(6,*) x, y, b\n}\nend\n"
+  },
+  {
+   "spec": 6,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 2,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 17.8,
+   "llm_calls": 1,
+   "seconds": 19.8,
+   "final_code": "integer n, i, x, y, bin, marg\ndouble precision g, r, gv, rv\nread(5,*) n\ndo i = 1, n {\n  read(5,*) x, y, g, r\n  # work in exact integer thousandths (stored as double)\n  gv = dnint(g*1000d0)\n  rv = dnint(r*1000d0)\n  bin = 0\n  # priority 1: RDS (skip if not measured)\n  if (r != -9999d0) if (rv < 168985d0 | rv > 245607d0) bin = 4\n  # priority 2: GAIN (bin 2 if not measured)\n  if (bin == 0) if (g == -9999d0) bin = 2\n  if (bin == 0) if (g != -9999d0) if (gv < 141092d0 | gv > 178908d0) bin = 18\n  # marginal check: within 10% of a limit (inclusive)\n  if (bin == 0) {\n    marg = 0\n    if (r != -9999d0) {\n      if (dabs(rv - 168985d0)*10d0 <= 168985d0) marg = 1\n      if (dabs(rv - 245607d0)*10d0 <= 245607d0) marg = 1\n    }\n    if (g != -9999d0) {\n      if (dabs(gv - 141092d0)*10d0 <= 141092d0) marg = 1\n      if (dabs(gv - 178908d0)*10d0 <= 178908d0) marg = 1\n    }\n    bin = 1\n    if (marg == 1) bin = 11\n  }\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 7,
+   "guards": "G0",
+   "rep": 0,
+   "tests": 4,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 16.1,
+   "llm_calls": 1,
+   "seconds": 18.3,
+   "final_code": "integer n, i, bin, marg, x, y\ndouble precision fmax, vth, temp, vdd\n\nread(5,*) n\nfor (i = 1; i <= n; i = i + 1) {\n  read(5,*) x, y, fmax, vth, temp, vdd\n  bin = 0\n\n  # priority 1: VTH, low 224.154, high 341.646, fail bin 36, not measured -> bin 5\n  if (vth == -9999d0) bin = 5\n  if (bin == 0 & (vth < 224.154d0 | vth > 341.646d0)) bin = 36\n\n  # priority 2: FMAX, high 224.619, fail bin 6, not measured -> skip\n  if (bin == 0 & fmax != -9999d0 & fmax > 224.619d0) bin = 6\n\n  # priority 3: TEMP, low 186.357, high 210.843, fail bin 8, not measured -> skip\n  if (bin == 0 & temp != -9999d0 & (temp < 186.357d0 | temp > 210.843d0)) bin = 8\n\n  # priority 4: VDD, low 58.608, high 86.592, fail bin 25, not measured -> skip\n  if (bin == 0 & vdd != -9999d0 & (vdd < 58.608d0 | vdd > 86.592d0)) bin = 25\n\n  # no test failed: check marginality (within 2% of any own limit)\n  if (bin == 0) {\n    marg = 0\n    if (abs(vth - 224.154d0) <= 0.02d0*abs(224.154d0) | abs(vth - 341.646d0) <= 0.02d0*abs(341.646d0)) marg = 1\n    if (abs(fmax - 224.619d0) <= 0.02d0*abs(224.619d0)) marg = 1\n    if (abs(temp - 186.357d0) <= 0.02d0*abs(186.357d0) | abs(temp - 210.843d0) <= 0.02d0*abs(210.843d0)) marg = 1\n    if (abs(vdd - 58.608d0) <= 0.02d0*abs(58.608d0) | abs(vdd - 86.592d0) <= 0.02d0*abs(86.592d0)) marg = 1\n    if (marg == 1) bin = 34\n    else bin = 1\n  }\n\n  write(6,*) x, y, bin\n}\nend\n"
+  },
+  {
+   "spec": 7,
+   "guards": "G0",
+   "rep": 1,
+   "tests": 4,
+   "accepted": true,
+   "attempts": 1,
+   "stages": [
+    "ok"
+   ],
+   "audit_right": 1000,
+   "audit_total": 1000,
+   "audit_wrong_kinds": {},
+   "stop": null,
+   "llm_s": 17.7,
+   "llm_calls": 1,
+   "seconds": 19.9,
+   "final_code": "integer n, i, x, y, bin, marg\ndouble precision f, v, t, d\n\nread(5,*) n\nfor (i = 1; i <= n; i = i + 1) {\n  read(5,*) x, y, f, v, t, d\n  bin = 0\n  marg = 0\n\n  # priority 1: VTH (not measured -> bin 5)\n  if (v == -9999d0) {\n    bin = 5\n  } else if (v < 224.154d0 | v > 341.646d0) {\n    bin = 36\n  }\n\n  # priority 2: FMAX (high limit only)\n  if (bin == 0) {\n    if (f != -9999d0) {\n      if (f > 224.619d0) bin = 6\n    }\n  }\n\n  # priority 3: TEMP\n  if (bin == 0) {\n    if (t != -9999d0) {\n      if (t < 186.357d0 | t > 210.843d0) bin = 8\n    }\n  }\n\n  # priority 4: VDD\n  if (bin == 0) {\n    if (d != -9999d0) {\n      if (d < 58.608d0 | d > 86.592d0) bin = 25\n    }\n  }\n\n  # no fail: check marginality (within 2% of own limits), else bin 1\n  if (bin == 0) {\n    if (f != -9999d0) {\n      if (abs(f - 224.619d0) <= 0.02d0 * abs(224.619d0)) marg = 1\n    }\n    if (v != -9999d0) {\n      if (abs(v - 224.154d0) <= 0.02d0 * abs(224.154d0)) marg = 1\n      if (abs(v - 341.646d0) <= 0.02d0 * abs(341.646d0)) marg = 1\n    }\n    if (t != -9999d0) {\n      if (abs(t - 186.357d0) <= 0.02d0 * abs(186.357d0)) marg = 1\n      if (abs(t - 210.843d0) <= 0.02d0 * abs(210.843d0)) marg = 1\n    }\n    if (d != -9999d0) {\n      if (abs(d - 58.608d0) <= 0.02d0 * abs(58.608d0)) marg = 1\n      if (abs(d - 86.592d0) <= 0.02d0 * abs(86.592d0)) marg = 1\n    }\n    if (marg == 1) {\n      bin = 34\n    } else {\n      bin = 1\n    }\n  }\n\n  write(6,*) x, y, bin\n}\nend\n"
+  }
+ ]
+}
