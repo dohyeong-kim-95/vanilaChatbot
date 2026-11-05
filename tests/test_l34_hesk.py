@@ -236,7 +236,7 @@ def t_loop_with_the_agent():  # the evaluation's agent, on scripted replies: syn
     shutil.copytree(ROOT / "bench" / "agents" / "haiku-hesk", agents / "haiku-hesk", dirs_exist_ok=True)
     spec = ROLE.validate({"fields": [{"name": "dies"}, {"name": "fails"}]})
     right = wafermap_program(spec)
-    replies = ["```hesk\nvar R, C.\nread R, C\nsay R.\n```",                   # no '.' after read
+    replies = ["```hesk-v2\nvar R, C.\nread R, C\nsay R.\n```",  # no '.' after read; any fence tag (review loop 2)
                "```hesk\nvar R, C.\nread R, C.\nsay R * C, 0.\n```",            # builds, wrong answers
                f"Here it is:\n```hesk\n{right}```"]
     seen = []
