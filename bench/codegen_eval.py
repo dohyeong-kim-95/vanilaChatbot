@@ -1,7 +1,8 @@
 """Evaluation of the codegen guards (Loops 41-42): how much do they help a weak model write programs that do the job?
 
-The codegen agent is Haiku at low effort (bench/agents/haiku-ratfor) writing a role (roles/binning or
-roles/wafermap) in Ratfor, the stand-in for a language it does not know well. Each spec runs under each guard setting:
+The codegen agent is Haiku at low effort (bench/agents/haiku-<language>) writing a role (roles/binning or
+roles/wafermap) in a language it does not know well: Ratfor, real but rare, or (Loop 43) Hesk, made up for this repo
+and known to the model only from its one-page reference. Each spec runs under each guard setting:
   G0  compile only: the first program that builds is taken
   G1  + examples: the examples are run, a wrong answer goes back with its input and expected output
   G2  + hidden checks: many inputs the agent never sees, only counts and kinds of mistakes go back
@@ -18,9 +19,10 @@ The guards are measured by that, not by what they said:
   not built no program accepted within the attempts
 A false ok program is also replayed through G1 and G2 (would they have caught it).
 
-  python bench/codegen_eval.py [--role binning|wafermap] [--specs 8] [--repeats 3] [--guards G0,G1,G2]
+  python bench/codegen_eval.py [--role binning|wafermap] [--language ratfor|hesk] [--specs 8] [--repeats 3]
+                               [--guards G0,G1,G2]
                                [--attempts 5] [--jobs 4] [--maps bench/data/wm811k_sample.json.gz]
-                               [--out docs/eval_codegen_<role>.json]
+                               [--out docs/eval_codegen_<role>[_<language>].json]
 Needs the gateway (LLM_BASE_URL, default :8100) and Docker with the sandbox image. wafermap needs the WM-811K
 sample (bench/data/, not in the repo: a stratified sample of Kaggle "qingyi/wm811k-wafer-map").
 """
@@ -101,6 +103,9 @@ class FirstAnswers:
         return f.result()
 
 
+TESTED = ("ok", "examples", "hidden", "test")  # stage() of a program that built
+
+
 def stage(h):
     if h["ok"]:
         return "ok"
@@ -131,9 +136,9 @@ def one(args, client, firsts, agents_dir, role_name, spec_seed, g, rep, log):
         return firsts.get((role_name, spec_seed, rep, json.dumps(msgs)), ask)
     ctx = Context(sandbox=sb, agents=delegate.discover(agents_dir), toolchains=codegen.discover(TOOLCHAINS),
                   roles={role_name: role}, llm=llm)
-    tc, t0, size = ctx.toolchains["ratfor"], time.time(), AUDIT[role_name]
+    tc, t0, size = ctx.toolchains[args.language], time.time(), AUDIT[role_name]
     try:
-        r = codegen.loop(ctx, "ratfor", "", f"s{spec_seed}", args.attempts, role=role_name, spec=spec,
+        r = codegen.loop(ctx, args.language, "", f"s{spec_seed}", args.attempts, role=role_name, spec=spec,
                          guards=GUARDS[g])
         hist, accepted = r["history"], r["stop"] is None
         box = sb.fresh()
@@ -170,8 +175,9 @@ def one(args, client, firsts, agents_dir, role_name, spec_seed, g, rep, log):
 def table(rows):
     ok_rows = [r for r in rows if "error" not in r]
     pairs = {(r["spec"], r["rep"]): r["first_right"] for r in ok_rows}
-    out = [f"first answers wrong: {sum(not v for v in pairs.values())}/{len(pairs)} (shared by the settings); "
-           f"errors (agent/gateway): {len(rows) - len(ok_rows)}", "",
+    unbuilt = {(r["spec"], r["rep"]): r["stages"][0] not in TESTED for r in ok_rows if r["stages"]}
+    out = [f"first answers wrong: {sum(not v for v in pairs.values())}/{len(pairs)}, of them not built: "
+           f"{sum(unbuilt.values())} (shared by the settings); errors (agent/gateway): {len(rows) - len(ok_rows)}", "",
            "| guards | runs | correct | false ok | not built | items right (accepted) | wrong on probes only | "
            "attempts (avg) | caught by |", "|---|---|---|---|---|---|---|---|---|"]
     for g in GUARDS:
@@ -202,6 +208,7 @@ def load_maps(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--role", default="binning", choices=sorted(AUDIT))
+    ap.add_argument("--language", default="ratfor", choices=("ratfor", "hesk"))
     ap.add_argument("--specs", type=int, default=8)
     ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--guards", default="G0,G1,G2")
@@ -217,7 +224,7 @@ def main():
                     timeout=300, max_retries=1)
     agents_dir = Path(tempfile.mkdtemp(prefix="cg-agents-"))
     shutil.copy(ROOT / "agents" / "_runner.py", agents_dir)
-    shutil.copytree(ROOT / "bench" / "agents" / "haiku-ratfor", agents_dir / "haiku-ratfor")
+    shutil.copytree(ROOT / "bench" / "agents" / f"haiku-{args.language}", agents_dir / f"haiku-{args.language}")
     lock, rows, firsts = threading.Lock(), [], FirstAnswers()
 
     def log(row):
@@ -230,8 +237,9 @@ def main():
     with ThreadPoolExecutor(args.jobs) as ex:
         list(ex.map(lambda j: one(args, client, firsts, agents_dir, args.role, *j, log), jobs))
     rows.sort(key=lambda r: (r["spec"], r["guards"], r["rep"]))
-    out = Path(args.out or ROOT / "docs" / f"eval_codegen_{args.role}.json")
-    out.write_text(json.dumps({"role": args.role, "model": MODEL, "effort": EFFORT, "attempts": args.attempts,
+    lang = "" if args.language == "ratfor" else "_" + args.language
+    out = Path(args.out or ROOT / "docs" / f"eval_codegen_{args.role}{lang}.json")
+    out.write_text(json.dumps({"role": args.role, "language": args.language, "model": MODEL, "effort": EFFORT, "attempts": args.attempts,
                                "paired": True, "audit": AUDIT[args.role], "rows": rows}, ensure_ascii=False, indent=1))
     print(table(rows))
 

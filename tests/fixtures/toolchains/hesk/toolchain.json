@@ -1,0 +1,9 @@
+{
+  "language": "hesk",
+  "description": "Hesk, a made-up language no model has seen (only its one-page reference): integer programs that read stdin and print with say",
+  "ext": ".hk",
+  "compile": ["python", "-I", "/toolchains/hesk/hesk.py", "check", "{src}", "{bin}"],
+  "errors": "json",
+  "run": ["python", "-I", "/toolchains/hesk/hesk.py", "run", "{bin}"],
+  "timeout": 30
+}

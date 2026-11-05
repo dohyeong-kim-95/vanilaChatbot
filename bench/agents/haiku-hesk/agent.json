@@ -1,0 +1,8 @@
+{
+  "name": "haiku-hesk",
+  "description": "Writes Hesk with Haiku at low effort (the evaluation's codegen agent, bench/codegen_eval.py)",
+  "language": "hesk",
+  "entry": "agent:run",
+  "timeout": 180,
+  "llm_calls": 1
+}
