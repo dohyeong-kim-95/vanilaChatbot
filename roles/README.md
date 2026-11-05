@@ -28,6 +28,25 @@ Trusted host code, shipped with the server (like skills). One folder per role, `
 | `expected(spec, input)` | the oracle's output |
 | `judge(spec, case, output)` | `{"format": [problems], "wrong": [{"item", "category", "detail"}], "total"}`; compare by tokens, a language may pad its numbers |
 
+The evaluation (bench/codegen_eval.py) also calls `random_spec(seed)` and reads `case["probe"]` (boundary inputs, counted apart in its audit); wafermap adds `use_maps(maps)` for real data.
+
 Test the oracle by hand first (tests/test_l32_guards.py `t_oracle`): every other check trusts it.
 
 The cases reach the program on stdin only: it runs in the same container as the checker, so a file of cases would let it read the hidden ones.
+
+## Which problems make a role
+
+A guard is only as strong as its oracle. The API stays as it is: `expected` gives one right answer (shown in the
+worked examples), `judge` decides.
+
+| problem | oracle and judge | guard |
+|---|---|---|
+| one exact answer (counts, bins, parsing) | compare tokens with `expected` | strongest: a right program is right on every input |
+| numbers within a tolerance | compare with `expected` within the tolerance | strong |
+| only properties can be checked (several right answers) | `expected` returns one of them; `judge` checks the property | medium |
+| an existing implementation (porting) | call or re-implement it in Python | strong: same input, same output |
+| no right answer can be stated (summaries, prose, UI) | none | compile only; a person or an LLM is not a guard |
+
+Programs read stdin and print to stdout, 5 s per case (`codegen.CASE_SECONDS`). Anything else (files, dialogue,
+speed as a requirement) needs the harness (`codegen._CASES`) widened first. How to adapt the whole loop to another
+language and problem, with what we measured: [docs/ADAPTING.md](../docs/ADAPTING.md).
