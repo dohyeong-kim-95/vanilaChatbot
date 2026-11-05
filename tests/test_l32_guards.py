@@ -172,8 +172,9 @@ def t_measurement():  # review 41.1: the evaluation's own numbers (bench/codegen
             {"spec": 1, "rep": 0, "guards": "G0", "error": "gateway"}]
     t = ev.table(rows)
     assert "first answers wrong: 1/1" in t and "errors (agent/gateway): 1" in t, t
-    assert "| G0 | 1 | 0 | 1 | 0 | 90.0% | 1.0 | - |" in t and "| G1 | 1 | 1 | 0 | 0 | 100.0% | 2.0 | examples 1 |" in t
-    assert "| G2 | 1 | 0 | 0 | 1 | - | 5.0 | hidden 5 |" in t, t
+    assert "| G0 | 1 | 0 | 1 | 0 | 90.0% | 0 | 1.0 | - |" in t, t
+    assert "| G1 | 1 | 1 | 0 | 0 | 100.0% | 0 | 2.0 | examples 1 |" in t, t
+    assert "| G2 | 1 | 0 | 0 | 1 | - | 0 | 5.0 | hidden 5 |" in t, t
     seen, calls = ev.FirstAnswers(), []
     assert seen.get("k", lambda: calls.append(1) or "a") == seen.get("k", lambda: calls.append(1) or "b") == "a"
     assert calls == [1]

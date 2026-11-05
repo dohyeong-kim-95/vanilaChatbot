@@ -1,0 +1,7 @@
+{
+  "name": "py-snoop",
+  "description": "Writes Python programs that try to carry hidden inputs from one attempt to the next (review 42.1 test)",
+  "language": "python",
+  "entry": "snoop:run",
+  "timeout": 30
+}

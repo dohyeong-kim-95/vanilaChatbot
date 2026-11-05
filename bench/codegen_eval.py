@@ -5,13 +5,15 @@ roles/wafermap) in Ratfor, the stand-in for a language it does not know well. Ea
   G0  compile only: the first program that builds is taken
   G1  + examples: the examples are run, a wrong answer goes back with its input and expected output
   G2  + hidden checks: many inputs the agent never sees, only counts and kinds of mistakes go back
-Paired (Loop 42): the settings of one spec and repeat share the agent's first answer (the first prompt is the same
-in every setting, and the model's reply to it is asked once), so they differ only in what the guards do with it.
+Paired (Loop 42): the settings of one spec and repeat share the model's reply to every prompt they have in common
+(the first one always; a retry after the same compile errors too), so they differ only where their guards said
+something different.
 Independent arms (Loop 41) could not tell the guards apart: at a 1-3% first-attempt error rate they mostly never
 had anything to catch.
-Then the program each setting accepted is judged on an AUDIT set it never saw (other seeds; wafermap: other maps).
+Then the program each setting accepted is judged on an AUDIT set it never saw (other seeds; wafermap: other real
+maps, and apart from them the role's probe maps, which G2's hidden checks also use: reported in their own column).
 The guards are measured by that, not by what they said:
-  correct   accepted and right on every audit item
+  correct   accepted and right on every audit item (real maps)
   false ok  accepted but wrong on the audit set: a guard let it through
   not built no program accepted within the attempts
 A false ok program is also replayed through G1 and G2 (would they have caught it).
@@ -52,16 +54,19 @@ def audit_seed(spec_seed):
     return 300 + 3 * spec_seed  # 0 mod 3: wafermap's audit maps are none of the examples' (1) or hidden checks' (2)
 
 
-def audit(box, tc, role, spec, code, name, seed, size):
-    """-> (items right, items, Counter of wrong kinds) of a program on the audit set."""
-    cases = role.cases(spec, seed, *size)
+def audit(box, tc, role, spec, code, name, seed, size, probes=False):
+    """-> (items right, items, Counter of wrong kinds) of a program on the audit set: the real items, or (probes)
+    only the role's probe items."""
+    cases = [c for c in role.cases(spec, seed, *size) if bool(c.get("probe")) == probes]
     total = sum(len(c["categories"]) for c in cases)
+    if not cases:
+        return 0, 0, Counter()
     ok, errs, bin = codegen.compile_source(box, tc, code.encode(), name)
     if not ok:
         return 0, total, Counter({"not built": total})
     try:
         res = codegen.run_cases(box, tc, bin, cases, name)
-    except RuntimeError:  # e.g. output the harness cannot hold: the program's fault
+    except RuntimeError:  # the harness failed on it: the program's fault
         return 0, total, Counter({"crash/format": total})
     right, kinds = 0, Counter()
     for c in cases:
@@ -100,7 +105,10 @@ def stage(h):
     if h["ok"]:
         return "ok"
     e = h["errors"][0]
-    return e["stage"] if e["stage"] != "test" else "examples" if e["message"].startswith("example") else "hidden"
+    if e["stage"] != "test":
+        return e["stage"]
+    return "examples" if e["message"].startswith("example") else \
+        "hidden" if e["message"].startswith("hidden checks") else "test"
 
 
 def one(args, client, firsts, agents_dir, role_name, spec_seed, g, rep, log):
@@ -119,9 +127,8 @@ def one(args, client, firsts, agents_dir, role_name, spec_seed, g, rep, log):
                                                   extra_body={"reasoning_effort": EFFORT}).choices[0].message.content
             calls.append(time.time() - t)
             return text
-        if len(msgs) == 2:  # system + task: the first attempt, the same in every setting
-            return firsts.get((role_name, spec_seed, rep, json.dumps(msgs)), ask)
-        return ask()
+        # the same prompt in another setting (the first one; a retry after the same compile errors): its reply
+        return firsts.get((role_name, spec_seed, rep, json.dumps(msgs)), ask)
     ctx = Context(sandbox=sb, agents=delegate.discover(agents_dir), toolchains=codegen.discover(TOOLCHAINS),
                   roles={role_name: role}, llm=llm)
     tc, t0, size = ctx.toolchains["ratfor"], time.time(), AUDIT[role_name]
@@ -133,10 +140,12 @@ def one(args, client, firsts, agents_dir, role_name, spec_seed, g, rep, log):
         try:
             right, total, kinds = audit(box, tc, role, spec, hist[-1]["code"], "audit", audit_seed(spec_seed), size) \
                 if hist else (0, 1, Counter())
+            p_right, p_total, p_kinds = audit(box, tc, role, spec, hist[-1]["code"], "probe", audit_seed(spec_seed),
+                                              size, probes=True) if hist else (0, 0, Counter())
             first = audit(box, tc, role, spec, hist[0]["code"], "first", audit_seed(spec_seed), size)[:2] \
                 if hist else (0, 1)
             replay = {}
-            if accepted and right < total:  # a false ok: would the other guards have caught this program?
+            if accepted and (right < total or p_right < p_total):  # a false ok: would the others have caught it?
                 ok, _, bin = codegen.compile_source(box, tc, hist[-1]["code"].encode(), "replay")
                 for name, gs in GUARDS.items():
                     if gs:
@@ -145,7 +154,8 @@ def one(args, client, firsts, agents_dir, role_name, spec_seed, g, rep, log):
             box.close()
         row = {"role": role_name, "spec": spec_seed, "guards": g, "rep": rep, "accepted": accepted,
                "attempts": len(hist), "stages": [stage(h) for h in hist], "audit_right": right, "audit_total": total,
-               "audit_wrong_kinds": dict(kinds), "first_right": first[0] == first[1], "replay": replay,
+               "audit_wrong_kinds": dict(kinds), "probe_right": p_right, "probe_total": p_total,
+               "probe_wrong_kinds": dict(p_kinds), "first_right": first[0] == first[1], "replay": replay,
                "stop": r["stop"], "llm_s": round(sum(calls), 1), "llm_calls": len(calls),
                "seconds": round(time.time() - t0, 1), "final_code": hist[-1]["code"] if hist else None}
     except Exception as e:  # the agent or the gateway failed: not a guard result, kept apart in the table
@@ -162,8 +172,8 @@ def table(rows):
     pairs = {(r["spec"], r["rep"]): r["first_right"] for r in ok_rows}
     out = [f"first answers wrong: {sum(not v for v in pairs.values())}/{len(pairs)} (shared by the settings); "
            f"errors (agent/gateway): {len(rows) - len(ok_rows)}", "",
-           "| guards | runs | correct | false ok | not built | items right (accepted) | attempts (avg) | caught by |",
-           "|---|---|---|---|---|---|---|---|"]
+           "| guards | runs | correct | false ok | not built | items right (accepted) | wrong on probes only | "
+           "attempts (avg) | caught by |", "|---|---|---|---|---|---|---|---|---|"]
     for g in GUARDS:
         rs = [r for r in ok_rows if r["guards"] == g]
         if not rs:
@@ -172,9 +182,11 @@ def table(rows):
         correct = sum(r["audit_right"] == r["audit_total"] for r in acc)
         items = sum(r["audit_right"] for r in acc), sum(r["audit_total"] for r in acc)
         caught = Counter(s for r in rs for s in r["stages"] if s != "ok")
+        probe_only = sum(r["audit_right"] == r["audit_total"] and r.get("probe_right", 0) < r.get("probe_total", 0)
+                         for r in acc)
         out.append(f"| {g} | {len(rs)} | {correct} | {len(acc) - correct} | {len(rs) - len(acc)} | "
                    + (f"{items[0] / items[1]:.1%}" if items[1] else "-")
-                   + f" | {sum(r['attempts'] for r in rs) / len(rs):.1f} | "
+                   + f" | {probe_only} | {sum(r['attempts'] for r in rs) / len(rs):.1f} | "
                    + (", ".join(f"{k} {v}" for k, v in caught.most_common()) or "-") + " |")
     return "\n".join(out)
 

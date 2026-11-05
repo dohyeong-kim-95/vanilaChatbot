@@ -23,6 +23,7 @@ SPEC = ROLE.validate({"fields": [
     {"name": "largest_cluster", "connectivity": 4}, {"name": "largest_cluster", "connectivity": 8},
     {"name": "clusters", "connectivity": 4, "min_size": 3}, {"name": "edge_fails", "connectivity": 8},
     {"name": "ring_fails", "lo": 70, "hi": 100}]})
+SPEC2 = ROLE.validate({"fields": [{"name": "fails"}, {"name": "ring_fails", "lo": 0, "hi": 30}]})  # Haiku's 900_8
 
 # A second implementation of the role, and the mistakes a weak model makes in it (MISTAKE picks one).
 PROGRAM = r'''
@@ -103,8 +104,8 @@ print(*res)
 '''
 
 
-def program(mistake):
-    return (PROGRAM % (json.dumps(SPEC), mistake)).encode()
+def program(mistake, spec=SPEC):
+    return (PROGRAM % (json.dumps(spec), mistake)).encode()
 
 
 def t_oracle_by_hand():
@@ -176,11 +177,13 @@ def t_each_mistake_is_caught():
                 assert kind in msg, (mistake, msg)
             else:  # a crash on the big blobs: the run failed
                 assert "failed to run" in msg, (mistake, msg)
-        # the kind mistake is right on every real-looking map: only the probes (dies at a ring's limit) see it
-        ok, errs, bin = codegen.compile_source(box, TC, program("kind"), "kind2")
-        plain = [c for c in ROLE.cases(SPEC, 2, 40) if not c["probe"]]
-        res = codegen.run_cases(box, TC, bin, plain, "plain")
-        assert all(not ROLE.judge(SPEC, c, res[c["id"]]["out"])["wrong"] for c in plain[:5]), "not subtle"
+        # the kind mistake is right on every plain map: only the probes (dies at a ring's limit) see it, at hi too
+        for spec in (SPEC, SPEC2):
+            ok, errs, bin = codegen.compile_source(box, TC, program("kind", spec), "kind2")
+            cases = ROLE.cases(spec, 2, 40)
+            res = codegen.run_cases(box, TC, bin, cases, "plain")
+            wrong = {c["probe"] for c in cases if ROLE.judge(spec, c, res[c["id"]]["out"])["wrong"]}
+            assert wrong == {True}, (spec, wrong)
         ok, errs, bin = codegen.compile_source(box, TC, b"print(1\n", "syntax")
         assert not ok and errs[0]["line"] == 1 and "SyntaxError" in errs[0]["message"], errs
     finally:
@@ -220,14 +223,63 @@ sys.exit(1)
         sb.close()
 
 
+def t_probes_sit_on_every_limit():  # review 42.1: near a limit was not enough (caught 1 in 8 at 70%)
+    import random
+    for lo, hi in [(0, 30), (30, 70), (70, 100), (50, 100), (80, 100)]:
+        spec = ROLE.validate({"fields": [{"name": "ring_fails", "lo": lo, "hi": hi}]})
+        for seed in range(6):
+            m = ROLE._probe(spec, random.Random(seed))
+            R, C = len(m), len(m[0])
+            cells = [(r, k) for r in range(R) for k in range(C) if m[r][k]]
+            d2 = {p: (2 * p[0] - (R - 1)) ** 2 + (2 * p[1] - (C - 1)) ** 2 for p in cells}
+            D2 = max(d2.values())
+            for pct in (lo, hi):
+                if pct < 100:
+                    assert [p for p in cells if m[p[0]][p[1]] == 2 and 10000 * d2[p] == pct * pct * D2], (lo, hi, pct)
+
+
+def t_harness_limits():  # review 42.1: a program that floods stdout loses its own case, not the batch
+    ws = TMP / "flood"
+    sb = Sandbox(ws)
+    box = sb.fresh()
+    try:
+        ok, errs, bin = codegen.compile_source(box, TC, b"import sys\nif sys.stdin.read().startswith('1 '):\n"
+                                               b"    while True: print('7' * 4096)\nprint(1)\n", "flood")
+        cases = [{"id": "a", "input": "1 1\n2\n"}, {"id": "b", "input": "2 1\n1\n1\n"}]
+        res = codegen.run_cases(box, TC, bin, cases, "flood")
+        assert "printed more than" in res["a"]["err"] and res["b"] == {"rc": 0, "out": "1\n", "err": ""}, res
+    finally:
+        box.close()
+        sb.close()
+
+
+def t_no_inputs_kept_across_attempts():  # review 42.1 Must: attempt 1 keeps the hidden maps, attempt 2 tells them
+    import shutil
+    from agent import delegate
+    from agent.loop import Context
+    agents = TMP / "agents"
+    shutil.copytree(ROOT / "agents", agents)
+    shutil.copytree(ROOT / "tests" / "fixtures" / "agents-binning" / "py-snoop", agents / "py-snoop")
+    sb = Sandbox(TMP / "keep", mounts={agents: delegate.MOUNT, ROOT / "tests" / "fixtures" / "toolchains": codegen.MOUNT})
+    ctx = Context(sandbox=sb, agents=delegate.discover(agents), roles={"wafermap": ROLE},
+                  toolchains=codegen.discover(ROOT / "tests" / "fixtures" / "toolchains"))
+    try:
+        r = codegen.loop(ctx, "python", "", "keep", attempts=2, role="wafermap", spec=SPEC)
+        said = json.dumps(r["history"][1]["errors"])
+        assert "KEPT 0" in said, said[:500]
+    finally:
+        sb.close()
+
+
 def t_real_maps_are_split():  # examples, hidden checks and an audit never share a map
-    maps = [[[1, 2, k % 3, (k // 3) % 3]] for k in range(60)]
-    ROLE.use_maps(maps)
+    maps = [[[1, 2] + [k // 3 ** i % 3 for i in range(4)]] for k in range(60)]  # 60 different one-row maps
+    ROLE.use_maps(maps + maps[::-1])  # review 42.1: the same map twice, at other places, is kept once
+    assert len(ROLE._POOL) == 60
     try:
         seen = {s: {c["input"] for c in ROLE.cases(SPEC, s, 50)} for s in (1, 2, 3)}
         assert not (seen[1] & seen[2]) and not (seen[2] & seen[3]) and not (seen[1] & seen[3]), seen
         small = ROLE.cases(SPEC, 1, 2, example=True)
-        assert all(c["input"].startswith("1 4") for c in small)
+        assert all(c["input"].startswith("1 6") for c in small)
     finally:
         ROLE.use_maps([])
     assert ROLE.cases(SPEC, 1, 1)[0]["input"].split()[0] != "1"  # synthetic again

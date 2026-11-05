@@ -183,20 +183,32 @@ def run_program(box, tc, bin):
 # each case with its own time limit. The cases come on our stdin, never in a file: the program runs in the same
 # container as the same user and would read the hidden inputs from disk (Loop 41 review). Results (only the
 # program's own output) go to a file we read and delete.
-_CASES = """import json, subprocess, sys
+# The program's stdout and stderr go to files it cannot grow past `cap` (RLIMIT_FSIZE; past it, SIGXFSZ), never
+# into our memory: a program that prints for its whole time limit cannot get the harness killed (review 42.1).
+_CASES = """import json, resource, signal, subprocess, sys, tempfile
 argv, dst, t, cap = json.loads(sys.argv[1]), sys.argv[2], float(sys.argv[3]), int(sys.argv[4])
+def limit():
+    resource.setrlimit(resource.RLIMIT_FSIZE, (cap, cap))
 res, slow = {}, 0
 for c in json.load(sys.stdin):
     if slow >= 2:  # it hangs: the rest would only spend the attempt's time
         res[c["id"]] = {"rc": None, "out": "", "err": "not run: earlier inputs timed out"}
         continue
-    try:
-        p = subprocess.run(argv, input=c["input"].encode(), capture_output=True, timeout=t)
-        res[c["id"]] = {"rc": p.returncode, "out": p.stdout[:cap].decode("ascii", "replace"),
-                        "err": p.stderr[-300:].decode("ascii", "replace")}
-    except subprocess.TimeoutExpired:
-        slow += 1
-        res[c["id"]] = {"rc": None, "out": "", "err": f"timed out after {t:g}s"}
+    with tempfile.TemporaryFile() as o, tempfile.TemporaryFile() as e:
+        try:
+            rc = subprocess.run(argv, input=c["input"].encode(), stdout=o, stderr=e, timeout=t,
+                                preexec_fn=limit).returncode
+        except subprocess.TimeoutExpired:
+            slow += 1
+            res[c["id"]] = {"rc": None, "out": "", "err": f"timed out after {t:g}s"}
+            continue
+        o.seek(0)
+        out = o.read(cap).decode("ascii", "replace")
+        e.seek(max(0, e.seek(0, 2) - 300))
+        err = e.read().decode("ascii", "replace")
+        if rc == -signal.SIGXFSZ or o.seek(0, 2) >= cap:  # killed, or (python ignores SIGXFSZ) a failed write
+            err = f"printed more than {cap} bytes"
+        res[c["id"]] = {"rc": rc, "out": out, "err": err}
 json.dump(res, open(dst, "w"), ensure_ascii=False)
 """
 
@@ -209,8 +221,9 @@ def run_cases(box, tc, bin, cases, name):
     data = json.dumps([{"id": c["id"], "input": c["input"]} for c in cases]).encode()
     out = box.exec(f"mkdir -p {d} && python -I -c {shlex.quote(_CASES)} {shlex.quote(argv)} {d}/results.json {t} "
                    f"{MAX_CASE_OUT}", timeout=min(300, int(len(cases) * t) + 30), input=data)
-    try:  # ASCII decoding: at most 3 bytes per output byte (U+FFFD) and the error tail
-        return json.loads(box.read_bytes(f"{d}/results.json", (3 * MAX_CASE_OUT + 2048) * len(cases) + 4096))
+    try:  # ASCII decoding and JSON escapes: at most 6 bytes per output byte, and the error tail
+        got = json.loads(box.read_bytes(f"{d}/results.json", (6 * MAX_CASE_OUT + 2048) * len(cases) + 4096))
+        return {c["id"]: got.get(c["id"]) or {"rc": None, "out": "", "err": "no result"} for c in cases}
     except (FileNotFoundError, ValueError):
         raise RuntimeError(f"running the cases failed: {out[-300:]}") from None
     finally:
@@ -312,14 +325,10 @@ def loop(ctx, language, task, id, attempts=4, role=None, spec=None, guards=GUARD
         raise ValueError("spec needs a role")
     # an earlier call with this id: its files would be taken for this agent's (an attempt that writes nothing)
     ctx.sandbox.exec(f"rm -rf -- {shlex.quote(base)}", timeout=30)
-    box = ctx.sandbox.fresh()
-    try:
-        return _attempts(ctx, box, language, tc, agent, task, id, base, attempts, r, spec, guards)
-    finally:
-        box.close()
+    return _attempts(ctx, language, tc, agent, task, id, base, attempts, r, spec, guards)
 
 
-def _attempts(ctx, box, language, tc, agent, task, id, base, attempts, role, spec, guards):
+def _attempts(ctx, language, tc, agent, task, id, base, attempts, role, spec, guards):
     history, prev, last, stop = [], None, None, None
     for n in range(1, attempts + 1):
         if ctx.cancel.is_set():
@@ -340,16 +349,22 @@ def _attempts(ctx, box, language, tc, agent, task, id, base, attempts, role, spe
         except (FileNotFoundError, ValueError) as e:
             stop = f"attempt {n}: the codegen agent wrote no usable {src} ({e}); it said: {said[-300:]}"
             break
-        ok, errs, bin = compile_source(box, tc, code, f"{id}-{n}")
-        output, score = None, {}
-        if ok and role is not None:
-            try:
-                errs, score = test_program(box, tc, bin, role, spec, guards, f"{id}-{n}")
-            except RuntimeError as e:
-                errs = [{"stage": "test", "line": None, "message": str(e)[:MAX_MESSAGE]}]
-            ok = not errs
-        elif ok and tc.get("run"):
-            ok, errs, output = run_program(box, tc, bin)
+        # a box per attempt: an earlier attempt's program could have kept the hidden inputs it was given (in /tmp,
+        # or a process of its own) and hand them to this one's examples, whose errors reach the agent (review 42.1)
+        box = ctx.sandbox.fresh()
+        try:
+            ok, errs, bin = compile_source(box, tc, code, f"{id}-{n}")
+            output, score = None, {}
+            if ok and role is not None:
+                try:
+                    errs, score = test_program(box, tc, bin, role, spec, guards, f"{id}-{n}")
+                except RuntimeError as e:
+                    errs = [{"stage": "test", "line": None, "message": str(e)[:MAX_MESSAGE]}]
+                ok = not errs
+            elif ok and tc.get("run"):
+                ok, errs, output = run_program(box, tc, bin)
+        finally:
+            box.close()
         errs = errs[:MAX_ERRORS]
         ctx.sandbox.write_bytes(f"{d}/errors.json", json.dumps(errs, ensure_ascii=False, indent=1).encode())
         history.append({"attempt": n, "source": src, "lines": code.count(b"\n"), "ok": ok, "errors": errs,

@@ -41,8 +41,17 @@ _POOL = []
 
 def use_maps(maps):
     """Real maps for the cases (lists of rows of 0/1/2). Partitioned by seed % 3, so the examples, the hidden checks
-    and an evaluation's audit (seeds = 0 mod 3) never share a map."""
-    _POOL[:] = [m for m in maps if 0 < len(m) <= MAX_SIDE and 0 < len(m[0]) <= MAX_SIDE and any(any(r) for r in m)]
+    and an evaluation's audit (seeds = 0 mod 3) never share a map: duplicates (WM-811K has some) are kept once."""
+    seen, out = set(), []
+    for m in maps:
+        if not (0 < len(m) <= MAX_SIDE and 0 < len(m[0]) <= MAX_SIDE and all(len(r) == len(m[0]) for r in m)
+                and all(v in (0, 1, 2) for r in m for v in r) and any(any(r) for r in m)):
+            continue
+        key = _text(m)
+        if key not in seen:
+            seen.add(key)
+            out.append(m)
+    _POOL[:] = out
 
 
 def validate(spec):
@@ -144,7 +153,7 @@ def describe(spec, examples):
         "ring_fails": "the number of failing dies in the ring from {lo}% to {hi}% of the largest die distance from the "
                       "centre: with d2 = (2*r - (R-1))^2 + (2*c - (C-1))^2 for the cell in row r, column c "
                       "(counting from 0), and D2 the largest d2 of any die (1 or 2), a failing die counts when "
-                      "{lo}^2 * D2 <= 10000 * d2 and {cond}. Use 64-bit integers: 10000 * d2 can exceed 2^31",
+                      "{lo}^2 * D2 <= 10000 * d2 and {cond}. Every product here is below 1,400,000,000",
     }
     nb = {4: "up, down, left, right", 8: "the 8 around it, diagonals included"}
     lines = []
@@ -212,24 +221,42 @@ def _probe(spec, rng):
     """A big synthetic wafer whose failing dies sit where a slightly wrong program differs: right at each ring's
     limits (Loop 42: a program whose ring constants Ratfor had turned 900_8 into 9008 passed 20 real maps and was
     wrong on 1 die in 150), diagonal-only neighbours (4 vs 8), dies on the map's border (outside counts as an edge)."""
-    R, C = rng.randint(120, 220), rng.randint(120, 220)
-    m = _synthetic(rng, False)
-    cy, cx, rad = (R - 1) / 2, (C - 1) / 2, min(R, C) / 2 - rng.random()
+    R = rng.randrange(151, 241, 2)  # odd sides: every d2 is a multiple of 4, so pct^2 * D2 / 10000 can be whole
+    C = R + rng.choice([0, 2])  # a round wafer that reaches the top and bottom rows: dies on the map's border
+    cy, cx, rad = (R - 1) / 2, (C - 1) / 2, R / 2
     m = [[1 if (r - cy) ** 2 + (k - cx) ** 2 <= rad * rad else 0 for k in range(C)] for r in range(R)]
-    for k in range(C):  # dies on the top and bottom border rows too
-        if rng.random() < 0.3:
-            m[0][k] = m[R - 1][k] = 2
+    for k in range(C):
+        for r in (0, R - 1):
+            if m[r][k] and rng.random() < 0.5:
+                m[r][k] = 2
+    g2 = {(r, k): (2 * r - (R - 1)) ** 2 + (2 * k - (C - 1)) ** 2 for r in range(R) for k in range(C)}
+    inside = {g2[p] for p in g2 if m[p[0]][p[1]]}
+    limits = [p for f in spec["fields"] if f["name"] == "ring_fails" for p in (f["lo"], f["hi"]) if 0 < p < 100]
+    # One more die, off the round wafer, sets D2 to a value where every ring limit falls exactly on a die:
+    # 10000 * d2 == pct^2 * D2. A die right at a limit is where a program with slightly wrong constants (Ratfor's
+    # 10000_8 -> 100008) or < for <= differs; a die merely near it was missed 3 times in 4 at 70% (review 42.1).
+    D2 = max(inside)
+    for v in sorted(set(g2.values())):
+        if v >= D2 and all(pct * pct * v % 10000 == 0 and pct * pct * v // 10000 in inside for pct in limits):
+            far = next(p for p in g2 if g2[p] == v)
+            m[far[0]][far[1]] = max(m[far[0]][far[1]], 1)
+            D2 = v
+            break
     cells = [(r, k) for r in range(R) for k in range(C) if m[r][k]]
-    d2 = {p: (2 * p[0] - (R - 1)) ** 2 + (2 * p[1] - (C - 1)) ** 2 for p in cells}
-    D2 = max(d2.values())
     for f in spec["fields"]:
-        if f["name"] == "ring_fails":
-            for pct in (f["lo"], f["hi"]):
-                t = pct * pct * D2
-                if 0 < t < 10000 * D2:
-                    near = sorted(cells, key=lambda p: abs(10000 * d2[p] - t))[:6]  # both sides, closest first
-                    for r, k in near:
-                        m[r][k] = 2
+        if f["name"] != "ring_fails":
+            continue
+        if f["lo"] == 0:  # odd sides: the centre cell has d2 = 0, on the 0% limit
+            m[R // 2][C // 2] = 2
+        for pct, at in ((f["lo"], None), (f["hi"], 2 if f["lo"] == 0 else 1)):  # never as many as the other side
+            if not 0 < pct < 100:
+                continue
+            t = pct * pct * D2  # the dies at the limit and the closest on each side
+            exact = [p for p in cells if 10000 * g2[p] == t][:at]  # every one at lo, one at hi: a program wrong
+            above = sorted((p for p in cells if 10000 * g2[p] > t), key=lambda p: 10000 * g2[p] - t)[:3]  # at both
+            below = sorted((p for p in cells if 10000 * g2[p] < t), key=lambda p: t - 10000 * g2[p])[:3]  # limits
+            for r, k in exact + above + below:  # the same way cannot come out even in the count
+                m[r][k] = 2
     for _ in range(rng.randint(5, 15)):  # pairs that touch only at a corner
         r, k = rng.choice(cells)
         if 0 < r < R - 1 and 0 < k < C - 1 and m[r + 1][k + 1]:
@@ -237,16 +264,17 @@ def _probe(spec, rng):
     return m
 
 
-def cases(spec, seed, n, size=None, example=False):
+def cases(spec, seed, n, size=None, example=False, probes=True):
     """n maps. Real maps (use_maps) when there are, from the part seed % 3; examples are the small ones. Without
-    real maps, synthetic wafers. Beyond the examples, every fourth map is a probe (_probe)."""
+    real maps, synthetic wafers. Beyond the examples, every fourth map is a probe (_probe) unless probes=False
+    (an evaluation's audit on real maps only)."""
     rng = random.Random(seed)
     pool = [m for i, m in enumerate(_POOL) if i % 3 == seed % 3]
     if example and pool:
         pool = sorted(pool, key=lambda m: len(m) * len(m[0]))[:max(n * 20, 40)]
     out = []
     for k in range(n):
-        probe = not example and k % 4 == 3
+        probe = probes and not example and k % 4 == 3
         m = _probe(spec, rng) if probe else rng.choice(pool) if pool else _synthetic(rng, example)
         out.append({"id": f"{k + 1}", "input": _text(m), "categories": [_label(f) for f in spec["fields"]],
                     "probe": probe})
