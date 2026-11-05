@@ -211,6 +211,13 @@ def name(ctx, **args) -> str
 
 ---
 
+### 4.9 역할: 의도대로 동작하는지 검사 (가드) [검증: Loop 41, Haiku low로 측정]
+- 컴파일은 문법만 증명한다. 역할(`roles/{name}/role.py`, 서버와 함께 배포되는 신뢰 코드)은 프로그램이 해야 할 일(사양 형식, 정답 구현, 검사 입력 생성, 채점)을 정한다. `write_code(..., role, spec)`이면 codegen 에이전트의 과제는 역할이 사양으로 쓴 설명(입출력 형식, 규칙, 표, 예시)이고, 빌드된 프로그램을 버리는 컨테이너에서 검사 입력마다 실행한다(입력당 5초, 두 번 시간 초과면 나머지는 실행 안 함).
+- 가드: **공개 예시**(작은 입력 2개, 단순한 항목만. 틀리면 입력·기대값·실제값을 에이전트에 줌) → **숨긴 검사**(입력 20개 × 25항목, 에이전트는 "k/N 틀림(boundary 12, missing 3)"과 항목 id만 듣고 입력·답은 못 봄: 예시 답을 박아 넣은 프로그램이 여기서 걸림). 기대값은 역할의 정답 구현에서만 나온다(codegen 에이전트가 만들면 자기 채점, 모델이 만들면 모르는 언어를 추측).
+- 역할과 언어는 서로를 모른다. 둘 사이 규약은 프로그램의 stdin/stdout뿐이라 따로 바꿀 수 있다. 사양은 에이전트 입력 `spec`(JSON)으로도 간다(읽고 싶은 에이전트용, mock이 씀). 규약: `roles/README.md`.
+- 첫 역할 `binning`: die 측정값 → bin. 우선순위(표 순서와 다름), 측정 없으면 건너뛰는 테스트, marginal(한계의 X% 이내) 규칙. 정답 구현은 Decimal로 정확히 비교.
+- 측정(`bench/codegen_eval.py`, Haiku 5.5 low, Ratfor, 감사용 die 1,000개는 루프가 못 본 seed): 가드 없음 40회 중 3회가 오답을 통과시킴(모두 "우선순위 순서로 입력 열을 읽음"), 그 3개는 공개 예시 가드에서 모두 잡힘. G1·G2 48회는 첫 시도가 모두 정답이라 가드가 작동할 일이 없었음 → 구성별 독립 실행은 비교가 안 됨, 다음 측정은 같은 첫 프로그램을 모든 구성에 넣는 대응 비교로(Loop 42).
+
 ## 5. Sandbox
 
 ### 5.1 MVP: 하드닝된 Docker (run당 1 컨테이너, Loop 12부터. 저장은 §9.3) [검증]
@@ -498,7 +505,9 @@ agent/shmoo.py          인터랙티브 shmoo 뷰 (데이터 구성, 페이지 �
 agent/logview.py        인터랙티브 텍스트 로그 뷰 (레벨 × 시간, 패턴 표)
 agent/views.py          템플릿 뷰 공용: 데이터 inline, 캡처 프로토콜
 agent/delegate.py       연결된 에이전트: 발견, tool 등록, sandbox 안 실행과 JSON 줄 프로토콜 감독
-agent/codegen.py        모르는 언어의 코드 생성 루프 (codegen 에이전트 → 컴파일 → 오류 → 재생성), toolchain 발견
+agent/codegen.py        모르는 언어의 코드 생성 루프 (codegen 에이전트 → 컴파일 → 검사 → 오류 → 재생성), toolchain·역할 발견
+roles/                  역할: 프로그램이 해야 할 일과 그 검사 (binning, 규약 README.md)
+bench/codegen_eval.py   가드 평가: Haiku low codegen(bench/agents/haiku-ratfor) × 가드 구성, 감사 세트로 채점
 agent/skills.py         skill 발견(SKILL.md frontmatter), 프롬프트 목록, `/skills` 마운트 경로
 skills/card-transactions/  첫 skill: 카드·은행 내보내기 로더(tx.py, 표준 라이브러리) + 도메인 규칙
 agents/                 연결된 에이전트(운영자가 넣음, 지금은 없음) + sandbox 안 실행기 _runner.py. 테스트용 mock(wafer-yield, text-summary, ratfor-codegen(C), toy-codegen)는 tests/fixtures/agents/ (Loop 39: 운영에서 모델이 mock을 고름)
@@ -537,6 +546,7 @@ tests/test_l20_gateway_errors.py  Loop 25.9 (gateway 오류: 나아질 수 없�
 tests/test_l29_audit.py       Loop 38 (audit 수정: 시간 초과 종료, git 원격, 깨진 업로드 기록, 리포트 검사, events 인덱스, effort 상향 조건, ingest 이름·빈 행·실패 정리, 새 대화)
 tests/test_l30_audit2.py      Loop 39 (2차 audit: 연결 에이전트 LLM 가림, 50MB 넘는 outputs, 선 그래프 위치, 취소된 ingest 정리, mock 에이전트 배포 안 함, 큰 파일 줄 수 추정, 리포트 목록 검사, shmoo 선택, 업로드 part 제한)
 tests/test_l31_codegen.py     Loop 40 (모르는 언어 코드 생성: Ratfor 변환기 두 단계·줄 되돌리기, 3번 만에 빌드, 실행 오류, 멈춤 조건, 두 번째 언어 Toy, tool 노출, 실행 파일 에이전트)
+tests/test_l32_guards.py      Loop 41 (가드: 정답 구현 손 계산, 약한 모델식 실수 7종이 각각 숨긴 검사에서 그 종류로 잡힘, 예시 답 박기, 숨긴 입력 노출 없음, 무한 루프)
 tests/test_l28_markdown.py    Loop 36–37 (답변 마크다운: 블록·인라인, 한국어 조사, HTML·스크립트 링크 없음, 비정상 답변, 표·코드 복사, 근거 칩)
 tests/test_l27_rust.py        Loop 34 (Rust와 Python STDF 리더의 표가 같음: 두 바이트 순서, 스펙 레코드, 재검사, 섞인 site, 잘린 끝)
 tests/test_l26_dashboard.py   Loop 33 (대시보드 렌더·이스케이프, 정답과 같은 수치, Spotfire 번들, 결과 파일 다운로드)
@@ -577,6 +587,8 @@ python tests/test_l28_markdown.py         # Chrome, LLM 없이 몇 초
 python tests/test_l29_audit.py            # Docker(sandbox 이미지)·Chrome, LLM 없이 1분 정도
 python tests/test_l30_audit2.py           # Docker(sandbox 이미지)·Chrome, LLM 없이 30초 정도
 python tests/test_l31_codegen.py          # Docker(sandbox 이미지)·호스트 gcc, LLM 없이 30초 정도
+python tests/test_l32_guards.py           # Docker(sandbox 이미지), LLM 없이 30초 정도
+python bench/codegen_eval.py --specs 8 --repeats 3   # gateway 필요, Haiku low, 20분 정도
 python tests/test_l24_bigdata.py          # Docker·Chrome, LLM 없이 1분 정도
 python tests/test_l27_rust.py             # Docker(sandbox 이미지), 몇 초
 python tests/test_l26_dashboard.py        # Docker(sandbox 이미지)·Chrome, 몇 초

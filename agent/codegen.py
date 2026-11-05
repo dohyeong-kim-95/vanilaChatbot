@@ -22,7 +22,21 @@ toolchain.json:
                then warnings, not sent back); else the matches are the errors
   run          optional argv with {bin}: a program that built is run once; a failure there is an error (stage "run")
   timeout      seconds for compile and for run (default 60, at most 300)
+
+Loop 41: a role (roles/{name}/role.py, trusted host code) says what the program must DO and checks that it does:
+the guards against code that builds but is wrong. With a role, write_code takes the role's spec; the agent's task
+is the role's description of it (with worked examples), and a program that built is run on cases:
+  public   a few small inputs; a wrong answer goes back to the agent with the input and the expected output
+  hidden   many inputs the agent never sees; it hears only how many items were wrong and of which kind, so it
+           cannot fit its program to the answers (a program that prints the examples' answers fails here)
+Expected outputs come from the role's oracle, never from the agent or our model. The language does not matter
+to a role, nor the role to a language: their only contract is the program's stdin/stdout.
+role.py: DESCRIPTION, SPEC_SCHEMA, validate(spec) -> spec, describe(spec, examples) -> task text,
+  cases(spec, seed, n, size, example=False) -> [{"id", "input", "categories"}] (example: plain items only, for
+  the worked examples; the tricky ones are for the hidden checks), expected(spec, input) -> output text,
+  judge(spec, case, output) -> {"format": [problems], "wrong": [{"item", "category", "detail"}], "total": items}
 """
+import importlib.util
 import json
 import re
 import shlex
@@ -31,10 +45,32 @@ from pathlib import Path
 from . import delegate
 
 DIR = Path(__file__).resolve().parents[1] / "toolchains"
+ROLES = Path(__file__).resolve().parents[1] / "roles"
 MOUNT = "/toolchains"
 LANG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,40}$")
 MAX_ATTEMPTS, MAX_ERRORS, MAX_MESSAGE, MAX_SOURCE = 8, 20, 300, 1024 * 1024
+GUARDS = ("public", "hidden")  # all of them; the evaluation (bench/codegen_eval.py) turns them off to measure them
+PUBLIC, HIDDEN = (1, 2, 5), (2, 20, 25)  # seed, inputs, items per input
+CASE_SECONDS, MAX_CASE_OUT = 5, 64 * 1024
+ROLE_API = ("DESCRIPTION", "SPEC_SCHEMA", "validate", "describe", "cases", "expected", "judge")
+
+
+def discover_roles(root=ROLES):
+    """name -> role module. Trusted code shipped with the server (like skills), loaded on the host."""
+    out = {}
+    for f in sorted(Path(root).glob("*/role.py")):
+        name = f.parent.name
+        if not LANG_RE.match(name):
+            raise ValueError(f"{f}: role folder {name!r} must be a slug")
+        spec = importlib.util.spec_from_file_location(f"vanila_role_{name.replace('-', '_')}", f)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        missing = [a for a in ROLE_API if not hasattr(mod, a)]
+        if missing:
+            raise ValueError(f"{f}: missing {missing}")
+        out[name] = mod
+    return out
 
 
 def discover(root=DIR):
@@ -143,11 +179,104 @@ def run_program(box, tc, bin):
     return False, [{"stage": "run", "line": None, "message": " | ".join(said)[:MAX_MESSAGE] or head}], text
 
 
+# Runs a built program on every case inside the box (python -I: our script, the program is the untrusted part):
+# one file in, one file out, each case with its own time limit.
+_CASES = """import json, subprocess, sys
+argv, src, dst, t, cap = json.loads(sys.argv[1]), sys.argv[2], sys.argv[3], float(sys.argv[4]), int(sys.argv[5])
+res, slow = {}, 0
+for c in json.load(open(src)):
+    if slow >= 2:  # it hangs: the rest would only spend the attempt's time
+        res[c["id"]] = {"rc": None, "out": "", "err": "not run: earlier inputs timed out"}
+        continue
+    try:
+        p = subprocess.run(argv, input=c["input"].encode(), capture_output=True, timeout=t)
+        res[c["id"]] = {"rc": p.returncode, "out": p.stdout[:cap].decode(errors="replace"),
+                        "err": p.stderr[-300:].decode(errors="replace")}
+    except subprocess.TimeoutExpired:
+        slow += 1
+        res[c["id"]] = {"rc": None, "out": "", "err": f"timed out after {t:g}s"}
+json.dump(res, open(dst, "w"))
+"""
+
+
+def run_cases(box, tc, bin, cases, name):
+    """{case id: {"rc", "out", "err"}} of the program on each case's input (rc None: timed out)."""
+    d = f"outputs/{name}"
+    box.write_bytes(f"{d}/cases.json", json.dumps([{"id": c["id"], "input": c["input"]} for c in cases]).encode())
+    t = min(CASE_SECONDS, tc["timeout"])
+    argv = json.dumps([a.format(bin=bin) for a in tc["run"]])
+    out = box.exec(f"python -I -c {shlex.quote(_CASES)} {shlex.quote(argv)} {d}/cases.json {d}/results.json {t} "
+                   f"{MAX_CASE_OUT}", timeout=min(300, int(len(cases) * t) + 30))
+    try:
+        return json.loads(box.read_bytes(f"{d}/results.json", 2 * MAX_CASE_OUT * len(cases) + 4096))
+    except (FileNotFoundError, ValueError):
+        raise RuntimeError(f"running the cases failed: {out[-300:]}") from None
+
+
+def test_program(box, tc, bin, role, spec, guards, name):
+    """The role's checks -> (errors for the agent, {"public": [ok, n], "hidden": [wrong, total]})."""
+    public = role.cases(spec, *PUBLIC, example=True) if "public" in guards else []
+    hidden = role.cases(spec, *HIDDEN) if "hidden" in guards else []
+    for c in hidden:
+        c["id"] = "h" + c["id"]
+    if not public and not hidden:
+        return [], {}
+    res = run_cases(box, tc, bin, public + hidden, name)
+    errs, score = [], {}
+
+    def failed(r):
+        return None if r["rc"] == 0 else (r["err"].strip() or f"exit {r['rc']}") if r["rc"] is not None else r["err"]
+
+    good = 0
+    for k, c in enumerate(public, 1):
+        r = res[c["id"]]
+        why = failed(r)
+        j = None if why else role.judge(spec, c, r["out"])
+        if why:
+            errs.append(f"example {k}: the program failed: {why}")
+        else:
+            errs += [f"example {k}: {f}" for f in j["format"]]
+            errs += [f"example {k}, {w['item']}: {w['detail']}" for w in j["wrong"][:3]]
+        good += not why and not j["format"] and not j["wrong"]
+    if public:
+        score["public"] = [good, len(public)]
+    if hidden:
+        wrong, total, kinds, crashed, badfmt, where = 0, 0, {}, 0, 0, []
+        for c in hidden:
+            r = res[c["id"]]
+            j = None if failed(r) else role.judge(spec, c, r["out"])
+            n = len(c.get("categories") or []) or 1
+            total += n
+            if j is None or j["format"]:
+                crashed += j is None
+                badfmt += j is not None
+                wrong += n
+                where.append(c["id"])
+                continue
+            wrong += len(j["wrong"])
+            for w in j["wrong"]:
+                kinds[w["category"]] = kinds.get(w["category"], 0) + 1
+            where += [f"{c['id']}:{w['item']}" for w in j["wrong"][:1]]
+        score["hidden"] = [wrong, total]
+        if wrong:
+            kind = ", ".join(f"{k} {v}" for k, v in sorted(kinds.items(), key=lambda kv: -kv[1]))
+            errs.append(f"hidden checks: {wrong}/{total} wrong" + (f" ({kind})" if kind else "")
+                        + (f"; {crashed} inputs failed to run" if crashed else "")
+                        + (f"; {badfmt} inputs with output in the wrong format" if badfmt else "")
+                        + f"; e.g. {', '.join(where[:3])}. Inputs not shown: fix the rule, not the answers")
+    return [{"stage": "test", "line": None, "message": m[:MAX_MESSAGE]} for m in errs], score
+
+
 def _key(errors):
     return sorted((e["stage"], e["line"], e["message"]) for e in errors)
 
 
-def write_code(ctx, language, task, id, attempts=4):
+def write_code(ctx, language, task, id, attempts=4, role=None, spec=None):
+    return _summary(**loop(ctx, language, task, id, attempts, role, spec))
+
+
+def loop(ctx, language, task, id, attempts=4, role=None, spec=None, guards=GUARDS):
+    """The whole loop -> a dict (write_code formats it; the evaluation reads it)."""
     if language not in ctx.toolchains or language not in writers(ctx.toolchains, ctx.agents):
         raise ValueError(f"no codegen agent and compiler for {language!r}; have: "
                          f"{sorted(writers(ctx.toolchains, ctx.agents))}")
@@ -155,16 +284,28 @@ def write_code(ctx, language, task, id, attempts=4):
         raise ValueError("id: letters, digits, _ and -, at most 41")
     tc, agent = ctx.toolchains[language], writers(ctx.toolchains, ctx.agents)[language]
     base, attempts = f"outputs/codegen/{id}", max(1, min(int(attempts), MAX_ATTEMPTS))
+    r = None
+    if role is not None:
+        if role not in ctx.roles:
+            raise ValueError(f"no role {role!r}; have: {sorted(ctx.roles)}")
+        if not tc.get("run"):
+            raise ValueError(f"{language} has no run command in its toolchain: its programs cannot be checked")
+        r = ctx.roles[role]
+        spec = r.validate(spec)
+        examples = [(c["input"], r.expected(spec, c["input"])) for c in r.cases(spec, *PUBLIC, example=True)]
+        task = r.describe(spec, examples) + (f"\n\nAlso: {task}" if task else "")
+    elif spec is not None:
+        raise ValueError("spec needs a role")
     # an earlier call with this id: its files would be taken for this agent's (an attempt that writes nothing)
     ctx.sandbox.exec(f"rm -rf -- {shlex.quote(base)}", timeout=30)
     box = ctx.sandbox.fresh()
     try:
-        return _attempts(ctx, box, language, tc, agent, task, id, base, attempts)
+        return _attempts(ctx, box, language, tc, agent, task, id, base, attempts, r, spec, guards)
     finally:
         box.close()
 
 
-def _attempts(ctx, box, language, tc, agent, task, id, base, attempts):
+def _attempts(ctx, box, language, tc, agent, task, id, base, attempts, role, spec, guards):
     history, prev, last, stop = [], None, None, None
     for n in range(1, attempts + 1):
         if ctx.cancel.is_set():
@@ -172,7 +313,8 @@ def _attempts(ctx, box, language, tc, agent, task, id, base, attempts):
             break
         d = f"{base}/attempt-{n}"
         src = f"{d}/main{tc['ext']}"
-        inputs = {"out": src, **({"prev": prev, "errors": f"{base}/attempt-{n - 1}/errors.json"} if prev else {})}
+        inputs = {"out": src, **({"prev": prev, "errors": f"{base}/attempt-{n - 1}/errors.json"} if prev else {}),
+                  **({"spec": spec} if role is not None else {})}  # the spec as data, for agents that read it
         ctx.emit({"type": "agent_progress", "agent": agent, "message": f"attempt {n}/{attempts}"})
         try:
             said = delegate.run_agent(ctx, agent, task, inputs)
@@ -185,19 +327,33 @@ def _attempts(ctx, box, language, tc, agent, task, id, base, attempts):
             stop = f"attempt {n}: the codegen agent wrote no usable {src} ({e}); it said: {said[-300:]}"
             break
         ok, errs, bin = compile_source(box, tc, code, f"{id}-{n}")
-        output = None
-        if ok and tc.get("run"):
+        output, score = None, {}
+        if ok and role is not None:
+            try:
+                errs, score = test_program(box, tc, bin, role, spec, guards, f"{id}-{n}")
+            except RuntimeError as e:
+                errs = [{"stage": "test", "line": None, "message": str(e)[:MAX_MESSAGE]}]
+            ok = not errs
+        elif ok and tc.get("run"):
             ok, errs, output = run_program(box, tc, bin)
+        errs = errs[:MAX_ERRORS]
         ctx.sandbox.write_bytes(f"{d}/errors.json", json.dumps(errs, ensure_ascii=False, indent=1).encode())
-        history.append({"attempt": n, "source": src, "lines": code.count(b"\n"), "ok": ok, "errors": errs})
+        history.append({"attempt": n, "source": src, "lines": code.count(b"\n"), "ok": ok, "errors": errs,
+                        "score": score, "code": code.decode(errors="replace")})
         if ok:
             ctx.sandbox.write_bytes(f"{base}/main{tc['ext']}", code)
-            return _summary(language, base, tc, history, None, output)
+            return dict(language=language, base=base, tc=tc, history=history, stop=None, output=output)
         if last is not None and _key(errs) == last:
             stop = f"attempt {n} gave the same errors as attempt {n - 1}; stopped (the agent is not fixing them)"
             break
         prev, last = src, _key(errs)
-    return _summary(language, base, tc, history, stop or f"no build after {attempts} attempts", None)
+    return dict(language=language, base=base, tc=tc, history=history,
+                stop=stop or f"no {'passing ' if role else ''}build after {attempts} attempts", output=None)
+
+
+def _score(s):
+    return "".join([f", examples {s['public'][0]}/{s['public'][1]} right" if "public" in s else "",
+                    f", hidden {s['hidden'][1] - s['hidden'][0]}/{s['hidden'][1]} right" if "hidden" in s else ""])
 
 
 def _summary(language, base, tc, history, stop, output):
@@ -205,7 +361,7 @@ def _summary(language, base, tc, history, stop, output):
              f"source and errors.json are under {base}/"]
     for h in history:
         lines.append(f"- attempt {h['attempt']}: {h['source']} ({h['lines']} lines): "
-                     + ("ok" if h["ok"] else f"{len(h['errors'])} error(s)"))
+                     + ("ok" if h["ok"] else f"{len(h['errors'])} error(s)") + _score(h.get("score") or {}))
         for e in h["errors"][:5]:
             lines.append(f"    [{e['stage']}{'' if e['line'] is None else ' line %d' % e['line']}] {e['message']}")
     if stop is None:
@@ -229,7 +385,7 @@ def compile_code(ctx, language, file):
     return json.dumps({"ok": ok, "errors": errs}, ensure_ascii=False)
 
 
-def register(toolchains, agents, registry, make_schema):
+def register(toolchains, agents, registry, make_schema, roles=None):
     """write_code (languages with a codegen agent) and compile_code (every toolchain). Not agent__* tools for the
     codegen agents (delegate.register skips them): the model must not write in a language it does not know."""
     check(toolchains, agents)
@@ -250,7 +406,13 @@ def register(toolchains, agents, registry, make_schema):
                     "what the program must do, complete and precise (inputs, outputs, edge cases); "
                     "the agent sees only this")},
                  "id": {**S, "description": "short name for this program, e.g. sum-1-to-n"},
-                 "attempts": {"type": "integer", "description": f"1-{MAX_ATTEMPTS}, default 4"}},
+                 "attempts": {"type": "integer", "description": f"1-{MAX_ATTEMPTS}, default 4"},
+                 **({"role": {"type": "string", "enum": sorted(roles), "description": (
+                     "what kind of program this is, when it is one of these; then give its spec, and the program "
+                     "is also run and checked against the role's own answers, not only compiled. "
+                     + "; ".join(f"{k}: {m.DESCRIPTION}" for k, m in sorted(roles.items())))},
+                     "spec": {"type": "object", "description": "the role's spec (with role): " + "; ".join(
+                         f"{k}: {json.dumps(m.SPEC_SCHEMA)}" for k, m in sorted(roles.items()))}} if roles else {})},
                 ["language", "task", "id"])}
     registry["compile_code"] = {
         "fn": compile_code, "approval": False, "ask": False,

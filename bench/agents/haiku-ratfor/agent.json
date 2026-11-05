@@ -1,0 +1,8 @@
+{
+  "name": "haiku-ratfor",
+  "description": "Writes Ratfor with Haiku at low effort (the evaluation's codegen agent, bench/codegen_eval.py)",
+  "language": "ratfor",
+  "entry": "agent:run",
+  "timeout": 180,
+  "llm_calls": 1
+}

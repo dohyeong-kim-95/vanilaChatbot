@@ -3,3 +3,4 @@ __pycache__/
 .venv/
 sandbox/stdf-rs/target/
 tests/fixtures/agents/*/bin/
+bench/data/

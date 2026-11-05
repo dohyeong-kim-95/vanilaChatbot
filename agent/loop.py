@@ -30,6 +30,7 @@ class Context:
     skills: dict = field(default_factory=dict)  # name -> skill (agent.skills.discover) for `use_skill`
     agents: dict = field(default_factory=dict)  # name -> manifest (agent.delegate.discover) for agent__* tools
     toolchains: dict = field(default_factory=dict)  # language -> manifest (agent.codegen.discover) for write_code
+    roles: dict = field(default_factory=dict)  # role -> module (agent.codegen.discover_roles) for write_code checks
     emit: callable = lambda ev: None             # set by run(): tools that report progress (connected agents)
     llm: callable = None                         # set by run(): messages -> text, for connected agents' LLM calls
     effort_used: str = None                      # effort of the last model call (after any escalation)

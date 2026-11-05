@@ -1,0 +1,7 @@
+{
+  "name": "bin-mock",
+  "description": "Writes binning programs in Ratfor with one chosen mistake per attempt (mock for the guard tests)",
+  "language": "ratfor",
+  "entry": "mock:run",
+  "timeout": 30
+}

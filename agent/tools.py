@@ -477,4 +477,5 @@ AGENTS = delegate.discover()  # the server passes these as ctx.agents
 delegate.register(AGENTS, REGISTRY, _schema)
 # Code generation in a language the model does not know (agent/codegen.py): toolchains/{language}/ + a codegen agent.
 TOOLCHAINS = codegen.discover()  # the server passes these as ctx.toolchains
-codegen.register(TOOLCHAINS, AGENTS, REGISTRY, _schema)
+ROLES = codegen.discover_roles()  # Loop 41: what a program must do, and its checks (ctx.roles)
+codegen.register(TOOLCHAINS, AGENTS, REGISTRY, _schema, ROLES)
