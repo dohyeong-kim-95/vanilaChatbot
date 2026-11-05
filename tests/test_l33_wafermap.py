@@ -223,6 +223,30 @@ sys.exit(1)
         sb.close()
 
 
+def t_killed_harness_tells_nothing():  # review loop 10 Must: hidden inputs written to the harness's stdout, then kill
+    leak = b"""import os, sys
+data = sys.stdin.read()
+os.write(os.open("/proc/%d/fd/1" % os.getppid(), os.O_WRONLY), data.encode())
+os.kill(os.getppid(), 9)
+"""
+    ws = TMP / "kill"
+    sb = Sandbox(ws)
+    box = sb.fresh()
+    try:
+        ok, errs, bin = codegen.compile_source(box, TC, leak, "kill")
+        assert ok, errs
+        hidden = [c["input"].split("\n")[1] for c in ROLE.cases(SPEC, *codegen.HIDDEN)]
+        try:
+            codegen.run_cases(box, TC, bin, ROLE.cases(SPEC, *codegen.HIDDEN), "kill")
+            raise AssertionError("the harness survived")
+        except RuntimeError as e:
+            text = str(e)
+        assert "harness was killed" in text and not [h for h in hidden if h[:30] in text], text[:300]
+    finally:
+        box.close()
+        sb.close()
+
+
 def t_probes_sit_on_every_limit():  # review 42.1: near a limit was not enough (caught 1 in 8 at 70%)
     import random
     for lo, hi in [(0, 30), (30, 70), (70, 100), (50, 100), (80, 100)]:

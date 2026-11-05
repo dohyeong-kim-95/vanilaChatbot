@@ -225,7 +225,10 @@ def run_cases(box, tc, bin, cases, name):
         got = json.loads(box.read_bytes(f"{d}/results.json", (6 * MAX_CASE_OUT + 2048) * len(cases) + 4096))
         return {c["id"]: got.get(c["id"]) or {"rc": None, "out": "", "err": "no result"} for c in cases}
     except (FileNotFoundError, ValueError):
-        raise RuntimeError(f"running the cases failed: {out[-300:]}") from None
+        # never the harness's output: the program shares its uid and can write the hidden inputs to the harness's
+        # stdout (/proc/$PPID/fd/1) and kill it, and this message goes to the agent (review loop 10)
+        rc = out.partition("\n")[0]
+        raise RuntimeError(f"running the cases failed ({rc}: the harness was killed or ran out of memory)") from None
     finally:
         box.exec(f"rm -rf {d}", timeout=30)
 

@@ -286,7 +286,8 @@ def judge(spec, case, output):
     if any(g[2] not in allowed for g in got):
         fmt.append(f"bins outside the spec: {sorted({g[2] for g in got} - allowed)}")
     lines = case["input"].split("\n")[1:]
-    wrong = [{"item": f"die ({w[0]},{w[1]})", "category": c,
+    # the item reaches the agent from the hidden checks: an ordinal, never the input's coordinates (review loop 10)
+    wrong = [{"item": f"die {i + 1}", "category": c,
               "detail": f"input {lines[i].strip()!r}: expected bin {w[2]}, got {g[2]}"}
              for i, (w, g, c) in enumerate(zip(want, got, case["categories"])) if w[2] != g[2]]
     return {"format": fmt, "wrong": wrong, "total": len(want)}

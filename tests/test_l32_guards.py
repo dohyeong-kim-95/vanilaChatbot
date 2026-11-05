@@ -111,7 +111,7 @@ def t_hidden_inputs_stay_hidden():  # the agent hears counts and kinds, never a 
         assert errs and not [v for v in values if v in text], text
         # review 41.1: the whole message has one shape, so an answer ("expected bin 9") cannot slip in either
         shape = (r"hidden checks: \d+/\d+ wrong( \(([a-z]+ \d+(, )?)+\))?(; \d+ inputs [a-z ]+)*; e\.g\. "
-                 r"(h\d+(:die \(\d+,\d+\))?(, )?)+\. Inputs not shown: fix the rule, not the answers")
+                 r"(h\d+(:die \d+)?(, )?)+\. Inputs not shown: fix the rule, not the answers")  # ordinals (review loop 10)
         assert len(errs) == 1 and re.fullmatch(shape, errs[0]["message"]), errs
     finally:
         box.close()
