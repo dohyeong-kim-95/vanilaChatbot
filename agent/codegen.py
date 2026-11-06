@@ -215,6 +215,8 @@ json.dump(res, open(dst, "w"), ensure_ascii=False)
 
 def run_cases(box, tc, bin, cases, name):
     """{case id: {"rc", "out", "err"}} of the program on each case's input (rc None: timed out)."""
+    if not all(isinstance(c["id"], str) for c in cases):  # JSON keys: an int id would never find its result
+        raise ValueError("the role's cases() gave a case id that is not a string")
     if len({c["id"] for c in cases}) != len(cases):  # results are keyed by id: a duplicate would take another's output
         raise ValueError("the role's cases() gave two cases the same id")
     d = f"outputs/{name}"

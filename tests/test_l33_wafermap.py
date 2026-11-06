@@ -247,6 +247,11 @@ os.kill(os.getppid(), 9)
             raise AssertionError("two cases with one id were run")
         except ValueError as e:
             assert "same id" in str(e), e
+        try:
+            codegen.run_cases(box, TC, bin, [{"id": 1, "input": ""}], "int")
+            raise AssertionError("an int id was run")
+        except ValueError as e:
+            assert "not a string" in str(e), e
     finally:
         box.close()
         sb.close()
