@@ -418,7 +418,7 @@ DELETE /projects/{p}/files?path=…           파일, 또는 폴더와 그 안�
 - STDF 리더는 두 가지 [검증: Loop 34]: Rust `stdf2parquet`(`sandbox/stdf-rs`, 이미지 안에서 빌드, 기본)와 Python(`sandbox/vtools/stdf.py`, `VTOOLS_STDF=python`). 같은 표를 만든다(`tests/test_l27_rust.py`가 행 단위로 비교). 611MB를 1 CPU·1GB에서 Rust 4.0초, Python 112초. 이미지 태그는 Dockerfile과 stdf-rs 소스의 해시.
 - `show_dashboard(id, title, charts)` [검증: Loop 33]: 차트마다 kind(bar, line, scatter, wafer_map, table)와 SQL. 서버가 sandbox에서 SQL을 실행해(kind별 행 상한 60/5000/5000/20000/100, 넘으면 잘렸다고 모델에게 알림) 고정 템플릿(`agent/dashboard.py`, 서버에서 그린 SVG, 스크립트 없음, 데이터는 비활성 JSON)으로 아티팩트 저장.
 - `export_spotfire(name, tables, template)`: 표마다 SBDF(spotfire-python), 사용자가 올린 템플릿 .dxp 복사, Automation Services job 개요(job.xml, 요소 이름은 우리 것), README를 `/workspace/outputs/spotfire/<name>/`에. .dxp 자체는 만들지 않는다(R7 §4).
-- 결과 파일: `GET /projects/{p}/outputs`(목록, 일반 파일만), `…/outputs/file?path=`(항상 첨부 다운로드, nosniff, 링크 거부). 사이드바 "결과 파일", run이 끝나면 새로 고침.
+- 결과 파일: `GET /projects/{p}/outputs`(목록, 일반 파일만), `…/outputs/file?path=`(항상 첨부 다운로드, nosniff, 링크 거부). 사이드바 "결과 파일", run이 끝나면 새로 고침. 하위 폴더의 파일은 폴더 줄 아래에 들어가고(폴더 먼저, 처음엔 닫힘, 클릭으로 열고 닫음, Loop 45). `write_code`가 빌드하면 채팅에 그 파일의 내려받기 버튼이 생긴다(루프의 `download` 이벤트, 새로 고침 뒤에는 기록의 `BUILT` 결과에서. run이 끝나야 저장되므로 그 전에 누르면 "작업이 끝나면" 안내).
 
 ### 9.4 아티팩트와 고정 리포트 [검증: Loop 14, 리서치 R6]
 - **아티팩트**(Claude 방식): `artifact` tool, command는 `create`, `update`(`old_str`을 `new_str`로 바꿈, 최신 버전에서 정확히 1회 일치해야 함), `rewrite` 세 가지.
@@ -576,6 +576,7 @@ tests/test_l33_wafermap.py    Loop 42 (wafermap 역할: 정답 구현 손 계산
 tests/test_l34_hesk.py        Loop 43 (가상 언어 Hesk: 검사기 오류의 단계·줄·문구, 실행 규칙과 실행 오류 줄, Hesk로 쓴 wafermap이 정답 구현과 일치·최대 맵 시간, 평가 에이전트의 루프)
 tests/test_l28_markdown.py    Loop 36–37 (답변 마크다운: 블록·인라인, 한국어 조사, HTML·스크립트 링크 없음, 비정상 답변, 표·코드 복사, 근거 칩)
 tests/test_l27_rust.py        Loop 34 (Rust와 Python STDF 리더의 표가 같음: 두 바이트 순서, 스펙 레코드, 재검사, 섞인 site, 잘린 끝)
+tests/test_l35_download.py    Loop 45 (write_code 결과의 내려받기 버튼: 실시간·새로 고침 뒤, 결과 파일 폴더 트리)
 tests/test_l26_dashboard.py   Loop 33 (대시보드 렌더·이스케이프, 정답과 같은 수치, Spotfire 번들, 결과 파일 다운로드)
 tests/test_l25_ingest.py      Loop 32 (STDF 리더: 바이트 순서·스펙 레코드·잘린 파일, cache 재사용, 텍스트 정규식, ingest_log·log_query)
 tests/test_l24_bigdata.py     Loop 31 (조각 업로드·할당량·디스크, 하드링크 run 준비, cache, 긴 작업 슬롯·진행·취소, Chrome 업로드·상태 줄)

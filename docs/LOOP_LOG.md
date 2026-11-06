@@ -1690,3 +1690,11 @@ v3 실행(고친 뒤, `docs/eval_codegen_wafermap.json`; v2는 `_v2.json`): 첫 
 | Should | 하네스가 죽어도 "예시를 확인하라"가 붙음 → 실제로 출력이 달랐을 때만 |
 | Nit | SPEC 4.8 시그니처, 스키마 `minItems`·`additionalProperties`, `_norm`이 `\r` 하나에도 줄을 나눔 → `\n`으로만, docstring. 도구 설명의 "run 없는 toolchain" 경우는 지금 fixture에 없어 그대로 |
 - l15·l30–l34 통과.
+
+## Loop 45 — codegen 결과 내려받기 버튼, 결과 파일 폴더
+
+> 사용자 요청: "codegen agent니까 다운로드 링크 주는 기능 만들어주시고, 그리고 사이드바에 서브디렉토리 있으면 out/ 폴더에 넣어주세요" "*넣는 기능 만들어주세요"
+
+- 내려받기 버튼: `write_code`가 빌드하면 루프가 `{"type": "download", "path": "codegen/{id}/main<ext>"}`를 내보내고 UI가 채팅에 버튼을 그린다(아티팩트 버튼과 같은 모양). 새로 고침 뒤에는 `GET /sessions/{id}`가 `write_code`의 결과 중 `BUILT`인 것의 `final source:` 줄에서 같은 항목을 만든다(다른 tool의 출력이 같은 글을 담아도 버튼이 안 생김). outputs는 run이 끝날 때 저장되므로 그 전에 누르면 안내만 한다. `api()`가 아니라 `fetch`로 받는다(`.json` 결과가 파싱돼 오면 blob이 아님).
+- 결과 파일: 경로를 펼쳐 놓던 목록을 폴더 트리로. 폴더가 먼저, 처음엔 닫혀 있고(codegen은 시도마다 파일 2개를 남김), 클릭이나 Enter로 열고 닫는다. 맨 위 파일은 그대로.
+- 테스트 `tests/test_l35_download.py`(기록에서 버튼 하나만, 버튼으로 실제 내려받기, 트리 열고 닫기·순서·내려받기), l34에 실시간 이벤트. 둘 다 바꾸기 전 코드에서 실패 확인. l9·l21–l23·l30·l31·l34 통과.

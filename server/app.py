@@ -680,8 +680,13 @@ def get_session(sid: str, user=Depends(caller)):
         c = str(m.get("content", ""))
         return m["role"] == "user" and c.startswith(SUMMARY) and LATEST in c
 
+    called = {tc.get("id"): tc["function"]["name"] for m in msgs for tc in m.get("tool_calls") or []}
     for i, m in enumerate(msgs[1:], 1):
         summary = is_summary(m)
+        if m["role"] == "tool" and called.get(m.get("tool_call_id")) == "write_code":  # its download button (Loop 45)
+            built = re.search(r"^final source: outputs/(\S+)$", str(m.get("content", "")), re.M)
+            if built and str(m["content"]).startswith("BUILT"):
+                out.append({"role": "download", "path": built.group(1)})
         text = _user_text(m) if summary else m.get("content")  # a summary shows only the user message it carries
         if m["role"] == "user" and text:  # a turn starts (a summary without one continues the first turn)
             plan = None

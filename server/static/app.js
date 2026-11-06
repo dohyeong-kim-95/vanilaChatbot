@@ -5,6 +5,7 @@
 const $ = (id) => document.getElementById(id);
 const state = { user: "", project: "", session: "", artifact: null, streaming: false, follow: null,
                 files: [], folder: "", closed: new Set(),  // folder: where uploads and new folders go ("" = top)
+                outOpen: new Set(),  // folders of 결과 파일 the user opened (closed at first: codegen leaves many)
                 history: [], recall: -1, draft: "",  // last prompts sent (newest last); recall: index shown, -1 = none
                 runStart: {}, opening: 0 };  // opening: the latest openArtifact call (an older answer is dropped)  // run id -> when it started (ms, this clock) for the elapsed time
 
@@ -41,6 +42,24 @@ function addMsg(role, text) {
     try { m.append(MD.render(text)); } catch (e) { m.className = "msg assistant"; m.textContent = text; }  // never lose the rest of the history
   }
   $("messages").append(m);
+  scrollDown();
+}
+
+// A program write_code built (Loop 45): its file in outputs/, downloadable once the run has saved it.
+function addDownloadRef(path) {
+  const b = el("button", "artifact-ref download-ref");
+  b.append(el("span", null, baseName(path)), el("span", "meta", "내려받기"));
+  b.title = `outputs/${path}`;
+  b.onclick = async () => {
+    try {
+      const r = await fetch(`/projects/${state.project}/outputs/file?path=${encodeURIComponent(path)}`);
+      if (!r.ok) throw new Error(r.status);  // not api(): a .json file would come back parsed, not as a blob
+      download(await r.blob(), baseName(path));
+    } catch (e) {
+      addMsg("error", state.streaming ? "작업이 끝나면 내려받을 수 있어요" : `내려받기 실패: ${e}`);
+    }
+  };
+  $("messages").append(b);
   scrollDown();
 }
 
@@ -99,16 +118,53 @@ async function loadOutputs() {
   const project = state.project;
   const { files } = await api(`/projects/${project}/outputs`);
   if (project !== state.project) return;
-  const ul = $("outputs");
-  ul.replaceChildren(...files.map((f) => {
+  state.outputs = files;
+  drawOutputs();
+}
+
+// Files in subfolders go under folder rows (Loop 45): a click opens or closes one.
+function drawOutputs() {
+  const ul = $("outputs"), project = state.project;
+  const key = (f) => f.path.split("/").map((x, i, all) => [i < all.length - 1 ? 0 : 1, x]);  // folders first
+  const order = (a, b) => {
+    const [x, y] = [key(a), key(b)];
+    for (let i = 0; i < Math.min(x.length, y.length); i++) {
+      const c = x[i][0] - y[i][0] || x[i][1].localeCompare(y[i][1], "ko");
+      if (c) return c;
+    }
+    return x.length - y.length;
+  };
+  const files = [...(state.outputs || [])].sort(order);
+  ul.replaceChildren();
+  const drawn = new Set();
+  for (const f of files) {
+    const parts = f.path.split("/");
+    let shown = true;
+    for (let d = 1; d < parts.length && shown; d++) {  // the folders above it, each once, while they are open
+      const dir = parts.slice(0, d).join("/");
+      if (!drawn.has(dir)) {
+        drawn.add(dir);
+        const li = el("li", "folder");
+        li.style.paddingLeft = `${8 + (d - 1) * 14}px`;
+        li.append(el("span", "twist", state.outOpen.has(dir) ? "▾" : "▸"), el("span", "name", parts[d - 1] + "/"));
+        li.title = `${dir}/`;
+        li.tabIndex = 0;
+        li.onclick = () => { if (!state.outOpen.delete(dir)) state.outOpen.add(dir); drawOutputs(); };
+        li.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); li.click(); } };
+        ul.append(li);
+      }
+      shown = state.outOpen.has(dir);
+    }
+    if (!shown) continue;
     const li = el("li");
-    const a = el("a", null, f.path);
+    li.style.paddingLeft = `${8 + (parts.length - 1) * 14}px`;
+    const a = el("a", "name", parts[parts.length - 1]);
     a.href = `/projects/${project}/outputs/file?path=${encodeURIComponent(f.path)}`;
     a.download = baseName(f.path);
     li.title = f.path;
-    li.append(a, el("span", "meta", fmtSize(f.size)));
-    return li;
-  }));
+    li.append(el("span", "twist", ""), a, el("span", "meta", fmtSize(f.size)));
+    ul.append(li);
+  }
   if (!files.length) ul.append(el("li", "empty", "아직 없어요"));
 }
 
@@ -152,6 +208,7 @@ async function openSession(sid) {
   $("messages").replaceChildren();
   for (const m of s.messages) {
     if (m.role === "artifact") addArtifactRef(m.id);
+    else if (m.role === "download") addDownloadRef(m.path);
     else if (m.role === "plan") drawPlan(m.steps);
     else addMsg(m.role, m.content);
   }
@@ -529,6 +586,9 @@ function onEvent(rid, ev, seq, status) {
       status.now = ev.ahead != null ? `${ev.label}: 대기 중 (앞에 ${ev.ahead}개)`
         : ev.total ? `${ev.label} ${Math.min(100, Math.floor((100 * ev.done) / ev.total))}%${ev.note ? ` · ${ev.note}` : ""}`
         : ev.label;
+      break;
+    case "download":
+      addDownloadRef(ev.path);
       break;
     case "artifact":
       addArtifactRef(ev.id, ev.version, ev.title);
