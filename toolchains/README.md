@@ -33,7 +33,8 @@ Changing the language changes only these two parts; the loop, the tools, the UI 
   (and `line`, `stage`) over the compiler's output. With a regex, exit code 0 means it built (matching lines are
   then warnings and are not sent back); otherwise the matches are the errors. A compiler that already prints
   `file:line: message` needs no adapter (`toy`).
-- `run` (optional): a program that built is run once; a failure is an error of stage `run` and goes back to the agent.
+- `run` (optional): a program that built is run once with no input; a failure is an error of stage `run` and goes back to
+  the agent. With a role, or with `examples` from the model (Loop 44), it is run on those inputs instead.
 - `line` is a line of the source the agent wrote. Unknown: `null`, never a guess.
 
 Where it runs: the generated source is the codegen agent's, so it is compiled and run in a throwaway container like

@@ -270,6 +270,47 @@ def t_agent_keeps_indentation():  # review loop 17: a column-sensitive language 
     assert (ws / "main.hk").read_text() == "      say 1.\n", repr((ws / "main.hk").read_text())
 
 
+def t_examples_without_a_role():  # Loop 44: a program that reads input, checked on our model's examples
+    agents = TMP / "agents"
+    agents.mkdir(exist_ok=True)
+    shutil.copy(ROOT / "agents" / "_runner.py", agents / "_runner.py")
+    shutil.copytree(ROOT / "bench" / "agents" / "haiku-hesk", agents / "haiku-hesk", dirs_exist_ok=True)
+    wrong = "```hesk\nvar a, b.\nread a, b.\nsay a - b.\n```"
+    replies = [wrong, "```hesk\nvar a, b.\nread a, b.\nsay a + b.\n```", wrong, wrong]
+    seen = []
+
+    def llm(msgs):
+        seen.append(msgs)
+        return replies[len(seen) - 1]
+    sb = Sandbox(TMP / "examples", mounts={agents: delegate.MOUNT, TOOLCHAINS: codegen.MOUNT})
+    try:
+        ctx = Context(sandbox=sb, agents=delegate.discover(agents), toolchains=codegen.discover(TOOLCHAINS),
+                      roles={"wafermap": ROLE}, llm=llm)
+        ex = [{"input": "1 2\n", "output": "3  \n\n"}, {"input": "10\n-4", "output": "6"}]  # trailing spaces: fine
+        r = codegen.loop(ctx, "hesk", "print the sum of two integers", "sum", 4, examples=ex)
+        assert r["stop"] is None and len(r["history"]) == 2, (r["stop"], r["history"])
+        assert "--- example 2 input ---\n10\n-4\n--- example 2 output ---\n6" in seen[0][1]["content"], "examples shown"
+        assert "example 1: input '1 2\\n', expected '3', got '-1'" in seen[1][-1]["content"], seen[1][-1]["content"]
+        assert r["history"][0]["score"] == {"public": [0, 2]} and r["history"][1]["score"] == {"public": [2, 2]}
+        out = codegen._summary(**r)
+        assert "examples 2/2 right" in out and "program output on example 1:\n3" in out, out
+        out = codegen.write_code(ctx, "hesk", "print the sum", "sum2", 4, examples=ex)  # wrong twice: stops
+        assert out.startswith("NOT BUILT") and "same errors" in out and "check them" in out, out
+        for kw, msg in [(dict(role="wafermap", spec={"fields": [{"name": "dies"}]}, examples=ex), "a role gives"),
+                        (dict(examples=ex * 3), "a list of 1-5"), (dict(examples=[]), "a list of 1-5"),
+                        (dict(examples=[{"input": "1"}]), "each one is"),
+                        (dict(examples=[{"input": 1, "output": "1"}]), "each one is"),
+                        (dict(examples=[{"input": "x" * 5000, "output": ""}]), "each one is")]:
+            try:
+                codegen.loop(ctx, "hesk", "t", "x", 1, **kw)
+                raise AssertionError(kw)
+            except ValueError as e:
+                assert msg in str(e), (msg, e)
+        assert len(seen) == 4, "no agent call for refused examples"
+    finally:
+        sb.close()
+
+
 if __name__ == "__main__":
     only, failed = sys.argv[1:], []
     for name, fn in list(globals().items()):

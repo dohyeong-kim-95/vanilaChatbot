@@ -20,7 +20,8 @@ toolchain.json:
                at most MAX_ERRORS errors), and exits 0
                or a regex with named groups message (and line, stage): exit code 0 means it built (matches are
                then warnings, not sent back); else the matches are the errors
-  run          optional argv with {bin}: a program that built is run once; a failure there is an error (stage "run")
+  run          optional argv with {bin}: a program that built is run once with no input; a failure there is an
+               error (stage "run"). With examples (below) it is run on each example's input instead
   timeout      seconds for compile and for run (default 60, at most 300)
 
 Loop 41: a role (roles/{name}/role.py, trusted host code) says what the program must DO and checks that it does:
@@ -35,6 +36,12 @@ role.py: DESCRIPTION, SPEC_SCHEMA, validate(spec) -> spec, describe(spec, exampl
   cases(spec, seed, n, size, example=False) -> [{"id", "input", "categories"}] (example: plain items only, for
   the worked examples; the tricky ones are for the hidden checks), expected(spec, input) -> output text,
   judge(spec, case, output) -> {"format": [problems], "wrong": [{"item", "category", "detail"}], "total": items}
+
+Loop 44: a program that reads input fails the run without a role (it gets no input: a right BFS was NOT BUILT).
+Without a role, write_code takes examples [{"input", "output"}] from our model: the program is run on each input
+and its output compared with the expected one (trailing spaces and blank lines aside); a difference goes back to
+the agent with the input. These are public checks only, and the expected outputs are our model's own, so they
+can be wrong: the result says so. No examples: run once with no input, as before.
 """
 import importlib.util
 import json
@@ -53,6 +60,7 @@ MAX_ATTEMPTS, MAX_ERRORS, MAX_MESSAGE, MAX_SOURCE = 8, 20, 300, 1024 * 1024
 GUARDS = ("public", "hidden")  # all of them; the evaluation (bench/codegen_eval.py) turns them off to measure them
 PUBLIC, HIDDEN = (1, 2, 5), (2, 20, 25)  # seed, inputs, items per input
 CASE_SECONDS, MAX_CASE_OUT = 5, 64 * 1024
+MAX_EXAMPLES, MAX_EXAMPLE = 5, 4096  # examples without a role: how many, and characters per input or output
 ROLE_API = ("DESCRIPTION", "SPEC_SCHEMA", "validate", "describe", "cases", "expected", "judge")
 
 
@@ -309,11 +317,52 @@ def _key(errors):
     return sorted((e["stage"], e["line"], e["message"]) for e in errors)
 
 
-def write_code(ctx, language, task, id, attempts=4, role=None, spec=None):
-    return _summary(**loop(ctx, language, task, id, attempts, role, spec))
+def write_code(ctx, language, task, id, attempts=4, role=None, spec=None, examples=None):
+    return _summary(**loop(ctx, language, task, id, attempts, role, spec, examples=examples))
 
 
-def loop(ctx, language, task, id, attempts=4, role=None, spec=None, guards=GUARDS):
+def _examples(examples):
+    """Our model's examples -> [{"input", "output"}], checked."""
+    if not isinstance(examples, list) or not 1 <= len(examples) <= MAX_EXAMPLES:
+        raise ValueError(f"examples: a list of 1-{MAX_EXAMPLES} {{input, output}}")
+    out = []
+    for e in examples:
+        if not isinstance(e, dict) or set(e) != {"input", "output"} or not all(
+                isinstance(e[k], str) and len(e[k]) <= MAX_EXAMPLE for k in ("input", "output")):
+            raise ValueError(f"examples: each one is {{input, output}}, strings of at most {MAX_EXAMPLE} characters")
+        out.append({"input": e["input"], "output": e["output"]})
+    return out
+
+
+def _norm(text):
+    """Output as compared with an example: trailing spaces and blank lines do not count."""
+    return "\n".join(x.rstrip() for x in text.replace("\r\n", "\n").rstrip().splitlines())
+
+
+def _shown(text, n=60):
+    return repr(text if len(text) <= n else text[:n] + "...")
+
+
+def try_examples(box, tc, bin, examples, name):
+    """The program on each example -> (errors for the agent, {"public": [right, n]}, its outputs)."""
+    res = run_cases(box, tc, bin, [{"id": f"e{k}", "input": e["input"]} for k, e in enumerate(examples, 1)], name)
+    errs, good, outs = [], 0, []
+    for k, e in enumerate(examples, 1):
+        r = res[f"e{k}"]
+        outs.append(r["out"])
+        if r["rc"] != 0:
+            why = (r["err"].strip() or f"exit {r['rc']}") if r["rc"] is not None else r["err"]
+            errs.append(f"example {k} (input {_shown(e['input'])}): the program failed: {why}")
+        elif _norm(r["out"]) != _norm(e["output"]):
+            errs.append(f"example {k}: input {_shown(e['input'])}, expected {_shown(_norm(e['output']))}, "
+                        f"got {_shown(_norm(r['out']))}")
+        else:
+            good += 1
+    return [{"stage": "test", "line": None, "message": m[:MAX_MESSAGE]} for m in errs], \
+        {"public": [good, len(examples)]}, outs
+
+
+def loop(ctx, language, task, id, attempts=4, role=None, spec=None, guards=GUARDS, examples=None):
     """The whole loop -> a dict (write_code formats it; the evaluation reads it)."""
     if language not in ctx.toolchains or language not in writers(ctx.toolchains, ctx.agents):
         raise ValueError(f"no codegen agent and compiler for {language!r}; have: "
@@ -330,16 +379,25 @@ def loop(ctx, language, task, id, attempts=4, role=None, spec=None, guards=GUARD
             raise ValueError(f"{language} has no run command in its toolchain: its programs cannot be checked")
         r = ctx.roles[role]
         spec = r.validate(spec)
-        examples = [(c["input"], r.expected(spec, c["input"])) for c in r.cases(spec, *PUBLIC, example=True)]
-        task = r.describe(spec, examples) + (f"\n\nAlso: {task}" if task else "")
+        worked = [(c["input"], r.expected(spec, c["input"])) for c in r.cases(spec, *PUBLIC, example=True)]
+        task = r.describe(spec, worked) + (f"\n\nAlso: {task}" if task else "")
     elif spec is not None:
         raise ValueError("spec needs a role")
+    if examples is not None:
+        if role is not None:
+            raise ValueError("examples: a role gives its own; give none with a role")
+        if not tc.get("run"):
+            raise ValueError(f"{language} has no run command in its toolchain: its programs cannot be checked")
+        examples = _examples(examples)
+        task += "\n\nExamples: for each input on stdin the program must print exactly the output shown.\n" + \
+            "\n".join(f"--- example {k} input ---\n{e['input']}\n--- example {k} output ---\n{e['output']}"
+                      for k, e in enumerate(examples, 1))
     # an earlier call with this id: its files would be taken for this agent's (an attempt that writes nothing)
     ctx.sandbox.exec(f"rm -rf -- {shlex.quote(base)}", timeout=30)
-    return _attempts(ctx, language, tc, agent, task, id, base, attempts, r, spec, guards)
+    return _attempts(ctx, language, tc, agent, task, id, base, attempts, r, spec, guards, examples)
 
 
-def _attempts(ctx, language, tc, agent, task, id, base, attempts, role, spec, guards):
+def _attempts(ctx, language, tc, agent, task, id, base, attempts, role, spec, guards, examples=None):
     history, prev, last, stop = [], None, None, None
     for n in range(1, attempts + 1):
         if ctx.cancel.is_set():
@@ -372,6 +430,13 @@ def _attempts(ctx, language, tc, agent, task, id, base, attempts, role, spec, gu
                 except RuntimeError as e:
                     errs = [{"stage": "test", "line": None, "message": str(e)[:MAX_MESSAGE]}]
                 ok = not errs
+            elif ok and examples:
+                try:
+                    errs, score, outs = try_examples(box, tc, bin, examples, f"{id}-{n}")
+                    output = outs[0]
+                except RuntimeError as e:
+                    errs = [{"stage": "test", "line": None, "message": str(e)[:MAX_MESSAGE]}]
+                ok = not errs
             elif ok and tc.get("run"):
                 ok, errs, output = run_program(box, tc, bin)
         finally:
@@ -382,13 +447,15 @@ def _attempts(ctx, language, tc, agent, task, id, base, attempts, role, spec, gu
                         "score": score, "code": code.decode(errors="replace")})
         if ok:
             ctx.sandbox.write_bytes(f"{base}/main{tc['ext']}", code)
-            return dict(language=language, base=base, tc=tc, history=history, stop=None, output=output)
+            return dict(language=language, base=base, tc=tc, history=history, stop=None, output=output,
+                        examples=bool(examples))
         if last is not None and _key(errs) == last:
             stop = f"attempt {n} gave the same errors as attempt {n - 1}; stopped (the agent is not fixing them)"
             break
         prev, last = src, _key(errs)
     return dict(language=language, base=base, tc=tc, history=history,
-                stop=stop or f"no {'passing ' if role else ''}build after {attempts} attempts", output=None)
+                stop=stop or f"no {'passing ' if role or examples else ''}build after {attempts} attempts",
+                output=None, examples=bool(examples))
 
 
 def _score(s):
@@ -396,7 +463,7 @@ def _score(s):
                     f", hidden {s['hidden'][1] - s['hidden'][0]}/{s['hidden'][1]} right" if "hidden" in s else ""])
 
 
-def _summary(language, base, tc, history, stop, output):
+def _summary(language, base, tc, history, stop, output, examples=False):
     lines = [f"{'BUILT' if stop is None else 'NOT BUILT'}: {language}, {len(history)} attempt(s); every attempt's "
              f"source and errors.json are under {base}/"]
     for h in history:
@@ -407,9 +474,11 @@ def _summary(language, base, tc, history, stop, output):
     if stop is None:
         lines.append(f"final source: {base}/main{tc['ext']}")
         if output is not None:
-            lines.append("program output:\n" + output.strip()[:2000])
+            lines.append(f"program output{' on example 1' if examples else ''}:\n" + output.strip()[:2000])
     else:
         lines.append("stopped: " + stop)
+        if examples and any(e["stage"] == "test" for h in history for e in h["errors"]):
+            lines.append("the expected outputs are your examples: if the program's output looks right, check them")
     return "\n".join(lines)
 
 
@@ -441,12 +510,19 @@ def register(toolchains, agents, registry, make_schema, roles=None):
                 f"Write a program in a language you do not know ({', '.join(have)}). Never write that code yourself "
                 "(not with write_file, edit_file or bash): this tool asks the language's codegen agent, compiles, "
                 "sends the errors back to it and tries again until it builds. Report the result: built or not, "
-                f"attempts, the final file. Languages: {langs}"),
+                "attempts, the final file. Without a role or examples the program is run once with NO input, so "
+                f"a program that reads input fails: give examples for it. Languages: {langs}"),
                 {"language": {"type": "string", "enum": have}, "task": {**S, "description": (
                     "what the program must do, complete and precise (inputs, outputs, edge cases); "
                     "the agent sees only this")},
                  "id": {**S, "description": "short name for this program, e.g. sum-1-to-n"},
                  "attempts": {"type": "integer", "description": f"1-{MAX_ATTEMPTS}, default 4"},
+                 "examples": {"type": "array", "maxItems": MAX_EXAMPLES, "description": (
+                     f"without a role: 1-{MAX_EXAMPLES} small inputs (stdin text) with the exact expected output, "
+                     "worked out carefully; the program is run on each and must print it. Give them whenever the "
+                     "program reads input, and include edge cases"),
+                     "items": {"type": "object", "properties": {"input": S, "output": S},
+                               "required": ["input", "output"]}},
                  **({"role": {"type": "string", "enum": sorted(roles), "description": (
                      "what kind of program this is, when it is one of these; then give its spec, and the program "
                      "is also run and checked against the role's own answers, not only compiled. "
