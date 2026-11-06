@@ -257,6 +257,19 @@ def t_loop_with_the_agent():  # the evaluation's agent, on scripted replies: syn
         sb.close()
 
 
+def t_agent_keeps_indentation():  # review loop 17: a column-sensitive language needs the first line as written
+    import importlib.util
+    from types import SimpleNamespace
+    spec = importlib.util.spec_from_file_location("haiku_hesk_agent", ROOT / "bench" / "agents" / "haiku-hesk" / "agent.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    ws = TMP / "indent"
+    ws.mkdir(parents=True, exist_ok=True)
+    ctx = SimpleNamespace(workspace=ws, llm=lambda msgs: "```hesk\n\n      say 1.\n   \n```")
+    mod.run("task", {"out": "main.hk"}, ctx)
+    assert (ws / "main.hk").read_text() == "      say 1.\n", repr((ws / "main.hk").read_text())
+
+
 if __name__ == "__main__":
     only, failed = sys.argv[1:], []
     for name, fn in list(globals().items()):

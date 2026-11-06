@@ -26,7 +26,7 @@ def run(task, inputs, ctx):
                                              "the complete program."}]
     text = ctx.llm(msgs)
     m = re.search(r"```[^\n]*\n(.*?)```", text, re.S)  # any fence tag: a slug may have digits and "-"
-    code = (m[1] if m else text).strip() + "\n"
+    code = (m[1] if m else text).strip("\n").rstrip() + "\n"  # keep the first line's indentation: columns matter in some languages
     out = ctx.workspace / inputs["out"]
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(code)
