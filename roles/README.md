@@ -16,7 +16,7 @@ only contract is the program's stdin and stdout, so either can be swapped alone.
 
 ## role.py
 
-Trusted host code, shipped with the server (like skills). One folder per role, `roles/<name>/role.py`:
+Trusted host code, shipped with the server (like skills). It is committed to a public repository and its task text and examples go to the LLM: describe only formats that may be public. One folder per role, `roles/<name>/role.py`:
 
 | name | what |
 |---|---|
