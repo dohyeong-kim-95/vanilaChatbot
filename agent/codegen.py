@@ -211,9 +211,9 @@ for c in json.load(sys.stdin):
             res[c["id"]] = {"rc": None, "out": "", "err": f"timed out after {t:g}s"}
             continue
         o.seek(0)
-        out = o.read(cap).decode("ascii", "replace")
+        out = o.read(cap).decode("utf-8", "replace")  # examples: our model's, any text (review 44.1)
         e.seek(max(0, e.seek(0, 2) - 300))
-        err = e.read().decode("ascii", "replace")
+        err = e.read().decode("utf-8", "replace")
         if rc == -signal.SIGXFSZ or o.seek(0, 2) >= cap:  # killed, or (python ignores SIGXFSZ) a failed write
             err = f"printed more than {cap} bytes"
         res[c["id"]] = {"rc": rc, "out": out, "err": err}
@@ -335,12 +335,24 @@ def _examples(examples):
 
 
 def _norm(text):
-    """Output as compared with an example: trailing spaces and blank lines do not count."""
-    return "\n".join(x.rstrip() for x in text.replace("\r\n", "\n").rstrip().splitlines())
+    """Output as compared with an example: spaces at line ends and blank lines at the end do not count."""
+    return "\n".join(x.rstrip() for x in text.replace("\r\n", "\n").rstrip().split("\n"))
 
 
 def _shown(text, n=60):
     return repr(text if len(text) <= n else text[:n] + "...")
+
+
+def _differ(want, got):
+    """Where two normalized outputs first differ, shown from there: two different wrong outputs never read the same
+    (the loop stops on the same errors twice, review 44.1)."""
+    w, g = want.split("\n"), got.split("\n")
+    i = next((i for i, (a, b) in enumerate(zip(w, g)) if a != b), min(len(w), len(g)))
+    a, b = (w[i] if i < len(w) else None), (g[i] if i < len(g) else None)
+    at = next((j for j, (x, y) in enumerate(zip(a or "", b or "")) if x != y), min(len(a or ""), len(b or "")))
+    cut = max(0, at - 20)
+    part = lambda s: "no line" if s is None else ("..." if cut else "") + _shown(s[cut:])  # noqa: E731
+    return f"line {i + 1}: expected {part(a)}, got {part(b)} ({len(w)} vs {len(g)} lines)"
 
 
 def try_examples(box, tc, bin, examples, name):
@@ -354,8 +366,7 @@ def try_examples(box, tc, bin, examples, name):
             why = (r["err"].strip() or f"exit {r['rc']}") if r["rc"] is not None else r["err"]
             errs.append(f"example {k} (input {_shown(e['input'])}): the program failed: {why}")
         elif _norm(r["out"]) != _norm(e["output"]):
-            errs.append(f"example {k}: input {_shown(e['input'])}, expected {_shown(_norm(e['output']))}, "
-                        f"got {_shown(_norm(r['out']))}")
+            errs.append(f"example {k}: input {_shown(e['input'])}, {_differ(_norm(e['output']), _norm(r['out']))}")
         else:
             good += 1
     return [{"stage": "test", "line": None, "message": m[:MAX_MESSAGE]} for m in errs], \
@@ -477,7 +488,8 @@ def _summary(language, base, tc, history, stop, output, examples=False):
             lines.append(f"program output{' on example 1' if examples else ''}:\n" + output.strip()[:2000])
     else:
         lines.append("stopped: " + stop)
-        if examples and any(e["stage"] == "test" for h in history for e in h["errors"]):
+        if examples and any(e["stage"] == "test" and ": expected " in e["message"]  # a mismatch, not a failed run
+                            for h in history for e in h["errors"]):
             lines.append("the expected outputs are your examples: if the program's output looks right, check them")
     return "\n".join(lines)
 
@@ -521,8 +533,8 @@ def register(toolchains, agents, registry, make_schema, roles=None):
                      f"without a role: 1-{MAX_EXAMPLES} small inputs (stdin text) with the exact expected output, "
                      "worked out carefully; the program is run on each and must print it. Give them whenever the "
                      "program reads input, and include edge cases"),
-                     "items": {"type": "object", "properties": {"input": S, "output": S},
-                               "required": ["input", "output"]}},
+                     "minItems": 1, "items": {"type": "object", "properties": {"input": S, "output": S},
+                                              "required": ["input", "output"], "additionalProperties": False}},
                  **({"role": {"type": "string", "enum": sorted(roles), "description": (
                      "what kind of program this is, when it is one of these; then give its spec, and the program "
                      "is also run and checked against the role's own answers, not only compiled. "

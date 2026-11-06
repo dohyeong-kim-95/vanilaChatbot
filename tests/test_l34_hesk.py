@@ -276,7 +276,9 @@ def t_examples_without_a_role():  # Loop 44: a program that reads input, checked
     shutil.copy(ROOT / "agents" / "_runner.py", agents / "_runner.py")
     shutil.copytree(ROOT / "bench" / "agents" / "haiku-hesk", agents / "haiku-hesk", dirs_exist_ok=True)
     wrong = "```hesk\nvar a, b.\nread a, b.\nsay a - b.\n```"
-    replies = [wrong, "```hesk\nvar a, b.\nread a, b.\nsay a + b.\n```", wrong, wrong]
+    grid = "```hesk\nvar a, b.\nread a, b.\nsay \"%s\", a.\n```"  # long lines that differ only past 60 characters
+    replies = [wrong, "```hesk\nvar a, b.\nread a, b.\nsay a + b.\n```", wrong, wrong,
+               '```hesk\nsay "안녕 ✓".\n```', grid % ("#" * 70), grid % ("#" * 71)]
     seen = []
 
     def llm(msgs):
@@ -290,7 +292,7 @@ def t_examples_without_a_role():  # Loop 44: a program that reads input, checked
         r = codegen.loop(ctx, "hesk", "print the sum of two integers", "sum", 4, examples=ex)
         assert r["stop"] is None and len(r["history"]) == 2, (r["stop"], r["history"])
         assert "--- example 2 input ---\n10\n-4\n--- example 2 output ---\n6" in seen[0][1]["content"], "examples shown"
-        assert "example 1: input '1 2\\n', expected '3', got '-1'" in seen[1][-1]["content"], seen[1][-1]["content"]
+        assert "example 1: input '1 2\\n', line 1: expected '3', got '-1'" in seen[1][-1]["content"], seen[1][-1]["content"]
         assert r["history"][0]["score"] == {"public": [0, 2]} and r["history"][1]["score"] == {"public": [2, 2]}
         out = codegen._summary(**r)
         assert "examples 2/2 right" in out and "program output on example 1:\n3" in out, out
@@ -307,6 +309,12 @@ def t_examples_without_a_role():  # Loop 44: a program that reads input, checked
             except ValueError as e:
                 assert msg in str(e), (msg, e)
         assert len(seen) == 4, "no agent call for refused examples"
+        # review 44.1: output that is not ASCII can match; outputs that differ late are not "the same errors"
+        out = codegen.write_code(ctx, "hesk", "greet", "kr", 1, examples=[{"input": "", "output": "안녕 ✓"}])
+        assert out.startswith("BUILT") and "examples 1/1 right" in out, out
+        out = codegen.write_code(ctx, "hesk", "grid", "g", 2, examples=[{"input": "1 2", "output": "#" * 69 + " 1"}])
+        assert "no passing build after 2 attempts" in out and "same errors" not in out, out
+        assert "check them" in out, out
     finally:
         sb.close()
 
