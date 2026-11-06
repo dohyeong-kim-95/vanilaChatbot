@@ -295,7 +295,8 @@ def t_examples_without_a_role():  # Loop 44: a program that reads input, checked
         assert "--- example 2 input ---\n10\n-4\n--- example 2 output ---\n6" in seen[0][1]["content"], "examples shown"
         assert "example 1: input '1 2\\n', line 1: expected '3', got '-1'" in seen[1][-1]["content"], seen[1][-1]["content"]
         assert r["history"][0]["score"] == {"public": [0, 2]} and r["history"][1]["score"] == {"public": [2, 2]}
-        assert {"type": "download", "path": "codegen/sum/main.hk"} in events, events  # Loop 45: the UI's button
+        assert {"type": "download", "path": "codegen/sum/main.hk", "attempts": 2, "score": {"public": [2, 2]},
+                "ran": False} in events, events  # Loop 45: the UI's card, with what was checked
         out = codegen._summary(**r)
         assert "examples 2/2 right" in out and "program output on example 1:\n3" in out, out
         out = codegen.write_code(ctx, "hesk", "print the sum", "sum2", 4, examples=ex)  # wrong twice: stops

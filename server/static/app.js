@@ -45,11 +45,14 @@ function addMsg(role, text) {
   scrollDown();
 }
 
-// Line icons drawn as SVG nodes (no markup strings): the usual file and download (arrow into a tray) shapes.
+// Line icons drawn as SVG nodes (no markup strings): the usual file, download (arrow into a tray), copy and check shapes.
 const ICONS = {
   file: [["path", { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" }], ["path", { d: "M14 2v6h6" }]],
   download: [["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" }], ["path", { d: "M7 10l5 5 5-5" }],
              ["path", { d: "M12 15V3" }]],
+  copy: [["rect", { x: 9, y: 9, width: 13, height: 13, rx: 2 }],
+         ["path", { d: "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" }]],
+  check: [["path", { d: "M20 6L9 17l-5-5" }]],
 };
 function icon(name, size = 18) {
   const ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg");
@@ -63,33 +66,86 @@ function icon(name, size = 18) {
   return svg;
 }
 
-// A program write_code built (Loop 45): a file card like the chat apps' (type icon, name, kind, download icon),
-// its file in outputs/, downloadable once the run has saved it.
-function addDownloadRef(path) {
-  const b = el("button", "file-card download-ref");
-  const name = baseName(path), dot = name.lastIndexOf("."), ext = dot > 0 ? name.slice(dot + 1).toUpperCase() : "";
-  const text = el("span", "file-text");
-  text.append(el("span", "file-name", name), el("span", "meta", ext ? `${ext} 파일` : "파일"));
-  const get = el("span", "file-get");
-  get.append(icon("download"));
+const outputUrl = (path) => `/projects/${state.project}/outputs/file?path=${encodeURIComponent(path)}`;
+
+// outputs/ is saved when the run ends: before that the same path may still hold an older build (review 45.1)
+async function fetchOutput(path) {
+  if (state.streaming) throw new Error("작업이 끝나면 볼 수 있어요");
+  const r = await fetch(outputUrl(path));
+  if (!r.ok) throw new Error(r.status === 404 ? "결과 파일에 없어요" : r.status);  // not api(): .json would come parsed
+  return r.blob();
+}
+
+async function downloadOutput(path) {
+  try {
+    download(await fetchOutput(path), baseName(path));
+  } catch (e) {
+    addMsg("error", `내려받기 실패: ${e.message}`);
+  }
+}
+
+// What the loop checked before it took the program (codegen._attempts): shown above the code.
+function checkNote(f) {
+  const s = f.score || {}, parts = [`${f.attempts || "?"}번째 시도에 빌드`];
+  if (s.public) parts.push(`예시 ${s.public[0]}/${s.public[1]} 통과`);
+  if (s.hidden) parts.push(`숨긴 검사 ${s.hidden[1] - s.hidden[0]}/${s.hidden[1]} 통과`);
+  if (!s.public && !s.hidden) parts.push(f.ran ? "입력 없이 한 번 실행 (출력은 검사 안 함)" : "컴파일만 확인");
+  return parts.join(" · ");
+}
+
+// A program write_code built (Loop 45): a file card like the chat apps'. The card opens its code beside the chat
+// (copy, download there); the download icon on the right saves it at once.
+function addDownloadRef(f) {
+  const name = baseName(f.path), dot = name.lastIndexOf("."), ext = dot > 0 ? name.slice(dot + 1).toUpperCase() : "";
+  const card = el("div", "file-card");
+  const open = el("button", "file-open");
   const kind = el("span", "file-icon");
   kind.append(icon("file", 20));
-  b.append(kind, text, get);
-  b.title = `내려받기: outputs/${path}`;
-  b.setAttribute("aria-label", `${name} 내려받기`);
-  b.onclick = async () => {
-    // outputs/ is saved when the run ends: before that the same path may still hold an older build (review 45.1)
-    if (state.streaming) return addMsg("error", "작업이 끝나면 내려받을 수 있어요");
-    try {
-      const r = await fetch(`/projects/${state.project}/outputs/file?path=${encodeURIComponent(path)}`);
-      if (!r.ok) throw new Error(r.status);  // not api(): a .json file would come back parsed, not as a blob
-      download(await r.blob(), baseName(path));
-    } catch (e) {
-      addMsg("error", `내려받기 실패: ${e}`);
-    }
-  };
-  $("messages").append(b);
+  const text = el("span", "file-text");
+  text.append(el("span", "file-name", name), el("span", "meta", (ext ? `${ext} 파일` : "파일") + " · 코드 보기"));
+  open.append(kind, text);
+  open.title = `outputs/${f.path}`;
+  open.setAttribute("aria-label", `${name} 코드 보기`);
+  open.onclick = () => openFile(f);
+  const get = el("button", "file-get download-ref");
+  get.append(icon("download"));
+  get.title = "내려받기";
+  get.setAttribute("aria-label", `${name} 내려받기`);
+  get.onclick = () => downloadOutput(f.path);
+  card.append(open, get);
+  $("messages").append(card);
   scrollDown();
+}
+
+// The panel shows either an artifact (frame, versions, its source) or a built file (its code, copy, download).
+function panelMode(file) {
+  for (const id of ["art-version", "art-source", "frame-wrap"]) $(id).hidden = file;
+  for (const id of ["file-copy", "file-get", "file-note", "file-code"]) $(id).hidden = !file;
+  if (file) $("art-sections").hidden = $("art-code").hidden = true;
+}
+
+async function openFile(f) {
+  const project = state.project, seq = ++state.opening;
+  let text;
+  try {
+    text = await (await fetchOutput(f.path)).text();
+  } catch (e) {
+    return addMsg("error", `코드를 열지 못했어요: ${e.message}`);
+  }
+  if (state.project !== project || seq !== state.opening) return;  // switched, or a later click took over
+  state.artifact = null;
+  state.file = { ...f, text };
+  $("app").classList.add("with-panel");
+  $("panel").hidden = false;
+  savedWidth();
+  panelMode(true);
+  $("art-title").textContent = baseName(f.path);
+  $("art-title").title = `outputs/${f.path}`;
+  $("file-note").textContent = checkNote(f);
+  const lines = text.replace(/\n$/, "").split("\n");
+  $("file-code").replaceChildren(...lines.map((line) => el("span", "line", line)));
+  $("file-code").scrollTop = 0;
+  markActive();
 }
 
 function addArtifactRef(id, version, title) {
@@ -245,7 +301,7 @@ async function openSession(sid) {
   $("messages").replaceChildren();
   for (const m of s.messages) {
     if (m.role === "artifact") addArtifactRef(m.id);
-    else if (m.role === "download") addDownloadRef(m.path);
+    else if (m.role === "download") addDownloadRef(m);
     else if (m.role === "plan") drawPlan(m.steps);
     else addMsg(m.role, m.content);
   }
@@ -625,7 +681,7 @@ function onEvent(rid, ev, seq, status) {
         : ev.label;
       break;
     case "download":
-      addDownloadRef(ev.path);
+      addDownloadRef(ev);
       break;
     case "artifact":
       addArtifactRef(ev.id, ev.version, ev.title);
@@ -764,6 +820,8 @@ async function openArtifact(id, version) {
   // switched meanwhile: the old project's artifact must not open over the new one; and the last click wins
   if (state.project !== project || seq !== state.opening) return false;
   state.artifact = a;
+  state.file = null;
+  panelMode(false);
   $("app").classList.add("with-panel");
   $("panel").hidden = false;
   savedWidth();
@@ -1011,8 +1069,22 @@ $("art-close").onclick = () => {
   for (const id of ["side", "chat", "resizer"]) $(id).inert = false;
   $("art-expand").textContent = "크게";
   $("art-expand").title = "크게 보기 (Esc로 돌아오기)";
-  state.artifact = null;
+  state.artifact = state.file = null;
   markActive();
+};
+$("file-copy").append(icon("copy"));
+$("file-get").append(icon("download"));
+$("file-get").onclick = () => state.file && downloadOutput(state.file.path);
+$("file-copy").onclick = async () => {
+  const b = $("file-copy");
+  try {
+    await navigator.clipboard.writeText(state.file.text);  // the file as it is, not the numbered lines shown
+  } catch (e) {
+    return addMsg("error", `복사 실패: ${e}`);
+  }
+  b.replaceChildren(icon("check"));
+  b.title = "복사됨";
+  setTimeout(() => { b.replaceChildren(icon("copy")); b.title = "코드 복사"; }, 1500);
 };
 
 // ---- layout: artifact width (drag the divider, arrow keys, double-click resets), full view, sidebar. Remembered per

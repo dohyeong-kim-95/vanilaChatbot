@@ -458,8 +458,10 @@ def _attempts(ctx, language, tc, agent, task, id, base, attempts, role, spec, gu
                         "score": score, "code": code.decode(errors="replace")})
         if ok:
             ctx.sandbox.write_bytes(f"{base}/main{tc['ext']}", code)
-            # the UI shows a download button for it (outputs/ is saved, and downloadable, when the run ends)
-            ctx.emit({"type": "download", "path": f"{base.removeprefix('outputs/')}/main{tc['ext']}"})
+            # the UI shows a card for it: its code beside the chat, copy and download (outputs/ is saved, and
+            # downloadable, when the run ends), with what was checked: attempts, checks passed, or run with no input
+            ctx.emit({"type": "download", "path": f"{base.removeprefix('outputs/')}/main{tc['ext']}", "attempts": n,
+                      "score": score, "ran": output is not None and not score})
             return dict(language=language, base=base, tc=tc, history=history, stop=None, output=output,
                         examples=bool(examples))
         if last is not None and _key(errs) == last:

@@ -684,9 +684,17 @@ def get_session(sid: str, user=Depends(caller)):
     for i, m in enumerate(msgs[1:], 1):
         summary = is_summary(m)
         if m["role"] == "tool" and called.get(m.get("tool_call_id")) == "write_code":  # its download button (Loop 45)
-            built = re.search(r"^final source: outputs/(\S+)$", str(m.get("content", "")), re.M)
-            if built and str(m["content"]).startswith("BUILT"):
-                out.append({"role": "download", "path": built.group(1)})
+            c = str(m.get("content", ""))
+            built = re.search(r"^final source: outputs/(\S+)$", c, re.M)
+            if built and c.startswith("BUILT"):  # what was checked, as the live event says it (codegen._attempts)
+                last = re.findall(r"^- attempt (\d+): .*: ok((?:, \w+ \d+/\d+ right)*)$", c, re.M)
+                n, checks = last[-1] if last else ("0", "")
+                score = {"public" if k == "examples" else k: [int(a), int(b)]
+                         for k, a, b in re.findall(r", (\w+) (\d+)/(\d+) right", checks)}
+                if "hidden" in score:  # the summary says right/total, the event wrong/total (codegen._score)
+                    score["hidden"] = [score["hidden"][1] - score["hidden"][0], score["hidden"][1]]
+                out.append({"role": "download", "path": built.group(1), "attempts": int(n), "score": score,
+                            "ran": not score and "\nprogram output:\n" in c})
         text = _user_text(m) if summary else m.get("content")  # a summary shows only the user message it carries
         if m["role"] == "user" and text:  # a turn starts (a summary without one continues the first turn)
             plan = None
