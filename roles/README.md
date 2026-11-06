@@ -48,7 +48,7 @@ worked examples), `judge` decides.
 | no right answer can be stated (summaries, prose, UI) | none | compile only; a person or an LLM is not a guard |
 
 Programs read stdin and print to stdout, 5 s per case (`codegen.CASE_SECONDS`). A program that reads a file once,
-start to end, can be given `/dev/stdin` by a run wrapper in its toolchain (docs/ADAPTING.md); one that must seek
+start to end, can be given `/dev/stdin` by a run wrapper in its toolchain, and one that writes one result file `/dev/stdout` (docs/ADAPTING.md); one that must seek
 in a file, hold a dialogue, or meet a speed requirement needs the harness (`codegen._CASES`) widened first.
 `judge`'s `item` and `category` strings and the case `id` reach the agent from the hidden checks: names and ordinals only, never input values, file names or answers. One case's `categories`, `judge`'s `total` and the number of output items are the same count. How to adapt the whole loop to another
 language and problem, with what we measured: [docs/ADAPTING.md](../docs/ADAPTING.md).
