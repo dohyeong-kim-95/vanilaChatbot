@@ -67,7 +67,7 @@ function icon(name, size = 18) {
 // its file in outputs/, downloadable once the run has saved it.
 function addDownloadRef(path) {
   const b = el("button", "file-card download-ref");
-  const name = baseName(path), ext = name.includes(".") ? name.split(".").pop().toUpperCase() : "";
+  const name = baseName(path), dot = name.lastIndexOf("."), ext = dot > 0 ? name.slice(dot + 1).toUpperCase() : "";
   const text = el("span", "file-text");
   text.append(el("span", "file-name", name), el("span", "meta", ext ? `${ext} 파일` : "파일"));
   const get = el("span", "file-get");
