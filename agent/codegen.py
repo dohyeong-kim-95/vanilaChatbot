@@ -476,6 +476,7 @@ def _score(s):
                     f", hidden {s['hidden'][1] - s['hidden'][0]}/{s['hidden'][1]} right" if "hidden" in s else ""])
 
 
+# server/app.py get_session reads "BUILT" and the "final source: outputs/..." line back for the download button
 def _summary(language, base, tc, history, stop, output, examples=False):
     lines = [f"{'BUILT' if stop is None else 'NOT BUILT'}: {language}, {len(history)} attempt(s); every attempt's "
              f"source and errors.json are under {base}/"]

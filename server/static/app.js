@@ -51,12 +51,14 @@ function addDownloadRef(path) {
   b.append(el("span", null, baseName(path)), el("span", "meta", "내려받기"));
   b.title = `outputs/${path}`;
   b.onclick = async () => {
+    // outputs/ is saved when the run ends: before that the same path may still hold an older build (review 45.1)
+    if (state.streaming) return addMsg("error", "작업이 끝나면 내려받을 수 있어요");
     try {
       const r = await fetch(`/projects/${state.project}/outputs/file?path=${encodeURIComponent(path)}`);
       if (!r.ok) throw new Error(r.status);  // not api(): a .json file would come back parsed, not as a blob
       download(await r.blob(), baseName(path));
     } catch (e) {
-      addMsg("error", state.streaming ? "작업이 끝나면 내려받을 수 있어요" : `내려받기 실패: ${e}`);
+      addMsg("error", `내려받기 실패: ${e}`);
     }
   };
   $("messages").append(b);
@@ -95,6 +97,7 @@ async function loadProject() {
   state.files = [];
   state.folder = "";
   state.closed.clear();
+  state.outOpen.clear();  // another project's folders start closed too (review 45.1)
   if (!state.project) return;
   store("project", state.project);
   const sessions = await loadSessions();
@@ -135,6 +138,7 @@ function drawOutputs() {
     return x.length - y.length;
   };
   const files = [...(state.outputs || [])].sort(order);
+  const focused = document.activeElement?.closest?.("#outputs li")?.dataset.path;  // keyboard users keep their place
   ul.replaceChildren();
   const drawn = new Set();
   for (const f of files) {
@@ -148,6 +152,7 @@ function drawOutputs() {
         li.style.paddingLeft = `${8 + (d - 1) * 14}px`;
         li.append(el("span", "twist", state.outOpen.has(dir) ? "▾" : "▸"), el("span", "name", parts[d - 1] + "/"));
         li.title = `${dir}/`;
+        li.dataset.path = dir;
         li.tabIndex = 0;
         li.onclick = () => { if (!state.outOpen.delete(dir)) state.outOpen.add(dir); drawOutputs(); };
         li.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); li.click(); } };
@@ -166,6 +171,7 @@ function drawOutputs() {
     ul.append(li);
   }
   if (!files.length) ul.append(el("li", "empty", "아직 없어요"));
+  if (focused !== undefined) [...ul.children].find((li) => li.dataset.path === focused)?.focus();
 }
 
 async function loadArtifacts() {

@@ -418,7 +418,7 @@ DELETE /projects/{p}/files?path=…           파일, 또는 폴더와 그 안�
 - STDF 리더는 두 가지 [검증: Loop 34]: Rust `stdf2parquet`(`sandbox/stdf-rs`, 이미지 안에서 빌드, 기본)와 Python(`sandbox/vtools/stdf.py`, `VTOOLS_STDF=python`). 같은 표를 만든다(`tests/test_l27_rust.py`가 행 단위로 비교). 611MB를 1 CPU·1GB에서 Rust 4.0초, Python 112초. 이미지 태그는 Dockerfile과 stdf-rs 소스의 해시.
 - `show_dashboard(id, title, charts)` [검증: Loop 33]: 차트마다 kind(bar, line, scatter, wafer_map, table)와 SQL. 서버가 sandbox에서 SQL을 실행해(kind별 행 상한 60/5000/5000/20000/100, 넘으면 잘렸다고 모델에게 알림) 고정 템플릿(`agent/dashboard.py`, 서버에서 그린 SVG, 스크립트 없음, 데이터는 비활성 JSON)으로 아티팩트 저장.
 - `export_spotfire(name, tables, template)`: 표마다 SBDF(spotfire-python), 사용자가 올린 템플릿 .dxp 복사, Automation Services job 개요(job.xml, 요소 이름은 우리 것), README를 `/workspace/outputs/spotfire/<name>/`에. .dxp 자체는 만들지 않는다(R7 §4).
-- 결과 파일: `GET /projects/{p}/outputs`(목록, 일반 파일만), `…/outputs/file?path=`(항상 첨부 다운로드, nosniff, 링크 거부). 사이드바 "결과 파일", run이 끝나면 새로 고침. 하위 폴더의 파일은 폴더 줄 아래에 들어가고(폴더 먼저, 처음엔 닫힘, 클릭으로 열고 닫음, Loop 45). `write_code`가 빌드하면 채팅에 그 파일의 내려받기 버튼이 생긴다(루프의 `download` 이벤트, 새로 고침 뒤에는 기록의 `BUILT` 결과에서. run이 끝나야 저장되므로 그 전에 누르면 "작업이 끝나면" 안내).
+- 결과 파일: `GET /projects/{p}/outputs`(목록, 일반 파일만), `…/outputs/file?path=`(항상 첨부 다운로드, nosniff, 링크 거부). 사이드바 "결과 파일", run이 끝나면 새로 고침. 하위 폴더의 파일은 폴더 줄 아래에 들어가고(폴더 먼저, 처음엔 닫힘, 클릭으로 열고 닫음, Loop 45). `write_code`가 빌드하면 채팅에 그 파일의 내려받기 버튼이 생긴다(루프의 `download` 이벤트, 새로 고침 뒤에는 기록의 `BUILT` 결과에서. run이 끝나야 저장되므로 run 중에는 받지 않고 "작업이 끝나면" 안내. 옛 턴의 버튼은 지금 그 경로에 있는 파일을 받는다: 같은 id로 다시 빌드했으면 새 것).
 
 ### 9.4 아티팩트와 고정 리포트 [검증: Loop 14, 리서치 R6]
 - **아티팩트**(Claude 방식): `artifact` tool, command는 `create`, `update`(`old_str`을 `new_str`로 바꿈, 최신 버전에서 정확히 1회 일치해야 함), `rewrite` 세 가지.

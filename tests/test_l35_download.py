@@ -21,6 +21,15 @@ def call(cid, name, args):
     return {"id": cid, "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}
 
 
+def until(page, js, timeout=10):
+    """wait_for_function polls with eval, which the app's CSP refuses: poll from here."""
+    import time
+    end = time.time() + timeout
+    while not page.evaluate(f"() => {js}"):
+        assert time.time() < end, js
+        time.sleep(0.1)
+
+
 def session(a, project, history):
     sid = a.post("/sessions", json={"project_id": project}).json()["session_id"]
     db = sqlite3.connect(l9.DATA / "agent.db")
@@ -68,7 +77,7 @@ def t_history_and_ui():
         assert d.value.suggested_filename == "main.hk" and Path(d.value.path()).read_text() == "say 4.\n"
         # 결과 파일: folders closed at first, a top-level file as itself; a click opens one level
         rows = lambda: [x.strip() for x in page.locator("#outputs li").all_inner_texts()]  # noqa: E731
-        page.wait_for_function("document.querySelectorAll('#outputs li').length === 2")
+        until(page, "document.querySelectorAll('#outputs li').length === 2")
         assert rows()[0].startswith("▸") and "codegen/" in rows()[0] and "report.csv" in rows()[1], rows()
         page.click("#outputs li.folder >> text=codegen/")
         page.click("#outputs li.folder >> text=maze/")
@@ -81,6 +90,30 @@ def t_history_and_ui():
         with page.expect_download() as d:
             page.click("#outputs a >> text=report.csv")
         assert d.value.suggested_filename == "report.csv"
+        # review 45.1: the keyboard keeps its place, another project starts closed, no download while a run is on
+        page.locator("#outputs li.folder").first.focus()  # the row, not its text span
+        page.keyboard.press("Enter")  # opens codegen/ again: maze/ and attempt-1/ were left open
+        assert page.evaluate("document.activeElement.dataset.path") == "codegen" and len(rows()) == 7, rows()
+        store.create_project("alice", "dl2")
+        (store.project_dir("alice", "dl2") / "outputs" / "codegen").mkdir(parents=True)
+        (store.project_dir("alice", "dl2") / "outputs" / "codegen" / "x.txt").write_text("x")
+        page.reload()
+        page.wait_for_selector("#app:not([hidden])")
+        page.select_option("#project", "dl2")
+        until(page, "document.querySelector('#outputs li')?.textContent.includes('codegen/')")
+        page.select_option("#project", "dl")
+        until(page, "document.querySelectorAll('#outputs li').length === 2")
+        page.click("#outputs li.folder >> text=codegen/")
+        page.select_option("#project", "dl2")
+        until(page, "document.querySelector('#outputs li')?.textContent.includes('codegen/')")
+        assert len(rows()) == 1 and rows()[0].startswith("▸"), rows()  # dl2: codegen/ closed
+        page.select_option("#project", "dl")
+        page.click(f"#sessions li >> text={sid}")
+        page.wait_for_selector(".download-ref")
+        page.evaluate("state.streaming = true")
+        page.click(".download-ref")
+        page.wait_for_selector(".msg.error >> text=작업이 끝나면", timeout=5000)
+        page.evaluate("state.streaming = false")
     finally:
         browser.close()
         pw.stop()
