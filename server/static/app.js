@@ -121,18 +121,27 @@ function addDownloadRef(f) {
 function panelMode(file) {
   for (const id of ["art-version", "art-source", "frame-wrap"]) $(id).hidden = file;
   for (const id of ["file-copy", "file-get", "file-note", "file-code"]) $(id).hidden = !file;
-  if (file) $("art-sections").hidden = $("art-code").hidden = true;
+  if (file) {
+    $("art-sections").hidden = $("art-code").hidden = true;
+    $("frame-wrap").replaceChildren();  // the artifact's page stops running (it could still post to us)
+  }
 }
 
 async function openFile(f) {
   const project = state.project, seq = ++state.opening;
-  let text;
+  let text, stale;
   try {
     text = await (await fetchOutput(f.path)).text();
+    // the same id built again later replaces the file: then the card's checks are not this code's (review 46.1).
+    // The build this card is about is attempt-N's source; it matches main only while main is still that build.
+    const dir = f.path.slice(0, f.path.lastIndexOf("/") + 1);
+    const own = await fetchOutput(`${dir}attempt-${f.attempts}/${baseName(f.path)}`).then((b) => b.text(), () => null);
+    stale = own !== text;
   } catch (e) {
-    return addMsg("error", `코드를 열지 못했어요: ${e.message}`);
+    if (state.project === project && seq === state.opening) addMsg("error", `코드를 열지 못했어요: ${e.message}`);
+    return;
   }
-  if (state.project !== project || seq !== state.opening) return;  // switched, or a later click took over
+  if (state.project !== project || seq !== state.opening) return;  // switched, closed, or a later click took over
   state.artifact = null;
   state.file = { ...f, text };
   $("app").classList.add("with-panel");
@@ -141,7 +150,9 @@ async function openFile(f) {
   panelMode(true);
   $("art-title").textContent = baseName(f.path);
   $("art-title").title = `outputs/${f.path}`;
-  $("file-note").textContent = checkNote(f);
+  $("file-note").textContent = stale ? "이 이름으로 나중에 다시 빌드됐어요. 아래는 지금의 파일이에요 (이 카드의 검사 결과와 다를 수 있어요)"
+    : checkNote(f);
+  $("file-get").setAttribute("aria-label", `${baseName(f.path)} 내려받기`);
   const lines = text.replace(/\n$/, "").split("\n");
   $("file-code").replaceChildren(...lines.map((line) => el("span", "line", line)));
   $("file-code").scrollTop = 0;
@@ -1070,6 +1081,7 @@ $("art-close").onclick = () => {
   $("art-expand").textContent = "크게";
   $("art-expand").title = "크게 보기 (Esc로 돌아오기)";
   state.artifact = state.file = null;
+  state.opening++;  // an artifact or file still loading must not open the panel again (review 46.1)
   markActive();
 };
 $("file-copy").append(icon("copy"));
@@ -1084,7 +1096,8 @@ $("file-copy").onclick = async () => {
   }
   b.replaceChildren(icon("check"));
   b.title = "복사됨";
-  setTimeout(() => { b.replaceChildren(icon("copy")); b.title = "코드 복사"; }, 1500);
+  b.setAttribute("aria-label", "복사됨");  // screen readers hear it too
+  setTimeout(() => { b.replaceChildren(icon("copy")); b.title = "코드 복사"; b.setAttribute("aria-label", "코드 복사"); }, 1500);
 };
 
 // ---- layout: artifact width (drag the divider, arrow keys, double-click resets), full view, sidebar. Remembered per

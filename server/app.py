@@ -687,7 +687,8 @@ def get_session(sid: str, user=Depends(caller)):
             c = str(m.get("content", ""))
             built = re.search(r"^final source: outputs/(\S+)$", c, re.M)
             if built and c.startswith("BUILT"):  # what was checked, as the live event says it (codegen._attempts)
-                last = re.findall(r"^- attempt (\d+): .*: ok((?:, \w+ \d+/\d+ right)*)$", c, re.M)
+                # only above "final source:": the program's output comes after it and could print such lines
+                last = re.findall(r"^- attempt (\d+): .*: ok((?:, \w+ \d+/\d+ right)*)$", c[:built.start()], re.M)
                 n, checks = last[-1] if last else ("0", "")
                 score = {"public" if k == "examples" else k: [int(a), int(b)]
                          for k, a, b in re.findall(r", (\w+) (\d+)/(\d+) right", checks)}

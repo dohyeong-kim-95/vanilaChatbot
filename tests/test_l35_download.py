@@ -45,7 +45,8 @@ def t_history_and_ui():
     out = store.project_dir("alice", "dl") / "outputs"
     for rel, text in [("codegen/maze/main.hk", "say 4.\n"), ("codegen/maze/attempt-1/main.hk", "say 4.\n"),
                       ("codegen/maze/attempt-1/errors.json", "[]"), ("report.csv", "a,b\n"),
-                      ("extra/bins.hk", "say 1.\n"), ("extra/hi.hk", "say 2.\n")]:
+                      ("extra/bins.hk", "say 1.\n"), ("extra/hi.hk", "say 2.\n"),
+                      ("extra/attempt-2/bins.hk", "say 1.\n"), ("extra/attempt-1/hi.hk", "say 2.\n")]:
         (out / rel).parent.mkdir(parents=True, exist_ok=True)
         (out / rel).write_text(text)
     history = [
@@ -67,7 +68,7 @@ def t_history_and_ui():
         {"role": "tool", "tool_call_id": "w4", "content": (
             "BUILT: hesk, 1 attempt(s); every attempt's source and errors.json are under outputs/codegen/hi/\n"
             "- attempt 1: outputs/codegen/hi/attempt-1/main.hk (1 lines): ok\n"
-            "final source: outputs/extra/hi.hk\nprogram output:\nhi")},
+            "final source: outputs/extra/hi.hk\nprogram output:\n- attempt 9: x: ok, examples 9/9 right")},  # 46.1
         # another tool's output that looks like a build: not a button (it is not write_code's)
         {"role": "tool", "tool_call_id": "b1", "content": BUILT.replace("maze", "fake")},
         {"role": "assistant", "content": "만들었습니다"}]
@@ -111,6 +112,12 @@ def t_history_and_ui():
         assert page.inner_text("#file-note") == "2번째 시도에 빌드 · 예시 2/2 통과 · 숨긴 검사 480/500 통과"
         page.locator(".file-open").nth(2).click()
         until(page, "document.querySelector('#file-note').textContent.includes('입력 없이')")
+        # review 46.1: the same id built again since: the note says so instead of this card's checks
+        (out / "codegen/maze/main.hk").write_text("say 5.\n")
+        page.locator(".file-open").first.click()
+        until(page, "document.querySelector('#file-note').textContent.includes('다시 빌드')")
+        assert page.locator("#file-code .line").all_inner_texts() == ["say 5."]
+        (out / "codegen/maze/main.hk").write_text("say 4.\n")
         page.click("#art-close")
         assert page.is_hidden("#panel")
         # 결과 파일: folders closed at first, a top-level file as itself; a click opens one level
