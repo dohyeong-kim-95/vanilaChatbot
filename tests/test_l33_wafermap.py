@@ -252,6 +252,13 @@ os.kill(os.getppid(), 9)
             raise AssertionError("an int id was run")
         except ValueError as e:
             assert "not a string" in str(e), e
+        clash = type("R", (), {"cases": staticmethod(lambda spec, seed, n, size=None, example=False:
+                                                     [{"id": "h1" if example else "1", "input": "", "categories": []}])})
+        try:  # review loop 13: an example id "h1" and the hidden "1" (prefixed "h1") would share one result
+            codegen.test_program(box, TC, bin, clash, SPEC, codegen.GUARDS, "clash")
+            raise AssertionError("clashing ids were run")
+        except ValueError as e:
+            assert "equals a hidden one" in str(e), e
     finally:
         box.close()
         sb.close()

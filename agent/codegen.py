@@ -241,8 +241,12 @@ def test_program(box, tc, bin, role, spec, guards, name):
     """The role's checks -> (errors for the agent, {"public": [ok, n], "hidden": [wrong, total]})."""
     public = role.cases(spec, *PUBLIC, example=True) if "public" in guards else []
     hidden = role.cases(spec, *HIDDEN) if "hidden" in guards else []
+    if not all(isinstance(c["id"], str) for c in public + hidden):
+        raise ValueError("the role's cases() gave a case id that is not a string")
     for c in hidden:
         c["id"] = "h" + c["id"]
+    if {c["id"] for c in public} & {c["id"] for c in hidden}:  # one dict below: a hidden result would be judged, and
+        raise ValueError("an example id equals a hidden one ('h' + id)")  # reported, as an example's (review loop 13)
     if not public and not hidden:
         return [], {}
     # the examples first and apart: no hidden input is in the box while a program's error text can still reach the
