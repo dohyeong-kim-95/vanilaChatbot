@@ -45,11 +45,38 @@ function addMsg(role, text) {
   scrollDown();
 }
 
-// A program write_code built (Loop 45): its file in outputs/, downloadable once the run has saved it.
+// Line icons drawn as SVG nodes (no markup strings): the usual file and download (arrow into a tray) shapes.
+const ICONS = {
+  file: [["path", { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" }], ["path", { d: "M14 2v6h6" }]],
+  download: [["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" }], ["path", { d: "M7 10l5 5 5-5" }],
+             ["path", { d: "M12 15V3" }]],
+};
+function icon(name, size = 18) {
+  const ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg");
+  for (const [k, v] of Object.entries({ viewBox: "0 0 24 24", width: size, height: size, fill: "none", stroke: "currentColor",
+    "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(k, v);
+  for (const [tag, attrs] of ICONS[name]) {
+    const e = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    svg.append(e);
+  }
+  return svg;
+}
+
+// A program write_code built (Loop 45): a file card like the chat apps' (type icon, name, kind, download icon),
+// its file in outputs/, downloadable once the run has saved it.
 function addDownloadRef(path) {
-  const b = el("button", "artifact-ref download-ref");
-  b.append(el("span", null, baseName(path)), el("span", "meta", "내려받기"));
-  b.title = `outputs/${path}`;
+  const b = el("button", "file-card download-ref");
+  const name = baseName(path), ext = name.includes(".") ? name.split(".").pop().toUpperCase() : "";
+  const text = el("span", "file-text");
+  text.append(el("span", "file-name", name), el("span", "meta", ext ? `${ext} 파일` : "파일"));
+  const get = el("span", "file-get");
+  get.append(icon("download"));
+  const kind = el("span", "file-icon");
+  kind.append(icon("file", 20));
+  b.append(kind, text, get);
+  b.title = `내려받기: outputs/${path}`;
+  b.setAttribute("aria-label", `${name} 내려받기`);
   b.onclick = async () => {
     // outputs/ is saved when the run ends: before that the same path may still hold an older build (review 45.1)
     if (state.streaming) return addMsg("error", "작업이 끝나면 내려받을 수 있어요");
@@ -163,10 +190,14 @@ function drawOutputs() {
     if (!shown) continue;
     const li = el("li");
     li.style.paddingLeft = `${8 + (parts.length - 1) * 14}px`;
-    const a = el("a", "name", parts[parts.length - 1]);
+    const a = el("a", "name");
+    a.append(el("span", "label", parts[parts.length - 1]));
     a.href = `/projects/${project}/outputs/file?path=${encodeURIComponent(f.path)}`;
     a.download = baseName(f.path);
     li.title = f.path;
+    const get = el("span", "get");
+    get.append(icon("download", 14));
+    a.append(get);
     li.append(el("span", "twist", ""), a, el("span", "meta", fmtSize(f.size)));
     ul.append(li);
   }

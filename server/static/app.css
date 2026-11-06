@@ -95,7 +95,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #a5d8e6; outline-
 #outputs li { display: flex; align-items: center; gap: 4px; }
 #outputs li .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #outputs li .twist { width: 12px; flex: none; color: var(--muted); font-size: 11px; }
-#outputs a { color: inherit; text-decoration: none; }
+#outputs a { color: inherit; text-decoration: none; display: flex; align-items: center; gap: 4px; }
+#outputs a .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#outputs a .get { display: none; color: var(--muted); flex: none; }
+#outputs li:hover a .get, #outputs a:focus-visible .get { display: inline-flex; }
 #outputs a:hover { text-decoration: underline; }
 #outputs .empty { color: var(--muted); font-size: 13px; cursor: default; }
 
@@ -142,6 +145,23 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #a5d8e6; outline-
 }
 .artifact-ref:hover { border-color: var(--primary); }
 .artifact-ref .meta { color: var(--muted); font-size: 13px; }
+/* a built file (Loop 45): card with a type icon, name and kind, and the download icon on the right */
+.file-card {
+  align-self: flex-start; display: flex; align-items: center; gap: 12px; width: min(100%, 340px);
+  background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; text-align: left;
+}
+.file-card:hover { border-color: var(--primary); }
+.file-card .file-icon {
+  flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 8px;
+  background: #e0f2f5; color: var(--primary);
+}
+.file-card .file-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.file-card .file-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-card .meta { color: var(--muted); font-size: 13px; }
+.file-card .file-get {
+  flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; color: var(--muted);
+}
+.file-card:hover .file-get, .file-card:focus-visible .file-get { background: var(--bg); color: var(--text); }
 .plan { align-self: flex-start; width: min(100%, 560px); border: 1px solid var(--border); background: var(--white);
   border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
 .plan-head { display: flex; justify-content: space-between; font-weight: 500; }
