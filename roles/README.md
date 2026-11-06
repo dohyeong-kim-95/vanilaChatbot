@@ -44,7 +44,7 @@ worked examples), `judge` decides.
 | one exact answer (counts, bins, parsing) | compare tokens with `expected` | strongest: a right program is right on every input |
 | numbers within a tolerance | compare with `expected` within the tolerance | strong |
 | only properties can be checked (several right answers) | `expected` returns one of them; `judge` checks the property | medium |
-| an existing implementation (porting) | call or re-implement it in Python | strong: same input, same output |
+| an existing implementation (porting) | re-implement it in Python inside `roles/<name>/` (the role runs on the host and only committed files reach the server; the old program serves only as a local, uncommitted cross-check) | strong: same input, same output |
 | no right answer can be stated (summaries, prose, UI) | none | compile only; a person or an LLM is not a guard |
 
 Programs read stdin and print to stdout, 5 s per case (`codegen.CASE_SECONDS`). A program that reads a file once,
